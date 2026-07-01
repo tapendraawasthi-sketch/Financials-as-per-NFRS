@@ -1,0 +1,6 @@
+{
+  "name": "Excel Formula Dependency Visualizer",
+  "description": "Visualize and audit complex Excel spreadsheet cell formula dependency chains, trace inputs to calculations, and audit formulas with Gemini AI.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
