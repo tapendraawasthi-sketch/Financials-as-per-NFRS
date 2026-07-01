@@ -1,3 +1,4 @@
+// ===== server.ts =====
 import express from "express";
 import path from "path";
 import multer from "multer";
@@ -5,6 +6,9 @@ import { createServer as createViteServer } from "vite";
 import { fileURLToPath } from "url";
 import ExcelJS from "exceljs";
 import { GoogleGenAI } from "@google/genai";
+import { parseRawTrialBalance } from "./tbImportParser";
+import { matchAllAccounts, MatchResult } from "./accountMatcher";
+import { aiMatchUnresolved } from "./aiMatcher";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -12,7 +16,7 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = 3000;
 
-app.use(express.json());
+app.use(express.json({ limit: "10mb" }));
 
 // Set up in-memory storage for file uploads
 const upload = multer({
@@ -361,6 +365,14 @@ let lastUploadedBuffer: Buffer | null = null;
 let lastUploadedFilename = "Sample.xlsx";
 let lastDependencyGraph: Record<string, CellEntry> | null = null;
 
+// Cache of the most recent smart trial balance import, so the review step and the
+// final "confirm and write" step can be two separate requests without re-uploading.
+interface PendingImportState {
+  matches: MatchResult[];
+  parsedAt: number;
+}
+let pendingImport: PendingImportState | null = null;
+
 // ---------------------------------------------------------------------------
 // Sheet Label Searching Helpers (Survivable row drifts)
 // ---------------------------------------------------------------------------
@@ -707,6 +719,183 @@ app.post("/api/upload", upload.single("file"), async (req, res) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// SMART TRIAL BALANCE IMPORT
+// Two-step flow:
+//   1. POST /api/import/trial-balance -> parse raw TB, run deterministic matcher,
+//      run AI fallback ONLY on unresolved rows, return a full review table.
+//      Nothing is written to any workbook yet.
+//   2. POST /api/import/trial-balance/confirm -> user has reviewed/corrected the
+//      mapping client-side; this endpoint performs the actual whitelisted write
+//      into the currently loaded master template ('lastUploadedBuffer'), exactly
+//      via the same safeWriteCell/whitelist path used by /api/generate/statement.
+// ---------------------------------------------------------------------------
+
+app.post("/api/import/trial-balance", upload.single("file"), async (req, res) => {
+  try {
+    if (!req.file || !req.file.buffer) {
+      return res.status(400).json({ error: "No trial balance file uploaded." });
+    }
+    if (!lastUploadedBuffer) {
+      return res.status(400).json({
+        error: "No active master template loaded. Please upload the MEs Financials Format workbook first (Lineage Auditor tab), then upload the raw trial balance here.",
+      });
+    }
+
+    const parseResult = await parseRawTrialBalance(req.file.buffer, req.file.originalname);
+
+    if (parseResult.rows.length === 0) {
+      return res.status(400).json({
+        error: "No usable account rows detected in the uploaded file.",
+        warnings: parseResult.warnings,
+      });
+    }
+
+    const rawLabels = parseResult.rows.map((r) => r.label);
+    const deterministicMatches = matchAllAccounts(rawLabels);
+
+    // Only send genuinely unresolved rows to Gemini -- never send confident matches.
+    const unresolvedLabels = deterministicMatches
+      .filter((m) => m.method === "unmatched" && m.confidence < 60)
+      .map((m) => m.rawLabel);
+
+    let finalMatches: MatchResult[] = deterministicMatches;
+
+    if (unresolvedLabels.length > 0) {
+      try {
+        const aiResults = await aiMatchUnresolved(unresolvedLabels);
+        const aiByLabel = new Map(aiResults.map((r) => [r.rawLabel, r]));
+        finalMatches = deterministicMatches.map((m) =>
+          unresolvedLabels.includes(m.rawLabel) && aiByLabel.has(m.rawLabel)
+            ? aiByLabel.get(m.rawLabel)!
+            : m
+        );
+      } catch (aiErr: any) {
+        console.warn("AI fallback matching failed, leaving those rows for manual review:", aiErr.message);
+        // Non-fatal: deterministic results still stand, AI is a bonus layer only.
+      }
+    }
+
+    // Combine matches with their original raw debit/credit for the review UI
+    const reviewRows = parseResult.rows.map((row, idx) => ({
+      ...finalMatches[idx],
+      debit: row.debit,
+      credit: row.credit,
+    }));
+
+    pendingImport = { matches: finalMatches, parsedAt: Date.now() };
+
+    return res.json({
+      totalDebit: parseResult.totalDebit,
+      totalCredit: parseResult.totalCredit,
+      isBalanced: parseResult.isBalanced,
+      difference: parseResult.difference,
+      warnings: parseResult.warnings,
+      rows: reviewRows,
+      summary: {
+        totalRows: reviewRows.length,
+        autoMatched: reviewRows.filter((r) => r.confidence >= 80).length,
+        needsReview: reviewRows.filter((r) => r.confidence < 80 && r.confidence >= 40).length,
+        unmatched: reviewRows.filter((r) => r.confidence < 40).length,
+      },
+    });
+  } catch (error: any) {
+    console.error("Trial balance import error:", error);
+    return res.status(500).json({ error: error.message || "Failed to import trial balance." });
+  }
+});
+
+interface ConfirmedRow {
+  rawLabel: string;
+  matchedLabel: string; // final label user confirmed/corrected to, MUST exist in chart of accounts
+  debit: number;
+  credit: number;
+}
+
+app.post("/api/import/trial-balance/confirm", async (req, res) => {
+  try {
+    if (!lastUploadedBuffer) {
+      return res.status(400).json({ error: "No active master template loaded." });
+    }
+
+    const { rows, isPreviousYear } = req.body as { rows: ConfirmedRow[]; isPreviousYear?: boolean };
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return res.status(400).json({ error: "No confirmed rows supplied." });
+    }
+
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(lastUploadedBuffer);
+    const whitelist = buildWhitelist();
+
+    const ws = workbook.getWorksheet(SHEET_TRIAL_BALANCE);
+    if (!ws) {
+      return res.status(500).json({ error: `Master template has no '${SHEET_TRIAL_BALANCE}' sheet.` });
+    }
+
+    const skipped: { rawLabel: string; reason: string }[] = [];
+    let written = 0;
+
+    // Aggregate by matchedLabel in case multiple raw rows map to the same template row
+    // (e.g. several bookkeeping "Cash" sub-lines all mapping to the single "Petty Cash" row)
+    const aggregated = new Map<string, { debit: number; credit: number; sources: string[] }>();
+    for (const row of rows) {
+      if (!row.matchedLabel) {
+        skipped.push({ rawLabel: row.rawLabel, reason: "No confirmed mapping supplied." });
+        continue;
+      }
+      const existing = aggregated.get(row.matchedLabel) || { debit: 0, credit: 0, sources: [] };
+      existing.debit += Number(row.debit) || 0;
+      existing.credit += Number(row.credit) || 0;
+      existing.sources.push(row.rawLabel);
+      aggregated.set(row.matchedLabel, existing);
+    }
+
+    const duringDrCol = isPreviousYear ? TB_COL_DURING_DR_PY : TB_COL_DURING_DR_CY;
+    const duringCrCol = isPreviousYear ? TB_COL_DURING_CR_PY : TB_COL_DURING_CR_CY;
+
+    for (const [matchedLabel, agg] of aggregated.entries()) {
+      const rowIndex = findRowByLabel(ws, matchedLabel, [TB_COL_PARTICULARS], 1, undefined, true);
+      if (rowIndex === null) {
+        skipped.push({
+          rawLabel: agg.sources.join(", "),
+          reason: `Template row for "${matchedLabel}" not found in Trial Balance sheet column A. This writer never inserts new rows.`,
+        });
+        continue;
+      }
+
+      try {
+        if (agg.debit !== 0) {
+          safeWriteCell(ws, `${duringDrCol}${rowIndex}`, agg.debit, SHEET_TRIAL_BALANCE, whitelist);
+          written++;
+        }
+        if (agg.credit !== 0) {
+          safeWriteCell(ws, `${duringCrCol}${rowIndex}`, agg.credit, SHEET_TRIAL_BALANCE, whitelist);
+          written++;
+        }
+      } catch (writeErr: any) {
+        skipped.push({ rawLabel: agg.sources.join(", "), reason: writeErr.message });
+      }
+    }
+
+    const outputBuffer = await workbook.xlsx.writeBuffer();
+
+    // Keep the freshly-written buffer as the new "active" workbook so subsequent
+    // Input Studio actions (Enter Details, Note splits, etc.) build on top of this import.
+    lastUploadedBuffer = Buffer.from(outputBuffer);
+
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", `attachment; filename=TB_Imported_${lastUploadedFilename}`);
+    res.setHeader("X-Import-Written-Count", String(written));
+    res.setHeader("X-Import-Skipped-Count", String(skipped.length));
+    if (skipped.length > 0) {
+      res.setHeader("X-Import-Skipped-Detail", encodeURIComponent(JSON.stringify(skipped.slice(0, 20))));
+    }
+    return res.send(outputBuffer);
+  } catch (error: any) {
+    console.error("Trial balance confirm-write error:", error);
+    return res.status(500).json({ error: error.message || "Failed to write trial balance into workbook." });
+  }
+});
 
 // Gemini AI Formula Auditor Endpoint
 app.post("/api/analyze", async (req, res) => {

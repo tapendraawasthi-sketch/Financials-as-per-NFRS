@@ -1,12 +1,14 @@
+// ===== src/App.tsx =====
 import React, { useState, useRef } from "react";
 import Sidebar from "./components/Sidebar";
 import GraphView from "./components/GraphView";
 import CellDetails from "./components/CellDetails";
 import EngagementInputForm from "./components/EngagementInputForm";
 import NotesSchemaMapper from "./components/NotesSchemaMapper";
+import SmartTrialBalanceImport from "./components/SmartTrialBalanceImport";
 import { DependencyGraph, MergedRanges, EngagementData } from "./types";
 import { SAMPLE_GRAPH, SAMPLE_MERGES } from "./sampleData";
-import { Upload, FileSpreadsheet, RotateCcw, AlertTriangle, Cpu, Sparkles, LayoutGrid, Hammer, Binary, Map } from "lucide-react";
+import { Upload, FileSpreadsheet, RotateCcw, AlertTriangle, Cpu, Sparkles, LayoutGrid, Hammer, Binary, Map, UploadCloud } from "lucide-react";
 
 export default function App() {
   const [graph, setGraph] = useState<DependencyGraph>(SAMPLE_GRAPH);
@@ -15,7 +17,7 @@ export default function App() {
   const [selectedCellKey, setSelectedCellKey] = useState<string | null>("Calculations!C5");
   const [loading, setLoading] = useState(false);
   const [downloading, setDownloading] = useState(false);
-  const [activeMode, setActiveMode] = useState<"trace" | "form" | "mapper">("trace");
+  const [activeMode, setActiveMode] = useState<"trace" | "form" | "mapper" | "import">("trace");
   const [error, setError] = useState<string | null>(null);
   const [fileName, setFileName] = useState("MEs Financials Format (Sample)");
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -120,13 +122,15 @@ export default function App() {
     }
   };
 
+  const hasActiveTemplate = fileName !== "MEs Financials Format (Sample)";
+
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col font-sans text-gray-900 selection:bg-gray-900 selection:text-white">
       {/* Premium Swiss Header */}
       <header className="bg-white border-b border-gray-200/80 px-6 py-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 flex-shrink-0">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 bg-gray-900 text-white rounded-xl flex items-center justify-center shadow-sm font-mono font-extrabold text-lg">
-            ∑
+            
           </div>
           <div>
             <h1 className="text-sm font-bold text-gray-950 tracking-tight flex items-center gap-1.5 uppercase">
@@ -139,7 +143,7 @@ export default function App() {
         </div>
 
         {/* Mode Switcher */}
-        <div className="flex bg-gray-100 p-0.5 rounded-lg border border-gray-200/50">
+        <div className="flex bg-gray-100 p-0.5 rounded-lg border border-gray-200/50 flex-wrap">
           <button
             onClick={() => setActiveMode("trace")}
             className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all flex items-center gap-1.5 ${
@@ -148,6 +152,15 @@ export default function App() {
           >
             <Binary className="w-3.5 h-3.5 text-blue-500" />
             Lineage Auditor
+          </button>
+          <button
+            onClick={() => setActiveMode("import")}
+            className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all flex items-center gap-1.5 ${
+              activeMode === "import" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-900"
+            }`}
+          >
+            <UploadCloud className="w-3.5 h-3.5 text-emerald-500" />
+            Smart TB Import
           </button>
           <button
             onClick={() => setActiveMode("form")}
@@ -178,7 +191,7 @@ export default function App() {
           </div>
 
           {/* Reset button */}
-          {fileName !== "MEs Financials Format (Sample)" && (
+          {hasActiveTemplate && (
             <button
               onClick={handleResetSample}
               className="flex items-center gap-1 px-3 py-1.5 bg-white border border-gray-200 hover:bg-gray-50 text-gray-600 hover:text-gray-800 rounded-lg text-xs font-medium cursor-pointer transition-all shadow-sm"
@@ -274,10 +287,14 @@ export default function App() {
           </>
         )}
 
+        {activeMode === "import" && (
+          <SmartTrialBalanceImport hasActiveTemplate={hasActiveTemplate} />
+        )}
+
         {activeMode === "form" && (
           /* Input Studio / Statement Generator */
           <div className="flex-1 flex overflow-hidden">
-            {fileName === "MEs Financials Format (Sample)" ? (
+            {!hasActiveTemplate ? (
               <div className="flex-1 bg-white flex flex-col items-center justify-center p-8 text-center max-w-2xl mx-auto my-12 rounded-2xl border border-gray-100 shadow-sm">
                 <div className="w-16 h-16 bg-amber-50 text-amber-500 rounded-2xl flex items-center justify-center mb-4">
                   <Upload className="w-8 h-8" />
@@ -319,10 +336,10 @@ export default function App() {
                         Enter Details
                       </div>
                       <div className="bg-white rounded-lg border border-gray-200/80 p-2.5 text-[11px] space-y-1.5 font-mono text-gray-600">
-                        <div>• Legal Details: Col C (Rows 2-15)</div>
-                        <div>• Employees: Col C (Row 18-19)</div>
-                        <div>• Inventory: Cols C/D (Row 22-24)</div>
-                        <div>• Income Tax: Col C (Row 27)</div>
+                        <div> Legal Details: Col C (Rows 2-15)</div>
+                        <div> Employees: Col C (Row 18-19)</div>
+                        <div> Inventory: Cols C/D (Row 22-24)</div>
+                        <div> Income Tax: Col C (Row 27)</div>
                       </div>
                     </div>
 
@@ -333,9 +350,9 @@ export default function App() {
                         Trial Balance Postings
                       </div>
                       <div className="bg-white rounded-lg border border-gray-200/80 p-2.5 text-[11px] space-y-1.5 font-mono text-gray-600">
-                        <div>• CY Dr/Cr: Cols D & E</div>
-                        <div>• CY Adj Dr/Cr: Cols F & G</div>
-                        <div>• PY Dr/Cr: Cols N & O</div>
+                        <div> CY Dr/Cr: Cols D & E</div>
+                        <div> CY Adj Dr/Cr: Cols F & G</div>
+                        <div> PY Dr/Cr: Cols N & O</div>
                       </div>
                     </div>
 
@@ -346,9 +363,9 @@ export default function App() {
                         Notes Manual Splits
                       </div>
                       <div className="bg-white rounded-lg border border-gray-200/80 p-2.5 text-[11px] space-y-1.5 font-mono text-gray-600">
-                        <div>• Note 3.12 (Liability Split)</div>
-                        <div>• Note 3.2 (Investment Portion)</div>
-                        <div>• Note 3.4 (Receivable Portion)</div>
+                        <div> Note 3.12 (Liability Split)</div>
+                        <div> Note 3.2 (Investment Portion)</div>
+                        <div> Note 3.4 (Receivable Portion)</div>
                       </div>
                     </div>
                   </div>
@@ -365,4 +382,3 @@ export default function App() {
     </div>
   );
 }
-

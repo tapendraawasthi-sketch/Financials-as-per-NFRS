@@ -1,0 +1,41 @@
+// ===== src/chartOfAccountsClient.ts =====
+// Lightweight client-side mirror of chartOfAccounts.ts -- just the labels needed to
+// populate the manual-override dropdown in SmartTrialBalanceImport.tsx. Keep this list
+// in sync with the `label` fields in the root chartOfAccounts.ts (server-side source of truth).
+
+export const CHART_OF_ACCOUNTS_LABELS: string[] = [
+  "Paid-up Capital", "Share Premium", "Reserves & Surplus",
+  "Bank A", "Bank B", "Bank C", "Bank D",
+  "Creditor A", "Creditor B", "Creditor C",
+  "Overdraft", "Cash Credit", "Working Capital Loan",
+  "Audit Fee Payable", "Staff Bonus Payable", "Provident Fund Payable",
+  "TDS Payable", "TDS - Aduit Fee", "TDS - Ltd. Company", "TDS- Propritership",
+  "TDS - Pvt. Ltd", "TDS- Salary", "TDS - SST", "TDS - Rental", "TDS - Dividend", "VAT",
+  "Income Tax Payable", "Dividend Payable",
+  "Provision for expenses", "Provision for CSR",
+  "Director A", "Director B", "Director C", "Director D",
+  "Employee A", "Employee B",
+  "Land", "Building", "Furniture & Office Equipment", "Vehicle", "Plant & Machinery",
+  "Tally Software", "Leasehold", "Work In Progress", "Biological Assets", "Accumulated Depreciation",
+  "Shares of XYZ Ltd. (Listed Company)", "Shares of PQR Ltd. (Unlisted Company)",
+  "Provision for Impairment on Investment",
+  "Deposits", "Prepayments", "Loans & Advances (Asset)", "Staff Advance",
+  "Debtor A", "Debtor B", "Debtor C", "Provision for Impairment on debtors",
+  "Petty Cash", "Inventory", "Advance Tax", "Non Current Assets held for Sale",
+  "Sales Revenue", "Service Income", "Interest Income", "Commission Income",
+  "Other Indirect Income", "Rental Income", "Dividend Income", "Gain on Disposal of Assets",
+  "Insurance Claim Income", "Gain on FV adjustment of listed share",
+  "Purchase", "Wages", "Other Direct Expenses",
+  "Salaries & Wages", "Allowances", "PF / SSF / CIT", "Staff Bonus", "Leave Encashment",
+  "Other employee related expenses",
+  "Interest expense", "Bank Charges",
+  "Impairment on Receivables", "Impairment on Unlisted Shares",
+  "Pool A", "Pool B", "Pool C", "Pool D", "Pool E",
+  "Income Tax Expense",
+  "Audit Fee", "Advertisement & Business Promotion", "Fuel Expenses", "House Rent",
+  "Annual Maintenance Charges", "Internet & Communication Expense", "Legal Expenses",
+  "Consultancy Charges", "Board Meeting Expenses", "AGM Expenses", "CSR Expenses",
+  "Insurance Premium", "Miscellaneous expenses", "Printing & Stationery",
+  "Refreshment Expenses", "Travelling", "Water & Electricity Charges",
+  "Loss on Fair FV adjustment of listed share",
+];

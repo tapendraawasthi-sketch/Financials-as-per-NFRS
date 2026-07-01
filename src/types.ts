@@ -1,3 +1,4 @@
+// ===== src/types.ts =====
 export interface CellEntry {
   sheet: string;
   raw_value: any;
@@ -112,3 +113,41 @@ export interface NoteMetadata {
 
 export type NotesMapping = Record<string, NoteMetadata>;
 
+// ---------------------------------------------------------------------------
+// Smart Trial Balance Import types (mirrors accountMatcher.ts / server.ts response shapes)
+// ---------------------------------------------------------------------------
+
+export type MatchMethod = "exact" | "synonym" | "fuzzy" | "bucket_slot" | "ai" | "unmatched";
+
+export interface MatchCandidate {
+  label: string;
+  confidence: number;
+}
+
+export interface TBImportRow {
+  rawLabel: string;
+  matchedLabel: string | null;
+  category: string | null;
+  confidence: number;
+  method: MatchMethod;
+  candidates: MatchCandidate[];
+  debit: number;
+  credit: number;
+}
+
+export interface TBImportSummary {
+  totalRows: number;
+  autoMatched: number;
+  needsReview: number;
+  unmatched: number;
+}
+
+export interface TBImportResponse {
+  totalDebit: number;
+  totalCredit: number;
+  isBalanced: boolean;
+  difference: number;
+  warnings: string[];
+  rows: TBImportRow[];
+  summary: TBImportSummary;
+}
