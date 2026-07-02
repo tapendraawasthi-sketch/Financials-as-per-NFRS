@@ -56,7 +56,7 @@ const AppInner: React.FC = () => {
             <Alert type="error" message={state.error} onDismiss={handleDismissError} />
           </div>
         )}
-        <DashboardPage />
+        <DashboardPage onStart={() => dispatch({ type: 'SET_STEP', payload: 'company_setup' })} />
       </>
     );
   }
@@ -86,7 +86,7 @@ const AppInner: React.FC = () => {
         return <OutputPage />;
 
       default:
-        return <DashboardPage />;
+        return <DashboardPage onStart={() => dispatch({ type: 'SET_STEP', payload: 'company_setup' })} />;
     }
   };
 
@@ -101,10 +101,7 @@ const AppInner: React.FC = () => {
       fiscalYear={state.company?.fiscalYear.bsYear}
       headerTitle={stepInfo.title}
       headerSubtitle={stepInfo.subtitle}
-      breadcrumb={[
-        { label: 'Home', onClick: () => handleNavigate('company_setup') },
-        { label: stepInfo.title },
-      ]}
+      breadcrumb={['Home', stepInfo.title]}
     >
       {/* Global error banner */}
       {state.error && (

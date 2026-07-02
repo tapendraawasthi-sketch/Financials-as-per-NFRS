@@ -21,7 +21,7 @@ router.post('/:companyId/assets', asyncHandler(async (req: Request, res: Respons
   if (!session) return res.status(404).json({ error: 'Company not found.' });
   const assets: AssetItem[] = req.body.assets ?? [];
   const adj = session.adjustments ?? emptyAdj(req.params.companyId, session.company?.fiscalYear ?? '');
-  sessionStore.update(req.params.companyId, { adjustments: { ...adj, assets } });
+  sessionStore.set(req.params.companyId, { adjustments: { ...adj, assets } });
   return res.json({ message: 'Asset register saved.', count: assets.length });
 }));
 
@@ -47,7 +47,7 @@ router.post('/:companyId/calculate-depreciation', asyncHandler(async (req: Reque
     taxDepreciationPools: taxPools, totalDepreciationExpense: totalDepreciation,
     gainOnDisposals, lossOnDisposals,
   };
-  sessionStore.update(req.params.companyId, { adjustments: updatedAdj });
+  sessionStore.set(req.params.companyId, { adjustments: updatedAdj });
   return res.json({ summary, taxPools, totalDepreciationExpense: totalDepreciation, gainOnDisposals, lossOnDisposals });
 }));
 
@@ -58,7 +58,7 @@ router.post('/:companyId/provisions', asyncHandler(async (req: Request, res: Res
   const provisions: ProvisionEntry[] = req.body.provisions ?? [];
   const adj = session.adjustments ?? emptyAdj(req.params.companyId, session.company?.fiscalYear ?? '');
   const totalProvisions = provisions.reduce((s, p) => s + p.additionForYear, 0);
-  sessionStore.update(req.params.companyId, { adjustments: { ...adj, provisions, totalProvisions } });
+  sessionStore.set(req.params.companyId, { adjustments: { ...adj, provisions, totalProvisions } });
   return res.json({ message: 'Provisions saved.', count: provisions.length, total: totalProvisions });
 }));
 
@@ -69,7 +69,7 @@ router.post('/:companyId/inventory', asyncHandler(async (req: Request, res: Resp
   const items: InventoryAdjustment[] = req.body.items ?? [];
   const adj = session.adjustments ?? emptyAdj(req.params.companyId, session.company?.fiscalYear ?? '');
   const totalInventoryImpairment = items.reduce((s, i) => s + i.impairmentAmount, 0);
-  sessionStore.update(req.params.companyId, { adjustments: { ...adj, inventoryAdjustments: items, totalInventoryImpairment } });
+  sessionStore.set(req.params.companyId, { adjustments: { ...adj, inventoryAdjustments: items, totalInventoryImpairment } });
   return res.json({ message: 'Inventory adjustments saved.', totalImpairment: totalInventoryImpairment });
 }));
 
@@ -80,7 +80,7 @@ router.post('/:companyId/investments', asyncHandler(async (req: Request, res: Re
   const items: InvestmentAdjustment[] = req.body.items ?? [];
   const adj = session.adjustments ?? emptyAdj(req.params.companyId, session.company?.fiscalYear ?? '');
   const totalFV = items.reduce((s, i) => s + (i.fairValueGainLoss ?? 0), 0);
-  sessionStore.update(req.params.companyId, { adjustments: { ...adj, investmentAdjustments: items, totalInvestmentFVAdjustment: totalFV } });
+  sessionStore.set(req.params.companyId, { adjustments: { ...adj, investmentAdjustments: items, totalInvestmentFVAdjustment: totalFV } });
   return res.json({ message: 'Investment adjustments saved.', totalFVAdjustment: totalFV });
 }));
 
@@ -96,7 +96,7 @@ router.post('/:companyId/calculate-all', asyncHandler(async (req: Request, res: 
   const session = sessionStore.get(req.params.companyId);
   if (!session?.adjustments) return res.status(400).json({ error: 'No adjustments data found. Add assets, provisions, and inventory first.' });
   const adj = session.adjustments;
-  const journalTotal = adj.journalEntries.reduce((s, j) => s + j.amount, 0);
+  const journalTotal = adj.journalEntries.reduce((s: number, j: any) => s + j.amount, 0);
   return res.json({ adjustments: adj, journalEntryCount: adj.journalEntries.length, totalDebitCredit: journalTotal });
 }));
 

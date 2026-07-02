@@ -1,44 +1,278 @@
 @import "tailwindcss";
 
+/* ─── Design Tokens ─────────────────────────────────── */
 :root {
-  --color-brand: #1e40af;
-  --color-brand-dark: #1e3a8a;
-  --color-success: #16a34a;
-  --color-warning: #d97706;
-  --color-danger: #dc2626;
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: ui-monospace, 'Cascadia Code', 'Source Code Pro', monospace;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow-md: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
 }
 
-* {
+/* ─── Reset & Base ──────────────────────────────────── */
+*, *::before, *::after {
   box-sizing: border-box;
-}
-
-body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  background-color: #f8fafc;
-  color: #1e293b;
   margin: 0;
   padding: 0;
 }
 
-.nfrs-table {
-  border-collapse: collapse;
+html {
+  font-size: 14px;
+  -webkit-text-size-adjust: 100%;
+  tab-size: 4;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: #f8fafc;
+  color: #1e293b;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ─── Focus ─────────────────────────────────────────── */
+:focus-visible {
+  outline: 2px solid #1d4ed8;
+  outline-offset: 2px;
+}
+
+/* ─── Typography ────────────────────────────────────── */
+h1, h2, h3, h4, h5, h6 {
+  font-weight: 600;
+  line-height: 1.3;
+  color: #0f172a;
+}
+
+/* ─── Scrollbar ─────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: #f1f5f9; }
+::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+/* ─── Financial Table System ────────────────────────── */
+.fin-table {
   width: 100%;
-  font-size: 0.875rem;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
 }
 
-.nfrs-table th,
-.nfrs-table td {
-  border: 1px solid #e2e8f0;
-  padding: 0.5rem 0.75rem;
-  text-align: left;
+.fin-table th {
+  background-color: #f1f5f9;
+  color: #475569;
+  font-weight: 600;
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 6px 10px;
+  border-bottom: 1px solid #e2e8f0;
+  white-space: nowrap;
 }
 
-.nfrs-table th {
+.fin-table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid #f1f5f9;
+  color: #334155;
+  vertical-align: middle;
+}
+
+.fin-table tbody tr:hover td {
+  background-color: #f8fafc;
+}
+
+.fin-table .row-total td {
+  border-top: 1px solid #e2e8f0;
+  font-weight: 600;
+  background-color: #f8fafc;
+}
+
+.fin-table .row-section-head td {
   background-color: #f1f5f9;
   font-weight: 600;
+  color: #1e293b;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
-.amount-col {
-  text-align: right;
+.fin-table .row-grand-total td {
+  border-top: 2px solid #1e293b;
+  border-bottom: 2px solid #1e293b;
+  font-weight: 700;
+  background-color: #f8fafc;
+  color: #0f172a;
+}
+
+/* ─── Amount Cells ──────────────────────────────────── */
+.amount {
   font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+}
+
+.amount-zero {
+  color: #94a3b8;
+}
+
+.amount-negative {
+  color: #b91c1c;
+}
+
+/* ─── Statement Layout ──────────────────────────────── */
+.statement-page {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 2rem;
+  max-width: 900px;
+}
+
+.statement-header {
+  text-align: center;
+  border-bottom: 1px solid #e2e8f0;
+  padding-bottom: 1rem;
+  margin-bottom: 1.25rem;
+}
+
+.statement-company-name {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #0f172a;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.statement-title {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #475569;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-top: 4px;
+}
+
+.statement-date {
+  font-size: 0.75rem;
+  color: #64748b;
+  margin-top: 2px;
+}
+
+/* ─── Form Grid ─────────────────────────────────────── */
+.form-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+.form-grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+.form-grid-4 {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+/* ─── Section Divider ───────────────────────────────── */
+.section-label {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #64748b;
+  padding: 8px 0 6px;
+  border-bottom: 1px solid #e2e8f0;
+  margin-bottom: 12px;
+}
+
+/* ─── Skip Link (Accessibility) ─────────────────────── */
+.skip-link {
+  position: absolute;
+  top: -40px;
+  left: 0;
+  background: #1d4ed8;
+  color: white;
+  padding: 4px 8px;
+  z-index: 9999;
+  font-size: 0.75rem;
+  border-radius: 0 0 4px 0;
+  transition: top 0.1s;
+}
+
+.skip-link:focus {
+  top: 0;
+}
+
+/* ─── Utility ───────────────────────────────────────── */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+/* ─── Print ─────────────────────────────────────────── */
+@media print {
+  .no-print { display: none !important; }
+  .sidebar  { display: none !important; }
+
+  body {
+    background: white;
+    font-size: 11pt;
+  }
+
+  .statement-page {
+    border: none;
+    padding: 0;
+    max-width: 100%;
+  }
+
+  @page {
+    margin: 18mm 15mm;
+    size: A4;
+  }
+
+  table {
+    border-collapse: collapse;
+    width: 100%;
+  }
+
+  th, td {
+    border: 0.5pt solid #aaa !important;
+    padding: 3pt 5pt !important;
+  }
+
+  thead {
+    display: table-header-group;
+  }
+
+  tr {
+    page-break-inside: avoid;
+  }
+
+  .row-grand-total td {
+    border-top: 1.5pt solid black !important;
+    border-bottom: 3pt double black !important;
+  }
+}
+
+/* ─── Reduced Motion ────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

@@ -1,121 +1,58 @@
-// ===== server/store/sessionStore.ts =====
-// In-memory server-side session store for Phase 1 (single-user).
-// In Phase 2 this would be replaced with a PostgreSQL/Redis backend.
-
-import { randomUUID } from 'crypto';
-import type {
-  CompanyProfile,
-  ParsedTrialBalance,
-  YearEndAdjustments,
-} from '../../src/types';
-
-// ---------------------------------------------------------------------------
-// SessionData
-// ---------------------------------------------------------------------------
+// server/store/sessionStore.ts
 export interface SessionData {
-  sessionId: string;
-  company: CompanyProfile | null;
-  trialBalance: ParsedTrialBalance | null;
-  adjustments: YearEndAdjustments | null;
-  uploadedFileBuffer?: Buffer;
-  uploadedFileName?: string;
-  createdAt: Date;
-  updatedAt: Date;
+  createdAt:    Date;
+  lastAccessAt: Date;
+  company?:     any;
+  trialBalance?: any;
+  adjustments?:  any;
+  financials?:   any;
 }
 
-// ---------------------------------------------------------------------------
-// SessionStore
-// ---------------------------------------------------------------------------
-export class SessionStore {
-  private readonly store: Map<string, SessionData>;
+class SessionStore {
+  private store = new Map<string, SessionData>();
 
-  constructor() {
-    this.store = new Map();
-  }
-
-  /** Creates and persists a new session. */
-  create(companyId: string): SessionData {
-    const now = new Date();
-    const session: SessionData = {
-      sessionId: companyId,
-      company: null,
-      trialBalance: null,
-      adjustments: null,
-      createdAt: now,
-      updatedAt: now,
-    };
-    this.store.set(companyId, session);
+  get(id: string): SessionData | undefined {
+    const session = this.store.get(id);
+    if (session) session.lastAccessAt = new Date();
     return session;
   }
 
-  /** Retrieves a session by ID, or undefined if not found. */
-  get(sessionId: string): SessionData | undefined {
-    return this.store.get(sessionId);
-  }
-
-  /**
-   * Merges partial updates into an existing session and stamps updatedAt.
-   * Returns the updated session, or undefined if the session does not exist.
-   */
-  update(
-    sessionId: string,
-    updates: Partial<SessionData>,
-  ): SessionData | undefined {
-    const existing = this.store.get(sessionId);
-    if (!existing) return undefined;
-
-    const updated: SessionData = {
+  set(id: string, data: Partial<SessionData>): SessionData {
+    const existing = this.store.get(id);
+    const session: SessionData = {
+      createdAt:    existing?.createdAt    ?? new Date(),
+      lastAccessAt: new Date(),
       ...existing,
-      ...updates,
-      sessionId,         // immutable — never overwrite the key
-      createdAt: existing.createdAt, // immutable
-      updatedAt: new Date(),
+      ...data,
     };
-    this.store.set(sessionId, updated);
-    return updated;
+    this.store.set(id, session);
+    return session;
   }
 
-  /** Removes a session from the store. No-op if not found. */
-  delete(sessionId: string): void {
-    this.store.delete(sessionId);
+  delete(id: string): boolean {
+    return this.store.delete(id);
   }
 
-  /** Returns a snapshot of all sessions as an array. */
-  getAll(): SessionData[] {
-    return Array.from(this.store.values());
+  has(id: string): boolean {
+    return this.store.has(id);
   }
 
-  /**
-   * Removes sessions that were created more than `maxAgeHours` hours ago.
-   * Call periodically (e.g. via setInterval) to prevent memory leaks.
-   */
-  cleanup(maxAgeHours: number = 24): void {
-    const cutoff = new Date(Date.now() - maxAgeHours * 60 * 60 * 1000);
+  /** Removes sessions older than maxAgeHours. Returns count removed. */
+  cleanup(maxAgeHours: number): number {
+    const cutoff  = Date.now() - maxAgeHours * 60 * 60 * 1000;
+    let   removed = 0;
     for (const [id, session] of this.store.entries()) {
-      if (session.createdAt < cutoff) {
+      if (session.lastAccessAt.getTime() < cutoff) {
         this.store.delete(id);
+        removed++;
       }
     }
+    return removed;
   }
 
-  /** Returns the number of active sessions. */
-  size(): number {
-    return this.store.size;
-  }
+  size(): number { return this.store.size; }
+
+  all(): Map<string, SessionData> { return this.store; }
 }
 
-// ---------------------------------------------------------------------------
-// Singleton instance
-// ---------------------------------------------------------------------------
 export const sessionStore = new SessionStore();
-
-// ---------------------------------------------------------------------------
-// generateSessionId
-// ---------------------------------------------------------------------------
-/**
- * Generates a random UUID v4 string using Node.js built-in crypto.
- * Suitable for use as a session identifier.
- */
-export function generateSessionId(): string {
-  return randomUUID();
-}

@@ -73,6 +73,30 @@ export interface AuditorInfo {
   position: 'Partner' | 'Proprietor' | 'Qualified';
 }
 
+// ─── Previous Year Balances ───────────────────────────────────────────────────
+
+export interface PreviousYearBalances {
+  revenue: number;
+  costOfSales: number;
+  otherIncome: number;
+  adminExpenses: number;
+  financeCosts: number;
+  depreciation: number;
+  incomeTaxExpense: number;
+
+  ppe: number;
+  investments: number;
+  currentAssets: number;
+  cashAndEquivalents: number;
+
+  shareCapital: number;
+  reserves: number;
+  borrowingsNonCurrent: number;
+  borrowingsCurrent: number;
+  tradePayables: number;
+  provisions: number;
+}
+
 // ─── Company Profile ──────────────────────────────────────────────────────────
 
 export interface CompanyProfile {
@@ -100,6 +124,7 @@ export interface CompanyProfile {
   auditorInfo?: AuditorInfo;
   fiscalYear: FiscalYear;
   accountingPolicies: AccountingPolicies;
+  previousYearData?: PreviousYearBalances;
   createdAt: string;           // ISO date string
   updatedAt: string;
 }

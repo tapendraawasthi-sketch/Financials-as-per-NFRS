@@ -113,6 +113,7 @@ export type MatchMethod =
   | 'synonym'
   | 'fuzzy'
   | 'ai'
+  | 'keyword'
   | 'manual'
   | 'unmatched';
 

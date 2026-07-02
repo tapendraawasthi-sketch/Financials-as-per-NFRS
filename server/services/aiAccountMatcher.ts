@@ -1,258 +1,263 @@
-// ===== server/services/aiAccountMatcher.ts =====
-// AI-assisted fallback classifier for account names the deterministic matcher
-// could not classify with CONFIDENCE_THRESHOLD confidence.
-// Only unresolved rows are sent to Claude; every AI suggestion is validated
-// against the closed taxonomy before being accepted.
+// server/services/aiAccountMatcher.ts
+import { MappedTBRow, NFRSCategory } from '../../src/types/trialBalance.js';
+import { CompanyProfile } from '../../src/types/company.js';
+import { NFRS_CATEGORY_INFO } from '../../src/data/nfrsCategories.js';
 
-import Anthropic from '@anthropic-ai/sdk';
-import { CHART_OF_ACCOUNTS } from '../../src/data/chartOfAccounts';
-import type { NFRSCategory } from '../../src/types';
-import type { MatchResult } from './accountMatcher';
-import { CONFIDENCE_THRESHOLD } from './accountMatcher';
-
-// ---------------------------------------------------------------------------
-// Lazy Anthropic client
-// ---------------------------------------------------------------------------
-let _client: Anthropic | null = null;
-function getClient(): Anthropic {
-  if (!_client) {
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) {
-      throw new Error(
-        'ANTHROPIC_API_KEY environment variable is not set. ' +
-        'AI account matching is unavailable.',
-      );
-    }
-    _client = new Anthropic({ apiKey });
-  }
-  return _client;
+interface AIMatchResult {
+  rowIndex:    number;
+  nfrsCategory: NFRSCategory;
+  confidence:  number;
+  reasoning:   string;
 }
 
-// ---------------------------------------------------------------------------
-// Build the human-readable category list for the prompt
-// ---------------------------------------------------------------------------
-const CATEGORY_DESCRIPTIONS: Record<string, string> = {
-  share_capital:                     'Share Capital (paid-up equity)',
-  share_premium:                     'Share Premium (excess over face value)',
-  general_reserve:                   'General Reserve / Other Reserves',
-  retained_earnings:                 'Retained Earnings / Accumulated Profit',
-  borrowings_noncurrent_bank:        'Long-term Bank Loans (non-current borrowings)',
-  trade_payables_creditors:          'Sundry Creditors / Trade Payables',
-  trade_payables_advance_customers:  'Advance from Customers',
-  borrowings_current_od:             'Bank Overdraft (current borrowing)',
-  borrowings_current_cc:             'Cash Credit / CC Account (current borrowing)',
-  borrowings_current_wc:             'Working Capital / Short-term Loan',
-  tds_payable:                       'TDS Payable (Tax Deducted at Source liability)',
-  other_payables:                    'VAT Payable / Other Statutory Payables',
-  employee_payables_pf:              'Provident Fund / SSF Payable',
-  employee_payables_bonus:           'Staff Bonus Payable',
-  audit_fee_payable:                 'Audit Fee Payable',
-  employee_payables_salary:          'Salary / Wages Payable',
-  income_tax_payable:                'Income Tax Payable',
-  ppe_land:                          'Property, Plant & Equipment – Land',
-  ppe_buildings:                     'Property, Plant & Equipment – Buildings',
-  ppe_vehicles:                      'Property, Plant & Equipment – Vehicles',
-  ppe_office_equipment:              'Property, Plant & Equipment – Office Equipment',
-  ppe_computers:                     'Property, Plant & Equipment – Computers / IT',
-  ppe_furniture:                     'Property, Plant & Equipment – Furniture & Fixtures',
-  ppe_plant_machinery:               'Property, Plant & Equipment – Plant & Machinery',
-  ppe_intangibles:                   'Intangible Assets (Software, Patents, Trademarks)',
-  ppe_cwip:                          'Capital Work in Progress (CWIP)',
-  accum_depreciation:                'Accumulated Depreciation (contra-PPE)',
-  investment_listed_trading:         'Investment in Listed Shares (NEPSE)',
-  investment_unlisted:               'Investment in Unlisted Shares / Private Companies',
-  investment_fixed_deposit_noncurrent: 'Fixed Deposit (long-term, > 1 year)',
-  nca_deposits:                      'Security Deposits (non-current asset)',
-  nca_loans_advances:                'Loans & Advances Given (non-current)',
-  other_noncurrent_assets:           'Other Non-Current Assets (e.g. Biological Assets)',
-  trade_receivables:                 'Sundry Debtors / Trade Receivables',
-  provision_impairment_debtors:      'Provision for Bad Debts / Impairment on Receivables',
-  other_receivables_advance_supplier:'Advance to Suppliers',
-  other_receivables_prepayments:     'Prepaid Expenses / Prepayments',
-  other_receivables_staff_advance:   'Staff / Employee Advances',
-  other_receivables_tds:             'TDS Receivable / Advance Tax (asset)',
-  bank_fixed_deposit_current:        'Fixed Deposit (current, < 1 year)',
-  other_receivables_loans:           'Short-term Loans & Advances (current asset)',
-  other_current_assets:              'Other Current Assets (e.g. assets held for sale)',
-  cash_in_hand:                      'Cash in Hand / Petty Cash',
-  bank_current_account:              'Bank Balance (current / savings account)',
-  inventory_raw_materials:           'Inventory – Raw Materials & Consumables',
-  inventory_wip:                     'Inventory – Work in Progress',
-  inventory_finished_goods:          'Inventory – Finished Goods / Stock in Trade',
-  revenue_sales:                     'Revenue – Sale of Goods',
-  revenue_services:                  'Revenue – Rendering of Services',
-  other_income_interest:             'Interest Income',
-  other_income_dividend:             'Dividend Income',
-  other_income_rental:               'Rental Income',
-  other_income_disposal_gain:        'Gain on Sale / Disposal of Fixed Assets',
-  other_income_misc:                 'Other Income (commission, insurance claim, etc.)',
-  cogs_purchases:                    'Purchases / Cost of Goods Purchased',
-  cogs_opening_stock:                'Opening Stock',
-  direct_wages:                      'Direct Wages / Factory Labour',
-  direct_expenses_other:             'Other Direct / Manufacturing Expenses',
-  emp_expense_salaries:              'Salaries & Wages Expense',
-  emp_expense_pf:                    'Provident Fund / SSF Contribution Expense',
-  emp_expense_gratuity:              'Gratuity Expense',
-  emp_expense_welfare:               'Staff Welfare / Allowances / Leave Encashment',
-  emp_expense_bonus:                 'Staff Bonus Expense',
-  finance_cost_interest:             'Interest Expense / Finance Charges',
-  finance_cost_bank_charges:         'Bank Charges / Bank Commission',
-  depreciation_expense:              'Depreciation & Amortisation Expense',
-  impairment_expense:                'Impairment Loss / Bad Debts Written Off',
-  admin_rent:                        'Rent / Office Rent / Lease Expense',
-  admin_rates_taxes:                 'Rates & Taxes / Municipal Taxes',
-  admin_insurance:                   'Insurance Premium',
-  admin_repairs:                     'Repairs & Maintenance / AMC',
-  admin_electricity:                 'Electricity & Water Charges',
-  admin_communication:               'Telephone / Internet / Communication',
-  admin_printing:                    'Printing & Stationery',
-  admin_legal_professional:          'Legal & Professional Fees',
-  admin_audit_fee:                   'Audit Fees',
-  admin_traveling:                   'Travelling & Conveyance / Fuel',
-  admin_advertisement:               'Advertisement & Business Promotion',
-  admin_other:                       'Other Administrative / Miscellaneous Expenses',
-  income_tax_expense:                'Income Tax Expense',
-  unclassified:                      'Cannot classify — genuinely unclassifiable',
-};
+// ── In-memory request deduplication cache (per process lifetime) ──────────
+const aiCache = new Map<string, AIMatchResult[]>();
 
-const CATEGORY_LIST = Object.entries(CATEGORY_DESCRIPTIONS)
-  .map(([key, desc]) => `  "${key}" — ${desc}`)
-  .join('\n');
+function buildCacheKey(accounts: Pick<MappedTBRow, 'rawLabel' | 'closingBalance'>[]): string {
+  return accounts.map(a => `${a.rawLabel}:${Math.sign(a.closingBalance)}`).join('|');
+}
 
-const MAX_BATCH_SIZE = 30;
+// ── System prompt ─────────────────────────────────────────────────────────
+function buildSystemPrompt(): string {
+  return `You are an expert Nepal Chartered Accountant with deep knowledge of:
+1. Nepal Accounting Standards for Micro Entities (NAS for MEs) issued by ICAN
+2. Nepal Income Tax Act 2058 and its amendments
+3. Common accounting software used in Nepal: Tally ERP9, Tally Prime, Busy Accounting, Marg ERP
+4. Nepal business terminology: NPR, BS calendar, PAN/VAT, TDS, PF/SSF/CIT, NEPSE, NRB, IRD
+5. Double-entry bookkeeping: Dr-balance accounts are typically assets/expenses; Cr-balance accounts are liabilities/equity/income
 
-// ---------------------------------------------------------------------------
-// aiMatchUnresolved — core AI classification function
-// ---------------------------------------------------------------------------
+Your task is to classify trial balance account names into NFRS financial statement categories.
+Respond ONLY with a valid JSON array — no markdown, no explanation, no preamble.`;
+}
+
+// ── User prompt ───────────────────────────────────────────────────────────
+function buildUserPrompt(
+  accounts: Pick<MappedTBRow, 'rawLabel' | 'closingBalance'>[],
+  company: CompanyProfile
+): string {
+  const accountLines = accounts
+    .map((a, i) => {
+      const side   = a.closingBalance >= 0 ? 'Dr' : 'Cr';
+      const amount = Math.abs(a.closingBalance).toLocaleString('en-IN');
+      return `${i + 1}. "${a.rawLabel}" [Closing: ${side} NPR ${amount}]`;
+    })
+    .join('\n');
+
+  return `CONTEXT: Company type is ${company.companyType}, Fiscal Year ${company.fiscalYear.bsYear}
+
+These account names are from a Nepal business trial balance exported from accounting software.
+Each name may be in English or a mixture of English and Nepali transliteration.
+
+IMPORTANT Nepal-specific classification rules:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PROVIDENT / RETIREMENT FUNDS:
+- "CIT" = Citizens Investment Trust (provident fund type) → employee_payables_pf
+- "SSF" = Social Security Fund → employee_payables_pf
+- "EPF" = Employees Provident Fund → employee_payables_pf
+- "PF" alone or "Provident Fund" → employee_payables_pf
+
+INVESTMENTS & CAPITAL MARKET:
+- "NEPSE" related accounts → investment_listed_trading
+- Share investment, listed shares, demat account → investment_listed_trading
+- Mutual fund, unit trust → investment_listed_trading
+- Fixed deposit (> 1 year) → investment_fixed_deposit_noncurrent
+- Fixed deposit (< 1 year / short term) → cash_equivalents_fixed_deposit
+
+REGULATORY / GOVERNMENT:
+- "NRB" = Nepal Rastra Bank → admin_rates_taxes (if expense) or bank_current_account (if balance)
+- "IRD" = Inland Revenue Department → income_tax_payable (if payable) or advance_tax (if receivable)
+- "OCR" = Office of Company Registrar → admin_rates_taxes
+- "DDR" = Department of Drug Registration → admin_rates_taxes
+- "Municipality fee/renewal" → admin_rates_taxes
+
+TAX ENTRIES:
+- "TDS payable" / "TDS on salary payable" → tds_payable
+- "TDS on rent payable" → tds_payable
+- "TDS on service payable" → tds_payable
+- "Input VAT" / "VAT receivable" → other_receivables_other (Dr balance)
+- "Output VAT payable" / "VAT payable" → other_payables (Cr balance)
+- "Advance income tax" / "Advance tax paid" → advance_tax_paid
+- "Tax payable" / "Income tax payable" → income_tax_payable
+
+BANK ACCOUNTS:
+- Any Nepal bank name (Nabil, NIC Asia, Himalayan, Everest, NIBL, HBL, EBL, Citizens, Kumari, 
+  Bank of Kathmandu, NMB, Siddhartha, Global IME, Sunrise, Prabhu, Sanima, Laxmi, Janata, 
+  Mega, Century, ADBN, RBB, NBL, Civil, Prime, Standard Chartered, Citibank) with "Current / CA / 
+  Savings / OD / CC / Account" → bank_current_account (Dr balance) or bank_overdraft (Cr balance)
+- IMPORTANT: If the account is a Nepal bank name with Cr balance and labeled "OD" or "Overdraft" or "CC" 
+  or "Cash Credit" → bank_overdraft (current liability)
+- If the account is a Nepal bank name with Cr balance and labeled "Loan" or "Term Loan" → 
+  borrowings_bank_noncurrent (if long-term) else borrowings_bank_current
+
+INVENTORY:
+- "Closing Stock" / "Stock in Hand" → inventory_finished_goods (Dr balance asset)
+- "Opening Stock" / "Opening Inventory" → cogs_opening_stock (expense/COGS)
+- "Work in Progress" / "WIP" → inventory_wip
+- "Raw Material" stock → inventory_raw_material
+
+TRADE ACCOUNTS:
+- "Sundry Debtors" / "Trade Debtors" / "Accounts Receivable" → trade_receivables
+- "Sundry Creditors" / "Trade Creditors" / "Accounts Payable" → trade_payables
+- "Purchase" / "Purchases" by itself → cogs_purchases
+- "Sales" / "Revenue" / "Income from [anything]" → revenue_operations (unless clearly other income)
+- "Other Income" / "Miscellaneous Income" / "Sundry Income" → other_income
+
+EMPLOYEE-RELATED:
+- "Staff Bonus" / "Bonus expense" → emp_expense_bonus (if Dr / expense)
+- "Bonus payable" / "Staff bonus payable" → employee_payables_bonus (if Cr / liability)
+- "Dashain Allowance" / "Tihar Allowance" / "Festival bonus" → emp_expense_welfare
+- "Gratuity expense" / "Gratuity provision" → emp_expense_gratuity
+- "Gratuity payable" / "Gratuity fund" → employee_payables_gratuity
+- "Leave encashment" → emp_expense_leave
+- "Salary" / "Wages" / "Remuneration" → emp_expense_salary
+  (A fiscal year suffix like "Salary 2081" does NOT change the category)
+
+ADVANCES & LOANS:
+- "Advance to [party name]" / "Staff advance" → other_receivables_loans (Dr balance = asset)
+- "Advance from [party name]" → advance_from_customers (Cr balance = liability)
+- "Loan from director" / "Loan from [director name]" → related_party_payable
+- "Loan from [bank name]" → borrowings_bank_noncurrent or borrowings_bank_current (based on term)
+- "Loan to staff" / "Loan to employee" → other_receivables_loans
+
+BALANCE-SIDE HINTS (use the Dr/Cr balance as strong evidence):
+- Large Cr balance (>1M) on an account named like a person/party → likely related_party_payable or trade_payables
+- Large Cr balance on "Capital" or "Equity" related names → share_capital or retained_earnings
+- Dr balance on "Depreciation" → this is the accumulated depreciation contra account → ppe_accumulated_depreciation
+- Dr balance on "Prepaid" → prepaid_expenses
+- Cr balance on "Deferred" or "Advance receipt" → deferred_income
+
+ACCOUNTS TO CLASSIFY:
+${accountLines}
+
+Respond ONLY with a valid JSON array (no markdown, no \`\`\`, no text before or after):
+[{"rowIndex": 1, "nfrsCategory": "exact_category_value", "confidence": 85, "reasoning": "brief one-line reason"}]
+
+Available categories (use EXACTLY one of these strings):
+${NFRS_CATEGORY_INFO.map(i => i.value).join(', ')}`;
+}
+
+// ── Main export ───────────────────────────────────────────────────────────
 export async function aiMatchUnresolved(
-  unmatchedRows: MatchResult[],
-  _chartLabels: string[],       // reserved for future use
-  _nfrsCategories: string[],    // reserved for future use
-): Promise<MatchResult[]> {
-  if (unmatchedRows.length === 0) return [];
+  accounts:  Pick<MappedTBRow, 'rawLabel' | 'closingBalance'>[],
+  company:   CompanyProfile,
+  apiKey:    string
+): Promise<AIMatchResult[]> {
+  if (!accounts.length) return [];
 
-  const client = getClient();
-  const updated: MatchResult[] = [...unmatchedRows];
+  // Check cache
+  const cacheKey = buildCacheKey(accounts);
+  if (aiCache.has(cacheKey)) {
+    console.log('[AI Matcher] Cache hit — skipping API call');
+    return aiCache.get(cacheKey)!;
+  }
 
-  // Process in batches to stay within token limits
-  for (let start = 0; start < unmatchedRows.length; start += MAX_BATCH_SIZE) {
-    const batch = unmatchedRows.slice(start, start + MAX_BATCH_SIZE);
+  if (!apiKey) {
+    console.warn('[AI Matcher] No API key — returning empty results');
+    return [];
+  }
 
-    const accountList = batch
-      .map((r, i) => `${start + i + 1}. ${r.rawLabel}`)
-      .join('\n');
+  const BATCH_SIZE = 30; // Claude handles up to 30 accounts cleanly per request
+  const allResults: AIMatchResult[] = [];
 
-    const prompt =
-      `You are an expert Nepal Chartered Accountant helping classify accounting entries ` +
-      `from Nepal business trial balances exported from accounting software (Tally, Busy, Marg, or similar).\n\n` +
-      `Below are account names from a Nepal company's trial balance. Map each to the correct NFRS/NAS for MEs category.\n\n` +
-      `Available NFRS categories:\n${CATEGORY_LIST}\n\n` +
-      `Accounts to classify:\n${accountList}\n\n` +
-      `Respond ONLY with a valid JSON array, no markdown fences, no explanation:\n` +
-      `[\n` +
-      `  { "rowIndex": <original rowIndex integer>, "nfrsCategory": "<exact category key>", ` +
-      `"confidence": <integer 60-95>, "reasoning": "<one sentence>" }\n` +
-      `]\n\n` +
-      `Rules:\n` +
-      `- Use ONLY the exact category keys listed above (e.g. "cash_in_hand", not "Cash in Hand")\n` +
-      `- confidence: 95 if certain, 80-94 if likely, 60-79 if uncertain\n` +
-      `- If genuinely unclassifiable, use "unclassified" with confidence 40\n` +
-      `- Nepal-specific context: "Nabil", "NIC Asia", "Himalayan", "SBI", "Everest" = bank names → bank_current_account or borrowings_noncurrent_bank\n` +
-      `- "VAT", "TDS" = Nepal taxes; "PF"/"SSF"/"CIT" = provident/social security fund\n` +
-      `- "NEPSE shares", "listed shares" = investment_listed_trading`;
+  // Process in batches to avoid context overflow
+  for (let i = 0; i < accounts.length; i += BATCH_SIZE) {
+    const batch = accounts.slice(i, i + BATCH_SIZE);
+    const batchResults = await callClaudeAPI(batch, company, apiKey, i);
+    allResults.push(...batchResults);
+  }
 
-    let parsed: Array<{
-      rowIndex: number;
-      nfrsCategory: string;
-      confidence: number;
-      reasoning: string;
-    }> = [];
+  // Store in cache
+  aiCache.set(cacheKey, allResults);
+  return allResults;
+}
 
+async function callClaudeAPI(
+  accounts:  Pick<MappedTBRow, 'rawLabel' | 'closingBalance'>[],
+  company:   CompanyProfile,
+  apiKey:    string,
+  indexOffset: number
+): Promise<AIMatchResult[]> {
+  const systemPrompt = buildSystemPrompt();
+  const userPrompt   = buildUserPrompt(accounts, company);
+
+  let attempts = 0;
+  const MAX_RETRIES = 2;
+
+  while (attempts <= MAX_RETRIES) {
     try {
-      const response = await client.messages.create({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 2000,
-        messages: [{ role: 'user', content: prompt }],
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method:  'POST',
+        headers: {
+          'Content-Type':      'application/json',
+          'x-api-key':         apiKey,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model:      'claude-sonnet-4-6',
+          max_tokens: 4096,
+          system:     systemPrompt,
+          messages:   [{ role: 'user', content: userPrompt }],
+        }),
       });
 
-      const content = response.content[0];
-      const rawText = content.type === 'text' ? content.text.trim() : '';
-
-      // Strip any accidental markdown fences
-      const cleaned = rawText
-        .replace(/^```(?:json)?\s*/i, '')
-        .replace(/```\s*$/i, '')
-        .trim();
-
-      parsed = JSON.parse(cleaned);
-    } catch (err) {
-      console.error('[aiAccountMatcher] API call or JSON parse failed:', err);
-      // Non-fatal: return originals for this batch unchanged
-      continue;
-    }
-
-    // Merge AI results back, with hard taxonomy validation
-    for (const suggestion of parsed) {
-      const origIndex = updated.findIndex(
-        (r) => r.rowIndex === suggestion.rowIndex,
-      );
-      if (origIndex === -1) continue;
-
-      // Validate the suggested category exists in our closed taxonomy
-      const isValidCategory =
-        suggestion.nfrsCategory === 'unclassified' ||
-        CHART_OF_ACCOUNTS.some((e) => e.nfrsCategory === suggestion.nfrsCategory);
-
-      if (!isValidCategory) {
-        console.warn(
-          `[aiAccountMatcher] Claude returned unknown category "${suggestion.nfrsCategory}" ` +
-          `for "${updated[origIndex].rawLabel}" — rejecting and leaving as unmatched.`,
-        );
-        continue;
+      if (!response.ok) {
+        const errBody = await response.text();
+        throw new Error(`Anthropic API error ${response.status}: ${errBody}`);
       }
 
-      const confidence = Math.min(95, Math.max(40, Math.round(suggestion.confidence)));
-
-      // Find the canonical label for this category
-      const entry = CHART_OF_ACCOUNTS.find(
-        (e) => e.nfrsCategory === suggestion.nfrsCategory,
-      );
-
-      updated[origIndex] = {
-        ...updated[origIndex],
-        nfrsCategory: suggestion.nfrsCategory as NFRSCategory | 'unclassified',
-        matchedLabel: entry?.label ?? null,
-        confidence,
-        method: 'ai',
-        needsReview: confidence < CONFIDENCE_THRESHOLD,
-        candidates: entry
-          ? [{ label: entry.label, nfrsCategory: entry.nfrsCategory, confidence }]
-          : updated[origIndex].candidates,
+      const data = await response.json() as {
+        content: { type: string; text: string }[];
       };
+
+      const rawText = data.content
+        .filter(c => c.type === 'text')
+        .map(c => c.text)
+        .join('');
+
+      // Strip any accidental markdown fencing
+      const cleaned = rawText
+        .replace(/```json\s*/gi, '')
+        .replace(/```\s*/gi, '')
+        .trim();
+
+      // Locate JSON array
+      const arrayStart = cleaned.indexOf('[');
+      const arrayEnd   = cleaned.lastIndexOf(']');
+      if (arrayStart === -1 || arrayEnd === -1) {
+        throw new Error('AI response did not contain a JSON array');
+      }
+      const jsonString = cleaned.slice(arrayStart, arrayEnd + 1);
+      const parsed     = JSON.parse(jsonString) as AIMatchResult[];
+
+      // Validate and adjust row indices for batching offset
+      return parsed
+        .filter(r =>
+          typeof r.rowIndex === 'number' &&
+          typeof r.nfrsCategory === 'string' &&
+          typeof r.confidence === 'number'
+        )
+        .map(r => ({
+          ...r,
+          rowIndex:   r.rowIndex + indexOffset - 1, // convert 1-based → 0-based + offset
+          confidence: Math.min(100, Math.max(0, r.confidence)),
+          reasoning:  r.reasoning?.slice(0, 200) ?? '',
+        }));
+    } catch (err: any) {
+      attempts++;
+      console.error(`[AI Matcher] Attempt ${attempts} failed:`, err.message);
+      if (attempts > MAX_RETRIES) {
+        console.error('[AI Matcher] All retries exhausted — returning empty for this batch');
+        return [];
+      }
+      // Exponential back-off: 1s, 2s
+      await new Promise(r => setTimeout(r, attempts * 1000));
     }
   }
 
-  return updated;
+  return [];
 }
 
-// ---------------------------------------------------------------------------
-// runAIMatching — convenience wrapper: filter, call AI, merge back
-// ---------------------------------------------------------------------------
-export async function runAIMatching(
-  allResults: MatchResult[],
-): Promise<MatchResult[]> {
-  const unresolved = allResults.filter(
-    (r) => r.method === 'unmatched' || r.confidence < CONFIDENCE_THRESHOLD,
-  );
-
-  if (unresolved.length === 0) return allResults;
-
-  const allLabels = CHART_OF_ACCOUNTS.map((e) => e.label);
-  const allCategories = [...new Set(CHART_OF_ACCOUNTS.map((e) => e.nfrsCategory as string))];
-
-  const aiResults = await aiMatchUnresolved(unresolved, allLabels, allCategories);
-
-  // Merge AI results back into the full results array
-  const aiByRowIndex = new Map(aiResults.map((r) => [r.rowIndex, r]));
-  return allResults.map((r) => aiByRowIndex.get(r.rowIndex) ?? r);
+// ── Utility: clear AI cache (useful between test runs) ────────────────────
+export function clearAIMatcherCache(): void {
+  aiCache.clear();
 }

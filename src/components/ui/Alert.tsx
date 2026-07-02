@@ -1,113 +1,94 @@
-// ===== src/components/ui/Alert.tsx =====
+// src/components/ui/Alert.tsx
 import React from 'react';
 
-interface AlertProps {
-  type: 'success' | 'error' | 'warning' | 'info';
-  title?: string;
-  message: string;
-  onDismiss?: () => void;
-}
+type AlertType = 'info' | 'success' | 'warning' | 'error';
 
-// Inline SVG icons — no external dependency
-function CheckCircleIcon(): React.ReactElement {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" width={18} height={18} aria-hidden="true">
-      <path fillRule="evenodd" d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16Zm3.857-9.809a.75.75 0 0 0-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 1 0-1.06 1.061l2.5 2.5a.75.75 0 0 0 1.137-.089l4-5.5Z" clipRule="evenodd" />
-    </svg>
-  );
-}
-
-function XCircleIcon(): React.ReactElement {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" width={18} height={18} aria-hidden="true">
-      <path fillRule="evenodd" d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16ZM8.28 7.22a.75.75 0 0 0-1.06 1.06L8.94 10l-1.72 1.72a.75.75 0 1 0 1.06 1.06L10 11.06l1.72 1.72a.75.75 0 1 0 1.06-1.06L11.06 10l1.72-1.72a.75.75 0 0 0-1.06-1.06L10 8.94 8.28 7.22Z" clipRule="evenodd" />
-    </svg>
-  );
-}
-
-function WarningTriangleIcon(): React.ReactElement {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" width={18} height={18} aria-hidden="true">
-      <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495ZM10 5a.75.75 0 0 1 .75.75v3.5a.75.75 0 0 1-1.5 0v-3.5A.75.75 0 0 1 10 5Zm0 9a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" clipRule="evenodd" />
-    </svg>
-  );
-}
-
-function InfoCircleIcon(): React.ReactElement {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" width={18} height={18} aria-hidden="true">
-      <path fillRule="evenodd" d="M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0Zm-7-4a1 1 0 1 1-2 0 1 1 0 0 1 2 0ZM9 9a.75.75 0 0 0 0 1.5h.253a.25.25 0 0 1 .244.304l-.459 2.066A1.75 1.75 0 0 0 10.747 15H11a.75.75 0 0 0 0-1.5h-.253a.25.25 0 0 1-.244-.304l.459-2.066A1.75 1.75 0 0 0 9.253 9H9Z" clipRule="evenodd" />
-    </svg>
-  );
-}
-
-function DismissIcon(): React.ReactElement {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" width={16} height={16} aria-hidden="true">
-      <path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z" />
-    </svg>
-  );
-}
-
-const ALERT_STYLES = {
-  success: {
-    container: 'bg-green-50 border border-green-300 text-green-800',
-    icon: <CheckCircleIcon />,
-    dismissHover: 'hover:bg-green-100 text-green-600',
-  },
-  error: {
-    container: 'bg-red-50 border border-red-300 text-red-800',
-    icon: <XCircleIcon />,
-    dismissHover: 'hover:bg-red-100 text-red-600',
-  },
-  warning: {
-    container: 'bg-amber-50 border border-amber-300 text-amber-800',
-    icon: <WarningTriangleIcon />,
-    dismissHover: 'hover:bg-amber-100 text-amber-600',
-  },
-  info: {
-    container: 'bg-blue-50 border border-blue-300 text-blue-800',
-    icon: <InfoCircleIcon />,
-    dismissHover: 'hover:bg-blue-100 text-blue-600',
-  },
+const STYLES: Record<AlertType, { wrap: string; icon: string }> = {
+  info:    { wrap: 'bg-blue-50 border-blue-200 text-blue-800',         icon: 'text-blue-500'    },
+  success: { wrap: 'bg-emerald-50 border-emerald-200 text-emerald-800', icon: 'text-emerald-500' },
+  warning: { wrap: 'bg-amber-50 border-amber-200 text-amber-800',       icon: 'text-amber-500'   },
+  error:   { wrap: 'bg-red-50 border-red-200 text-red-800',             icon: 'text-red-500'     },
 };
 
-function Alert({ type, title, message, onDismiss }: AlertProps): React.ReactElement {
-  const styles = ALERT_STYLES[type];
+// Minimal inline SVG icons — no external icon library required
+const ICONS: Record<AlertType, React.ReactNode> = {
+  info: (
+    <svg className="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24"
+      stroke="currentColor" strokeWidth={2} aria-hidden="true">
+      <circle cx="12" cy="12" r="10" />
+      <line x1="12" y1="8"  x2="12"   y2="12"   />
+      <line x1="12" y1="16" x2="12.01" y2="16" />
+    </svg>
+  ),
+  success: (
+    <svg className="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24"
+      stroke="currentColor" strokeWidth={2} aria-hidden="true">
+      <polyline points="20 6 9 17 4 12" />
+    </svg>
+  ),
+  warning: (
+    <svg className="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24"
+      stroke="currentColor" strokeWidth={2} aria-hidden="true">
+      <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+      <line x1="12" y1="9"  x2="12"   y2="13"   />
+      <line x1="12" y1="17" x2="12.01" y2="17" />
+    </svg>
+  ),
+  error: (
+    <svg className="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24"
+      stroke="currentColor" strokeWidth={2} aria-hidden="true">
+      <circle cx="12" cy="12" r="10" />
+      <line x1="15" y1="9"  x2="9"  y2="15" />
+      <line x1="9"  y1="9"  x2="15" y2="15" />
+    </svg>
+  ),
+};
+
+interface AlertProps {
+  type:       AlertType;
+  title?:     string;
+  message:    string;
+  onDismiss?: () => void;
+  className?: string;
+}
+
+export default function Alert({
+  type,
+  title,
+  message,
+  onDismiss,
+  className = '',
+}: AlertProps) {
+  const s = STYLES[type];
 
   return (
     <div
       role={type === 'error' ? 'alert' : 'status'}
       aria-live={type === 'error' ? 'assertive' : 'polite'}
-      className={['flex items-start gap-3 rounded-xl p-4', styles.container].join(' ')}
+      className={`flex items-start gap-2.5 rounded-md border px-3.5 py-2.5 text-sm ${s.wrap} ${className}`}
     >
-      {/* Icon */}
-      <span className="flex-shrink-0 mt-0.5">{styles.icon}</span>
+      <span className={`mt-0.5 ${s.icon}`}>{ICONS[type]}</span>
 
-      {/* Content */}
       <div className="flex-1 min-w-0">
         {title && (
-          <p className="font-semibold text-sm leading-snug mb-0.5">{title}</p>
+          <p className="font-semibold leading-snug">{title}</p>
         )}
-        <p className="text-sm leading-normal">{message}</p>
+        <p className="leading-snug text-sm opacity-90">{message}</p>
       </div>
 
-      {/* Dismiss button */}
       {onDismiss && (
         <button
           onClick={onDismiss}
-          aria-label="Dismiss alert"
-          className={[
-            'flex-shrink-0 rounded-md p-0.5 transition-colors focus:outline-none',
-            'focus-visible:ring-2 focus-visible:ring-offset-1',
-            styles.dismissHover,
-          ].join(' ')}
+          aria-label="Dismiss"
+          className="ml-auto flex-shrink-0 opacity-60 hover:opacity-100 transition-opacity leading-none rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-current"
         >
-          <DismissIcon />
+          <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24"
+            stroke="currentColor" strokeWidth={2} aria-hidden="true">
+            <line x1="18" y1="6"  x2="6"  y2="18" />
+            <line x1="6"  y1="6"  x2="18" y2="18" />
+          </svg>
         </button>
       )}
     </div>
   );
 }
-
-export default Alert;

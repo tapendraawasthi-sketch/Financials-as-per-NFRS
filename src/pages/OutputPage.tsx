@@ -55,22 +55,16 @@ const OutputPage: React.FC = () => {
     <div className="max-w-3xl mx-auto px-4 py-6 space-y-8">
       {/* Wizard Progress — all steps */}
       <WizardProgress
-        steps={wizardSteps.map((s) => ({ ...s, icon: null }))}
         currentStep="generate_output"
         completedSteps={[
           ...state.completedSteps,
           'generate_output', // Show current as complete too
         ]}
-        onStepClick={(step) => dispatch({ type: 'SET_STEP', payload: step })}
       />
 
       {/* Download Panel */}
       {state.company && companyId ? (
-        <DownloadPanel
-          companyId={companyId}
-          company={state.company}
-          isStatementsReady={isStatementsReady}
-        />
+        <DownloadPanel />
       ) : (
         <div className="text-center py-12 text-slate-400">
           <p className="text-sm">Company data not found. Please start from the beginning.</p>

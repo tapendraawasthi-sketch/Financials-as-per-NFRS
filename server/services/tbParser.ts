@@ -234,6 +234,14 @@ export async function parseTrialBalance(
   buffer: Buffer,
   filename: string,
 ): Promise<RawTBParseResult> {
+  // --- Validation guards (add before existing parsing logic) ---
+  if (!buffer || buffer.length === 0) {
+    throw Object.assign(
+      new Error('The uploaded file is empty. Please upload a valid Excel or CSV file.'),
+      { status: 400, code: 'EMPTY_FILE' }
+    );
+  }
+
   const warnings: string[] = [];
   const ext = filename.toLowerCase().slice(filename.lastIndexOf('.'));
   let matrix: unknown[][] = [];
@@ -312,6 +320,15 @@ export async function parseTrialBalance(
     }
   }
 
+  if (!detection && colMap['label'] === undefined) {
+    throw Object.assign(
+      new Error(
+        'Could not detect column headers. Please ensure your file has clear column headers for account name and amounts.'
+      ),
+      { status: 400, code: 'NO_HEADERS' }
+    );
+  }
+
   // ── Extract rows ─────────────────────────────────────────────────────────
   const rows: RawTBRow[] = [];
   const skippedSubtotals: string[] = [];
@@ -361,9 +378,16 @@ export async function parseTrialBalance(
   }
 
   if (rows.length === 0) {
-    throw new Error(
-      'No usable account rows were found in the uploaded file. ' +
-      'Please check that the file contains trial balance data with account names and amounts.',
+    throw Object.assign(
+      new Error('No data rows found in the uploaded file. Please check your export and ensure it contains account entries.'),
+      { status: 400, code: 'NO_DATA_ROWS' }
+    );
+  }
+
+  // Row limit warning (do NOT throw — add to warnings)
+  if (rows.length > 2000) {
+    warnings.push(
+      `File contains ${rows.length} rows which exceeds the recommended limit of 2000. Processing may be slow. Consider filtering inactive accounts before uploading.`
     );
   }
 

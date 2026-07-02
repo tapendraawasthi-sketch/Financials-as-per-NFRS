@@ -21,7 +21,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
     description: 'Freehold and leasehold land held for business operations.',
   },
   {
-    value: 'ppe_building',
+    value: 'ppe_buildings',
     label: 'Buildings',
     group: 'Non-Current Assets — Property, Plant & Equipment',
     normalBalance: 'debit',
@@ -37,7 +37,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
     description: 'Production plant, industrial machinery and equipment.',
   },
   {
-    value: 'ppe_furniture_fixtures',
+    value: 'ppe_furniture',
     label: 'Furniture & Fixtures',
     group: 'Non-Current Assets — Property, Plant & Equipment',
     normalBalance: 'debit',
@@ -61,7 +61,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
     description: 'Computers, servers, printers and IT peripherals.',
   },
   {
-    value: 'ppe_equipment',
+    value: 'ppe_office_equipment',
     label: 'Other Equipment',
     group: 'Non-Current Assets — Property, Plant & Equipment',
     normalBalance: 'debit',
@@ -77,7 +77,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
     description: 'Assets under construction or not yet ready for use.',
   },
   {
-    value: 'accumulated_depreciation',
+    value: 'accum_depreciation',
     label: 'Accumulated Depreciation',
     group: 'Non-Current Assets — Property, Plant & Equipment',
     normalBalance: 'credit',
@@ -85,7 +85,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
     description: 'Total depreciation charged on PPE to date (contra-asset).',
   },
   {
-    value: 'intangible_assets',
+    value: 'ppe_intangibles',
     label: 'Intangible Assets',
     group: 'Non-Current Assets — Property, Plant & Equipment',
     normalBalance: 'debit',
@@ -95,7 +95,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
 
   // ── Non-Current Assets — Investments ─────────────────────────────────────
   {
-    value: 'investment_equity_listed',
+    value: 'investment_listed_trading',
     label: 'Investment in Listed Shares',
     group: 'Non-Current Assets — Investments',
     normalBalance: 'debit',
@@ -103,7 +103,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
     description: 'Investment in equity shares listed on NEPSE.',
   },
   {
-    value: 'investment_equity_unlisted',
+    value: 'investment_unlisted',
     label: 'Investment in Unlisted Shares',
     group: 'Non-Current Assets — Investments',
     normalBalance: 'debit',
@@ -111,7 +111,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
     description: 'Investment in private company equity shares not listed on NEPSE.',
   },
   {
-    value: 'investment_mutual_fund',
+    value: 'investment_unlisted',
     label: 'Investment in Mutual Funds',
     group: 'Non-Current Assets — Investments',
     normalBalance: 'debit',
@@ -119,7 +119,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
     description: 'Units held in SEBON-registered mutual funds.',
   },
   {
-    value: 'investment_bonds_debentures',
+    value: 'investment_unlisted',
     label: 'Bonds & Debentures',
     group: 'Non-Current Assets — Investments',
     normalBalance: 'debit',
@@ -127,7 +127,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
     description: 'Government securities, corporate bonds and debentures.',
   },
   {
-    value: 'investment_fdr',
+    value: 'investment_fixed_deposit_noncurrent',
     label: 'Fixed Deposit Receipts (FDR)',
     group: 'Non-Current Assets — Investments',
     normalBalance: 'debit',
@@ -135,7 +135,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
     description: 'Long-term fixed deposits placed with banks and financial institutions.',
   },
   {
-    value: 'investment_other',
+    value: 'investment_unlisted',
     label: 'Other Investments',
     group: 'Non-Current Assets — Investments',
     normalBalance: 'debit',
@@ -145,7 +145,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
 
   // ── Non-Current Assets — Other ────────────────────────────────────────────
   {
-    value: 'goodwill',
+    value: 'ppe_intangibles',
     label: 'Goodwill',
     group: 'Non-Current Assets — Other',
     normalBalance: 'debit',
@@ -153,7 +153,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
     description: 'Goodwill arising on acquisition of a business.',
   },
   {
-    value: 'deferred_tax_asset',
+    value: 'nca_other',
     label: 'Deferred Tax Asset',
     group: 'Non-Current Assets — Other',
     normalBalance: 'debit',
@@ -161,7 +161,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
     description: 'Deferred tax asset arising from timing differences.',
   },
   {
-    value: 'other_nca',
+    value: 'nca_other',
     label: 'Other Non-Current Assets',
     group: 'Non-Current Assets — Other',
     normalBalance: 'debit',
@@ -169,7 +169,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
     description: 'Long-term deposits, security deposits and other NCA not classified above.',
   },
   {
-    value: 'long_term_loans_advances',
+    value: 'nca_loans_advances',
     label: 'Long-term Loans & Advances',
     group: 'Non-Current Assets — Other',
     normalBalance: 'debit',
@@ -187,7 +187,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
     description: 'Amounts owed by customers for goods/services already delivered.',
   },
   {
-    value: 'allowance_for_doubtful_debts',
+    value: 'provision_impairment_debtors',
     label: 'Less: Allowance for Doubtful Debts',
     group: 'Current Assets — Trade Receivables',
     normalBalance: 'credit',
@@ -195,7 +195,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
     description: 'Provision for estimated uncollectable trade receivables (contra-asset).',
   },
   {
-    value: 'bills_receivable',
+    value: 'trade_receivables',
     label: 'Bills Receivable',
     group: 'Current Assets — Trade Receivables',
     normalBalance: 'debit',
@@ -229,7 +229,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
     description: 'Balances in bank savings accounts.',
   },
   {
-    value: 'bank_od_account',
+    value: 'bank_current_account',
     label: 'Bank Overdraft (Asset Balance)',
     group: 'Current Assets — Cash & Bank',
     normalBalance: 'debit',
@@ -237,7 +237,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
     description: 'Temporary debit balance on an overdraft facility (asset side).',
   },
   {
-    value: 'short_term_fdr',
+    value: 'bank_fixed_deposit_current',
     label: 'Short-term Fixed Deposits (≤3 months)',
     group: 'Current Assets — Cash & Bank',
     normalBalance: 'debit',
@@ -247,7 +247,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
 
   // ── Current Assets — Inventories ──────────────────────────────────────────
   {
-    value: 'inventory_raw_material',
+    value: 'inventory_raw_materials',
     label: 'Inventories — Raw Materials',
     group: 'Current Assets — Inventories',
     normalBalance: 'debit',
@@ -271,7 +271,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
     description: 'Completed goods held for sale.',
   },
   {
-    value: 'inventory_trading_goods',
+    value: 'inventory_finished_goods',
     label: 'Inventories — Trading / Stock-in-Trade',
     group: 'Current Assets — Inventories',
     normalBalance: 'debit',
@@ -279,7 +279,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
     description: 'Goods purchased for resale without further processing.',
   },
   {
-    value: 'inventory_consumables',
+    value: 'inventory_raw_materials',
     label: 'Inventories — Consumables & Stores',
     group: 'Current Assets — Inventories',
     normalBalance: 'debit',
@@ -289,7 +289,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
 
   // ── Current Assets — Other ────────────────────────────────────────────────
   {
-    value: 'advance_tax',
+    value: 'other_receivables_tds',
     label: 'Advance Income Tax / TDS Receivable',
     group: 'Current Assets — Other',
     normalBalance: 'debit',
@@ -297,7 +297,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
     description: 'Tax paid in advance and TDS deducted at source on income.',
   },
   {
-    value: 'vat_receivable',
+    value: 'other_receivables_other',
     label: 'VAT Receivable (Input Tax)',
     group: 'Current Assets — Other',
     normalBalance: 'debit',
@@ -305,7 +305,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
     description: 'Input VAT credit available for set-off against output VAT.',
   },
   {
-    value: 'prepaid_expenses',
+    value: 'other_receivables_prepayments',
     label: 'Prepaid Expenses',
     group: 'Current Assets — Other',
     normalBalance: 'debit',
@@ -313,7 +313,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
     description: 'Expenses paid in advance for future periods.',
   },
   {
-    value: 'accrued_income',
+    value: 'other_receivables_other',
     label: 'Accrued Income / Interest Receivable',
     group: 'Current Assets — Other',
     normalBalance: 'debit',
@@ -321,7 +321,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
     description: 'Income earned but not yet received or invoiced.',
   },
   {
-    value: 'loans_advances_staff',
+    value: 'other_receivables_staff_advance',
     label: 'Loans & Advances to Staff',
     group: 'Current Assets — Other',
     normalBalance: 'debit',
@@ -329,7 +329,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
     description: 'Short-term advances and salary advances to employees.',
   },
   {
-    value: 'loans_advances_others',
+    value: 'other_receivables_loans',
     label: 'Loans & Advances to Others',
     group: 'Current Assets — Other',
     normalBalance: 'debit',
@@ -337,7 +337,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
     description: 'Other short-term advances and deposits recoverable.',
   },
   {
-    value: 'other_current_assets',
+    value: 'other_receivables_other',
     label: 'Other Current Assets',
     group: 'Current Assets — Other',
     normalBalance: 'debit',
@@ -387,7 +387,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
     description: 'Capital reserve, revaluation reserve and other specific reserves.',
   },
   {
-    value: 'proprietors_capital',
+    value: 'other_reserves',
     label: "Proprietor's Capital (Sole Trade/Partnership)",
     group: 'Equity',
     normalBalance: 'credit',
@@ -397,7 +397,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
 
   // ── Non-Current Liabilities ───────────────────────────────────────────────
   {
-    value: 'long_term_loan_bank',
+    value: 'borrowings_noncurrent_bank',
     label: 'Long-term Loan — Bank',
     group: 'Non-Current Liabilities',
     normalBalance: 'credit',
@@ -405,7 +405,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
     description: 'Term loans from banks repayable after twelve months.',
   },
   {
-    value: 'long_term_loan_others',
+    value: 'borrowings_noncurrent_other',
     label: 'Long-term Loan — Others',
     group: 'Non-Current Liabilities',
     normalBalance: 'credit',
@@ -413,7 +413,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
     description: 'Long-term loans from NBFIs, related parties or other sources.',
   },
   {
-    value: 'debentures',
+    value: 'borrowings_noncurrent_other',
     label: 'Debentures / Bonds Issued',
     group: 'Non-Current Liabilities',
     normalBalance: 'credit',
@@ -429,7 +429,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
     description: 'Deferred tax liability arising from timing differences.',
   },
   {
-    value: 'gratuity_provision',
+    value: 'employee_benefit_gratuity',
     label: 'Provision for Gratuity (Non-current)',
     group: 'Non-Current Liabilities',
     normalBalance: 'credit',
@@ -437,7 +437,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
     description: 'Long-term portion of defined benefit gratuity obligation.',
   },
   {
-    value: 'other_ncl',
+    value: 'provisions_noncurrent',
     label: 'Other Non-Current Liabilities',
     group: 'Non-Current Liabilities',
     normalBalance: 'credit',
@@ -447,7 +447,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
 
   // ── Current Liabilities — Borrowings ──────────────────────────────────────
   {
-    value: 'bank_overdraft',
+    value: 'borrowings_current_od',
     label: 'Bank Overdraft',
     group: 'Current Liabilities — Borrowings',
     normalBalance: 'credit',
@@ -455,7 +455,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
     description: 'Bank overdraft balance (credit balance on OD/CC account).',
   },
   {
-    value: 'short_term_loan',
+    value: 'borrowings_current_wc',
     label: 'Short-term Loans & Working Capital',
     group: 'Current Liabilities — Borrowings',
     normalBalance: 'credit',
@@ -463,7 +463,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
     description: 'Cash credit, working capital demand loans and other short-term bank facilities.',
   },
   {
-    value: 'current_portion_lt_loan',
+    value: 'borrowings_current_portion_lt',
     label: 'Current Portion of Long-term Loan',
     group: 'Current Liabilities — Borrowings',
     normalBalance: 'credit',
@@ -473,7 +473,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
 
   // ── Current Liabilities — Trade Payables ──────────────────────────────────
   {
-    value: 'trade_payables',
+    value: 'trade_payables_creditors',
     label: 'Trade Payables (Creditors)',
     group: 'Current Liabilities — Trade Payables',
     normalBalance: 'credit',
@@ -481,7 +481,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
     description: 'Amounts owed to suppliers for goods and services received.',
   },
   {
-    value: 'bills_payable',
+    value: 'trade_payables_creditors',
     label: 'Bills Payable',
     group: 'Current Liabilities — Trade Payables',
     normalBalance: 'credit',
@@ -489,7 +489,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
     description: 'Promissory notes and bills of exchange payable to creditors.',
   },
   {
-    value: 'advance_from_customers',
+    value: 'trade_payables_advance_customers',
     label: 'Advance from Customers',
     group: 'Current Liabilities — Trade Payables',
     normalBalance: 'credit',
@@ -499,7 +499,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
 
   // ── Current Liabilities — Employee & Statutory ────────────────────────────
   {
-    value: 'salary_payable',
+    value: 'employee_payables_salary',
     label: 'Salary & Wages Payable',
     group: 'Current Liabilities — Employee & Statutory',
     normalBalance: 'credit',
@@ -507,7 +507,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
     description: 'Accrued salaries and wages payable to employees.',
   },
   {
-    value: 'bonus_payable',
+    value: 'employee_payables_bonus',
     label: 'Staff Bonus Payable',
     group: 'Current Liabilities — Employee & Statutory',
     normalBalance: 'credit',
@@ -515,7 +515,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
     description: 'Staff bonus accrued and payable (10% of net profit per Bonus Act 2030).',
   },
   {
-    value: 'pf_payable',
+    value: 'employee_payables_pf',
     label: 'PF / SSF Payable',
     group: 'Current Liabilities — Employee & Statutory',
     normalBalance: 'credit',
@@ -531,7 +531,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
     description: 'Tax deducted at source pending deposit to IRD.',
   },
   {
-    value: 'vat_payable',
+    value: 'other_payables',
     label: 'VAT Payable',
     group: 'Current Liabilities — Employee & Statutory',
     normalBalance: 'credit',
@@ -555,7 +555,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
     description: 'Statutory audit fee accrued and payable to auditors.',
   },
   {
-    value: 'other_provisions',
+    value: 'provisions_current',
     label: 'Other Provisions',
     group: 'Current Liabilities — Employee & Statutory',
     normalBalance: 'credit',
@@ -563,7 +563,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
     description: 'Other accruals and provisions for known obligations.',
   },
   {
-    value: 'other_current_liabilities',
+    value: 'other_payables',
     label: 'Other Current Liabilities',
     group: 'Current Liabilities — Employee & Statutory',
     normalBalance: 'credit',
@@ -589,7 +589,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
     description: 'Revenue from rendering of services.',
   },
   {
-    value: 'revenue_other',
+    value: 'other_income_misc',
     label: 'Revenue — Other Operating Income',
     group: 'Income',
     normalBalance: 'credit',
@@ -597,7 +597,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
     description: 'Other income directly related to business operations.',
   },
   {
-    value: 'interest_income',
+    value: 'other_income_interest',
     label: 'Interest Income',
     group: 'Income',
     normalBalance: 'credit',
@@ -605,7 +605,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
     description: 'Interest earned on bank deposits, loans and investments.',
   },
   {
-    value: 'dividend_income',
+    value: 'other_income_dividend',
     label: 'Dividend Income',
     group: 'Income',
     normalBalance: 'credit',
@@ -613,7 +613,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
     description: 'Dividends received from investments in shares.',
   },
   {
-    value: 'rental_income',
+    value: 'other_income_rental',
     label: 'Rental Income',
     group: 'Income',
     normalBalance: 'credit',
@@ -621,7 +621,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
     description: 'Income from renting out property or equipment.',
   },
   {
-    value: 'other_income',
+    value: 'other_income_misc',
     label: 'Other Income',
     group: 'Income',
     normalBalance: 'credit',
@@ -631,7 +631,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
 
   // ── Cost of Goods Sold ────────────────────────────────────────────────────
   {
-    value: 'purchases',
+    value: 'cogs_purchases',
     label: 'Purchases',
     group: 'Cost of Goods Sold',
     normalBalance: 'debit',
@@ -639,7 +639,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
     description: 'Cost of goods purchased for trading or raw materials for production.',
   },
   {
-    value: 'direct_expenses',
+    value: 'direct_expenses_other',
     label: 'Direct Expenses',
     group: 'Cost of Goods Sold',
     normalBalance: 'debit',
@@ -647,7 +647,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
     description: 'Direct labour, freight, packing and other costs directly attributable to production.',
   },
   {
-    value: 'opening_stock',
+    value: 'cogs_opening_stock',
     label: 'Opening Stock',
     group: 'Cost of Goods Sold',
     normalBalance: 'debit',
@@ -655,7 +655,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
     description: 'Inventory at the beginning of the reporting period.',
   },
   {
-    value: 'closing_stock',
+    value: 'inventory_finished_goods',
     label: 'Closing Stock',
     group: 'Cost of Goods Sold',
     normalBalance: 'credit',
@@ -665,7 +665,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
 
   // ── Employee Expenses ─────────────────────────────────────────────────────
   {
-    value: 'salary_expense',
+    value: 'emp_expense_salaries',
     label: 'Salaries & Wages',
     group: 'Employee Expenses',
     normalBalance: 'debit',
@@ -673,7 +673,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
     description: 'Gross salaries, wages and allowances paid to employees.',
   },
   {
-    value: 'pf_expense',
+    value: 'emp_expense_pf',
     label: 'PF / SSF Contribution (Employer)',
     group: 'Employee Expenses',
     normalBalance: 'debit',
@@ -681,7 +681,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
     description: "Employer's contribution to Provident Fund and Social Security Fund.",
   },
   {
-    value: 'gratuity_expense',
+    value: 'emp_expense_gratuity',
     label: 'Gratuity Expense',
     group: 'Employee Expenses',
     normalBalance: 'debit',
@@ -689,7 +689,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
     description: 'Gratuity expense accrued for the period per actuarial estimate.',
   },
   {
-    value: 'leave_expense',
+    value: 'emp_expense_other',
     label: 'Leave Encashment Expense',
     group: 'Employee Expenses',
     normalBalance: 'debit',
@@ -697,7 +697,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
     description: 'Expense for accumulated leave liability of employees.',
   },
   {
-    value: 'bonus_expense',
+    value: 'emp_expense_bonus',
     label: 'Staff Bonus Expense',
     group: 'Employee Expenses',
     normalBalance: 'debit',
@@ -705,7 +705,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
     description: 'Staff bonus charged to income statement (10% of net profit before tax).',
   },
   {
-    value: 'staff_welfare',
+    value: 'emp_expense_welfare',
     label: 'Staff Welfare Expenses',
     group: 'Employee Expenses',
     normalBalance: 'debit',
@@ -715,7 +715,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
 
   // ── Finance Costs ─────────────────────────────────────────────────────────
   {
-    value: 'bank_interest_expense',
+    value: 'finance_cost_interest',
     label: 'Bank Interest Expense',
     group: 'Finance Costs',
     normalBalance: 'debit',
@@ -723,7 +723,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
     description: 'Interest charged on bank loans, overdrafts and credit facilities.',
   },
   {
-    value: 'bank_charges',
+    value: 'finance_cost_bank_charges',
     label: 'Bank Charges & Commission',
     group: 'Finance Costs',
     normalBalance: 'debit',
@@ -731,7 +731,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
     description: 'Bank service charges, LC commission and other financial charges.',
   },
   {
-    value: 'other_finance_costs',
+    value: 'finance_cost_interest',
     label: 'Other Finance Costs',
     group: 'Finance Costs',
     normalBalance: 'debit',
@@ -749,7 +749,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
     description: 'Systematic depreciation of PPE charged to income statement.',
   },
   {
-    value: 'impairment_loss',
+    value: 'impairment_expense',
     label: 'Impairment Loss',
     group: 'Depreciation & Impairment',
     normalBalance: 'debit',
@@ -759,7 +759,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
 
   // ── Administrative Expenses ───────────────────────────────────────────────
   {
-    value: 'rent_expense',
+    value: 'admin_rent',
     label: 'Rent Expense',
     group: 'Administrative Expenses',
     normalBalance: 'debit',
@@ -767,7 +767,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
     description: 'Rent paid for office, factory and business premises.',
   },
   {
-    value: 'electricity_expense',
+    value: 'admin_electricity',
     label: 'Electricity, Water & Utilities',
     group: 'Administrative Expenses',
     normalBalance: 'debit',
@@ -775,7 +775,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
     description: 'Utility costs for office and factory operations.',
   },
   {
-    value: 'telephone_internet',
+    value: 'admin_communication',
     label: 'Telephone, Internet & Communication',
     group: 'Administrative Expenses',
     normalBalance: 'debit',
@@ -783,7 +783,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
     description: 'Communication costs including internet, mobile and landline.',
   },
   {
-    value: 'printing_stationery',
+    value: 'admin_printing',
     label: 'Printing & Stationery',
     group: 'Administrative Expenses',
     normalBalance: 'debit',
@@ -791,7 +791,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
     description: 'Office stationery, printing and photocopying costs.',
   },
   {
-    value: 'repairs_maintenance',
+    value: 'admin_repairs',
     label: 'Repairs & Maintenance',
     group: 'Administrative Expenses',
     normalBalance: 'debit',
@@ -799,7 +799,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
     description: 'Expenditure on repair and maintenance of assets.',
   },
   {
-    value: 'audit_fee_expense',
+    value: 'admin_audit_fee',
     label: 'Audit Fee',
     group: 'Administrative Expenses',
     normalBalance: 'debit',
@@ -807,7 +807,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
     description: 'Statutory audit fee and other professional charges.',
   },
   {
-    value: 'legal_professional',
+    value: 'admin_legal_professional',
     label: 'Legal & Professional Fees',
     group: 'Administrative Expenses',
     normalBalance: 'debit',
@@ -815,7 +815,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
     description: 'Legal fees, consultancy fees and professional charges.',
   },
   {
-    value: 'selling_distribution',
+    value: 'admin_other',
     label: 'Selling & Distribution Expenses',
     group: 'Administrative Expenses',
     normalBalance: 'debit',
@@ -823,7 +823,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
     description: 'Sales commission, advertisement, delivery and marketing expenses.',
   },
   {
-    value: 'travel_conveyance',
+    value: 'admin_traveling',
     label: 'Travel & Conveyance',
     group: 'Administrative Expenses',
     normalBalance: 'debit',
@@ -831,7 +831,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
     description: 'Staff travel, vehicle running costs and conveyance allowances.',
   },
   {
-    value: 'insurance_expense',
+    value: 'admin_insurance',
     label: 'Insurance Premium',
     group: 'Administrative Expenses',
     normalBalance: 'debit',
@@ -839,7 +839,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
     description: 'Insurance premiums for assets, stock and business.',
   },
   {
-    value: 'miscellaneous_expense',
+    value: 'admin_other',
     label: 'Miscellaneous Expenses',
     group: 'Administrative Expenses',
     normalBalance: 'debit',
@@ -847,7 +847,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
     description: 'Sundry and miscellaneous operational expenses.',
   },
   {
-    value: 'admin_expense_other',
+    value: 'admin_other',
     label: 'Other Administrative Expenses',
     group: 'Administrative Expenses',
     normalBalance: 'debit',
@@ -857,7 +857,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
 
   // ── Tax ───────────────────────────────────────────────────────────────────
   {
-    value: 'current_tax_expense',
+    value: 'income_tax_expense',
     label: 'Current Tax Expense',
     group: 'Tax',
     normalBalance: 'debit',
@@ -865,7 +865,7 @@ export const NFRS_CATEGORY_INFO: NFRSCategoryInfo[] = [
     description: 'Current-year income tax expense based on taxable income.',
   },
   {
-    value: 'deferred_tax_expense',
+    value: 'income_tax_expense',
     label: 'Deferred Tax Expense / (Income)',
     group: 'Tax',
     normalBalance: 'debit',

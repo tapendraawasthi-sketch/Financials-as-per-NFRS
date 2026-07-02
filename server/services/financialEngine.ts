@@ -82,6 +82,7 @@ const round = (n: number) => Math.round(n * 100) / 100;
 export function computeBalanceSheet(
   tb: ParsedTrialBalance,
   adj: YearEndAdjustments,
+  is: IncomeStatement,
   previousYearBS: Partial<BalanceSheet> = {},
 ): BalanceSheet {
   const rows = tb.rows;
@@ -109,7 +110,7 @@ export function computeBalanceSheet(
   const totalNonCurrentAssets = round(nca_ppe + nca_investments + nca_receivables + nca_other);
 
   // ── Current Assets ────────────────────────────────────────────────────────
-  const ca_investments = Math.max(0, sumDr(rows, 'bank_fixed_deposit_current'));
+  const ca_investments = 0; // Short-term FD moved to cash equivalent
 
   const grossInventory = sumDr(rows, 'inventory_raw_materials', 'inventory_wip', 'inventory_finished_goods');
   const ca_inventories = Math.max(0, grossInventory - adj.totalInventoryImpairment);
@@ -138,9 +139,8 @@ export function computeBalanceSheet(
 
   // Retained earnings = opening retained earnings + net profit - dividends
   const openingRetained = sumOpeningCr(rows, 'retained_earnings');
-  // Net profit is computed by the income statement engine; placeholder here
-  // (will be recalculated in computeAllFinancials after IS is ready)
-  const eq_retainedEarnings = round(sumCr(rows, 'retained_earnings'));
+  // Net profit is computed by the income statement engine
+  const eq_retainedEarnings = round(sumCr(rows, 'retained_earnings') + is.netProfit);
   const totalEquity = round(eq_shareCapital + eq_reserves + eq_retainedEarnings);
 
   // ── Non-Current Liabilities ───────────────────────────────────────────────
@@ -158,12 +158,12 @@ export function computeBalanceSheet(
     sumCr(rows, 'trade_payables_creditors', 'tds_payable', 'other_payables', 'audit_fee_payable', 'trade_payables_advance_customers'),
   );
 
-  const incomeTaxPayable = round(sumCr(rows, 'income_tax_payable') + (adj.currentTaxExpense ?? 0));
+  const incomeTaxPayable = round(sumCr(rows, 'income_tax_payable') + is.incomeTaxExpense);
   const advanceTax = round(sumDr(rows, 'other_receivables_tds'));
   const cl_incomeTaxPayable = round(Math.max(0, incomeTaxPayable - advanceTax));
 
   const cl_provisions = round(
-    sumCr(rows, 'employee_payables_pf', 'employee_payables_bonus', 'employee_payables_salary'),
+    sumCr(rows, 'employee_payables_pf', 'employee_payables_bonus', 'employee_payables_salary') + is.staffBonus,
   );
   const cl_other = 0; // Dividends payable etc. — populated from adjustments if needed
   const totalCurrentLiabilities = round(cl_borrowings + cl_tradePayables + cl_incomeTaxPayable + cl_provisions + cl_other);
@@ -338,12 +338,21 @@ export function computeChangesInEquity(
   const closingTotal = round(closingShareCapital + closingSharePremium + closingGeneralReserve + closingRetainedEarnings);
 
   return {
-    openingShareCapital, openingSharePremium, openingGeneralReserve,
-    openingRetainedEarnings, openingTotal,
-    addProfitForYear, addNewShareCapital, addSharePremiumOnNewIssue,
-    addTransferToReserve, lessTransferFromReserve, lessDividendPaid, lessBonusShareIssued,
-    closingShareCapital, closingSharePremium, closingGeneralReserve,
-    closingRetainedEarnings, closingTotal,
+    cyOpeningShareCapital: openingShareCapital,
+    cyOpeningSharePremium: openingSharePremium,
+    cyOpeningGeneralReserve: openingGeneralReserve,
+    cyOpeningRetainedEarnings: openingRetainedEarnings,
+    cyOpeningTotal: openingTotal,
+    cyNetProfit: addProfitForYear,
+    cyShareCapitalIssued: addNewShareCapital,
+    cySharePremiumReceived: addSharePremiumOnNewIssue,
+    cyTransferToReserve: addTransferToReserve,
+    cyDividends: lessDividendPaid,
+    cyClosingShareCapital: closingShareCapital,
+    cyClosingSharePremium: closingSharePremium,
+    cyClosingGeneralReserve: closingGeneralReserve,
+    cyClosingRetainedEarnings: closingRetainedEarnings,
+    cyClosingTotal: closingTotal,
   };
 }
 
@@ -566,10 +575,10 @@ export function computeNotesData(
     note38_cashAndEquivalents: {
       cashInHand_cy: round(sumDr(rows, 'cash_in_hand')), cashInHand_py: 0,
       bankBalances: rows
-        .filter((r) => (r.nfrsCategory as string) === 'bank_current_account')
+        .filter((r) => ['bank_current_account', 'bank_fixed_deposit_current'].includes(r.nfrsCategory as string))
         .map((r) => ({
           bankName: r.rawLabel,
-          accountType: 'current',
+          accountType: (r.nfrsCategory === 'bank_fixed_deposit_current') ? 'fixed_deposit' : 'current',
           cy: round((r.closingDr ?? 0) - (r.closingCr ?? 0)),
           py: 0,
         })),
@@ -693,10 +702,7 @@ export function computeAllFinancials(
   tb: ParsedTrialBalance,
   adj: YearEndAdjustments,
   company: CompanyProfile,
-  previousYearData?: {
-    balanceSheet?: Partial<BalanceSheet>;
-    incomeStatement?: Partial<IncomeStatement>;
-  },
+  previousYearData?: import('../../src/types').PreviousYearBalances,
 ): {
   balanceSheet: BalanceSheet;
   incomeStatement: IncomeStatement;
@@ -713,14 +719,38 @@ export function computeAllFinancials(
     depreciationMethod: 'StraightLine',
   };
 
+  // Transform flat previousYearData to partial statements
+  const pyBS: Partial<BalanceSheet> = previousYearData ? {
+    nca_ppe: previousYearData.ppe,
+    nca_investments: previousYearData.investments,
+    ca_cashAndEquivalents: previousYearData.cashAndEquivalents,
+    totalCurrentAssets: previousYearData.currentAssets,
+    eq_shareCapital: previousYearData.shareCapital,
+    eq_reserves: previousYearData.reserves,
+    ncl_borrowings: previousYearData.borrowingsNonCurrent,
+    cl_borrowings: previousYearData.borrowingsCurrent,
+    cl_tradePayables: previousYearData.tradePayables,
+    cl_provisions: previousYearData.provisions,
+  } : {};
+
+  const pyIS: Partial<IncomeStatement> = previousYearData ? {
+    revenue: previousYearData.revenue,
+    materialConsumed: previousYearData.costOfSales,
+    otherIncome: previousYearData.otherIncome,
+    adminAndOtherExpenses: previousYearData.adminExpenses,
+    financeCharges: previousYearData.financeCosts,
+    depreciation: previousYearData.depreciation,
+    incomeTaxExpense: previousYearData.incomeTaxExpense,
+  } : {};
+
   // 1. Income Statement first (net profit feeds into equity and BS retained earnings)
   const incomeStatement = computeIncomeStatement(
-    tb, adj, policies, previousYearData?.incomeStatement,
+    tb, adj, policies, pyIS,
   );
 
-  // 2. Balance Sheet (uses IS depreciation)
+  // 2. Balance Sheet (uses IS net profit and depreciation)
   const balanceSheet = computeBalanceSheet(
-    tb, adj, previousYearData?.balanceSheet,
+    tb, adj, incomeStatement, pyBS,
   );
 
   // 3. Changes in Equity (uses IS net profit)

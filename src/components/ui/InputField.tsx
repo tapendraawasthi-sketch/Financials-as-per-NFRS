@@ -1,87 +1,74 @@
-// ===== src/components/ui/InputField.tsx =====
-import React from 'react';
+// src/components/ui/InputField.tsx
+import React, { useId } from 'react';
 
 interface InputFieldProps extends React.InputHTMLAttributes<HTMLInputElement> {
-  label: string;
-  error?: string;
+  label:       string;
+  error?:      string;
   helperText?: string;
-  required?: boolean;
+  required?:   boolean;
 }
 
-const InputField = React.forwardRef<HTMLInputElement, InputFieldProps>(
-  (
-    { label, error, helperText, required, className = '', id, ...rest },
-    ref,
-  ) => {
-    // Generate a stable id if none is supplied
-    const inputId = id ?? `input-${label.toLowerCase().replace(/\s+/g, '-')}`;
+export default function InputField({
+  label,
+  error,
+  helperText,
+  required,
+  className = '',
+  id,
+  ...props
+}: InputFieldProps) {
+  const generatedId = useId();
+  const inputId     = id ?? generatedId;
+  const errorId     = `${inputId}-error`;
+  const helpId      = `${inputId}-help`;
 
-    const baseInputClass =
-      'w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 transition-colors';
-    const normalBorderClass =
-      'border-slate-300 focus:ring-blue-500 focus:border-blue-500';
-    const errorBorderClass =
-      'border-red-400 focus:ring-red-400 bg-red-50';
+  const inputCls = [
+    'h-8 w-full rounded border px-2.5 text-sm text-slate-800',
+    'placeholder:text-slate-400 outline-none transition-colors',
+    error
+      ? 'border-red-400 bg-red-50 focus:border-red-500 focus:ring-1 focus:ring-red-400'
+      : 'border-slate-300 bg-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500',
+    props.disabled ? 'bg-slate-50 text-slate-400 cursor-not-allowed' : '',
+    className,
+  ]
+    .filter(Boolean)
+    .join(' ');
 
-    return (
-      <div className="flex flex-col">
-        {/* Label */}
-        <label
-          htmlFor={inputId}
-          className="block text-sm font-medium text-slate-700 mb-1"
-        >
-          {label}
-          {required && (
-            <span className="text-red-500 ml-1" aria-hidden="true">
-              *
-            </span>
-          )}
-        </label>
-
-        {/* Input */}
-        <input
-          ref={ref}
-          id={inputId}
-          aria-invalid={!!error}
-          aria-describedby={
-            error
-              ? `${inputId}-error`
-              : helperText
-              ? `${inputId}-helper`
-              : undefined
-          }
-          className={[
-            baseInputClass,
-            error ? errorBorderClass : normalBorderClass,
-            className,
-          ]
-            .filter(Boolean)
-            .join(' ')}
-          {...rest}
-        />
-
-        {/* Error message */}
-        {error && (
-          <p
-            id={`${inputId}-error`}
-            role="alert"
-            className="text-red-600 text-xs mt-1"
-          >
-            {error}
-          </p>
+  return (
+    <div className="flex flex-col gap-1">
+      <label
+        htmlFor={inputId}
+        className="text-xs font-medium text-slate-600 leading-none"
+      >
+        {label}
+        {required && (
+          <span className="text-red-500 ml-0.5" aria-hidden="true">
+            *
+          </span>
         )}
+      </label>
 
-        {/* Helper text (shown only when no error) */}
-        {!error && helperText && (
-          <p id={`${inputId}-helper`} className="text-slate-500 text-xs mt-1">
-            {helperText}
-          </p>
-        )}
-      </div>
-    );
-  },
-);
+      <input
+        id={inputId}
+        className={inputCls}
+        aria-invalid={error ? 'true' : undefined}
+        aria-describedby={
+          error ? errorId : helperText ? helpId : undefined
+        }
+        aria-required={required}
+        {...props}
+      />
 
-InputField.displayName = 'InputField';
-
-export default InputField;
+      {error && (
+        <p id={errorId} className="text-xs text-red-600 leading-none" role="alert">
+          {error}
+        </p>
+      )}
+      {!error && helperText && (
+        <p id={helpId} className="text-xs text-slate-400 leading-none">
+          {helperText}
+        </p>
+      )}
+    </div>
+  );
+}

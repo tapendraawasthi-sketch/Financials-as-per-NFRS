@@ -9,13 +9,14 @@ const router = Router();
 
 router.post('/:companyId/generate-excel', asyncHandler(async (req: Request, res: Response) => {
   const session = sessionStore.get(req.params.companyId);
+  if (!session) return res.status(404).json({ error: 'Session not found' });
   const missing: string[] = [];
   if (!session?.company)      missing.push('company profile');
   if (!session?.trialBalance) missing.push('trial balance');
   if (!session?.adjustments)  missing.push('year-end adjustments');
   if (missing.length > 0) return res.status(400).json({ error: `Missing data: ${missing.join(', ')}.` });
 
-  const financials = (session as any).financials ?? computeAllFinancials(session.trialBalance!, session.adjustments!, session.company!);
+  const financials = (session as any).financials ?? computeAllFinancials(session.trialBalance!, session.adjustments!, session.company!, session.company!.previousYearData);
   const { balanceSheet, incomeStatement, changesInEquity, cashFlow, notes } = financials;
 
   const buffer = await generateNFRSWorkbook({

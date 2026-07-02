@@ -1,102 +1,74 @@
-// ===== src/components/ui/LoadingSpinner.tsx =====
+// src/components/ui/LoadingSpinner.tsx
 import React from 'react';
 
 interface LoadingSpinnerProps {
-  message?: string;
-  size?: 'sm' | 'md' | 'lg';
+  message?:  string;
   fullPage?: boolean;
+  size?:     'sm' | 'md' | 'lg';
 }
 
-const SIZE_PX: Record<NonNullable<LoadingSpinnerProps['size']>, number> = {
-  sm: 24,
-  md: 48,
-  lg: 64,
+const SIZES: Record<NonNullable<LoadingSpinnerProps['size']>, number> = {
+  sm: 16,
+  md: 24,
+  lg: 32,
 };
 
-function LoadingSpinner({
-  message,
-  size = 'md',
-  fullPage = false,
-}: LoadingSpinnerProps): React.ReactElement {
-  const px = SIZE_PX[size];
-  const r = (px / 2) * 0.8; // radius = 80% of half the size
-  const cx = px / 2;
-  const circumference = 2 * Math.PI * r;
-
-  const spinner = (
+function SpinnerSVG({ px }: { px: number }) {
+  return (
     <svg
-      xmlns="http://www.w3.org/2000/svg"
+      className="animate-spin text-blue-600"
       width={px}
       height={px}
-      viewBox={`0 0 ${px} ${px}`}
       fill="none"
+      viewBox="0 0 24 24"
       aria-hidden="true"
-      style={{
-        animation: 'spin 1s linear infinite',
-      }}
     >
-      <style>{`
-        @keyframes spin {
-          from { transform: rotate(0deg); }
-          to   { transform: rotate(360deg); }
-        }
-      `}</style>
-      {/* Track circle */}
       <circle
-        cx={cx}
-        cy={cx}
-        r={r}
-        stroke="#e2e8f0"
-        strokeWidth={px * 0.1}
-        fill="none"
+        className="opacity-20"
+        cx="12" cy="12" r="10"
+        stroke="currentColor"
+        strokeWidth="3"
       />
-      {/* Animated arc */}
-      <circle
-        cx={cx}
-        cy={cx}
-        r={r}
-        stroke="#3b82f6"
-        strokeWidth={px * 0.1}
-        fill="none"
-        strokeLinecap="round"
-        strokeDasharray={circumference}
-        strokeDashoffset={circumference * 0.75}
+      <path
+        className="opacity-80"
+        fill="currentColor"
+        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
       />
     </svg>
   );
+}
+
+export default function LoadingSpinner({
+  message,
+  fullPage = false,
+  size     = 'md',
+}: LoadingSpinnerProps) {
+  const px = SIZES[size];
 
   const inner = (
-    <>
-      {spinner}
+    <div
+      className="flex flex-col items-center gap-2.5"
+      role="status"
+      aria-label={message ?? 'Loading'}
+    >
+      <SpinnerSVG px={px} />
       {message && (
-        <p className="text-slate-500 mt-3 text-sm text-center leading-normal max-w-xs">
-          {message}
-        </p>
+        <span className="text-sm text-slate-500">{message}</span>
       )}
-    </>
+    </div>
   );
 
   if (fullPage) {
     return (
-      <div
-        role="status"
-        aria-label={message ?? 'Loading…'}
-        className="fixed inset-0 flex flex-col items-center justify-center bg-white bg-opacity-80 z-50"
-      >
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-white/80">
         {inner}
       </div>
     );
   }
 
   return (
-    <div
-      role="status"
-      aria-label={message ?? 'Loading…'}
-      className="flex flex-col items-center justify-center py-12"
-    >
+    <div className="flex items-center justify-center py-10">
       {inner}
     </div>
   );
 }
-
-export default LoadingSpinner;

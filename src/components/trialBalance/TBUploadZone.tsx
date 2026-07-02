@@ -1,157 +1,307 @@
-// ===== src/components/trialBalance/TBUploadZone.tsx =====
-import React, { useState, useRef, useCallback } from 'react';
-import { UploadCloud, FileSpreadsheet, CheckCircle2, AlertTriangle, RefreshCw } from 'lucide-react';
-import type { ParsedTrialBalance } from '../../types';
-import Card from '../ui/Card';
-import Button from '../ui/Button';
+// src/components/trialBalance/TBUploadZone.tsx
+import React, { useRef, useState, useCallback } from 'react';
+import Card        from '../ui/Card';
 import ProgressBar from '../ui/ProgressBar';
-import Alert from '../ui/Alert';
+import Button      from '../ui/Button';
 
-interface TBUploadZoneProps {
-  companyId: string;
-  onUploadComplete: (result: ParsedTrialBalance) => void;
-  onError: (error: string) => void;
-  existingTB?: ParsedTrialBalance | null;
-  useAI?: boolean;
+interface UploadResult {
+  filename:     string;
+  accountCount: number;
+  rowCount:     number;
 }
 
-const SOFTWARE_INSTRUCTIONS = [
-  { name: 'Tally ERP 9 / Tally Prime', steps: 'Gateway of Tally → Display → Account Books → Trial Balance → Export → Format: Excel (.xlsx)' },
-  { name: 'Busy', steps: 'Reports → Account Books → Trial Balance → Export → Excel' },
-  { name: 'Marg', steps: 'Accounts → Reports → Trial Balance → Export Excel' },
-  { name: 'Zoho Books', steps: 'Reports → Accountant → Trial Balance → Export → Download as Excel' },
-  { name: 'Other / Custom', steps: 'Export any tabular file with Account Name, Debit, Credit columns. CSV or Excel both accepted.' },
+interface TBUploadZoneProps {
+  companyId:    string;
+  onUploadComplete: (tb: any) => void;
+  onError:      (msg: string) => void;
+  useAI?:       boolean;
+  onAIToggle?:  (on: boolean) => void;
+  existingTB?:  any;
+}
+
+const EXPORT_PATHS = [
+  {
+    name: 'Tally Prime',
+    path: 'Gateway of Tally → Display More Reports → Account Books → Trial Balance → Export → Excel',
+  },
+  {
+    name: 'Busy',
+    path: 'Reports → Financial Reports → Trial Balance → Print / Export → Excel',
+  },
+  {
+    name: 'Marg',
+    path: 'Reports → Financial Reports → Trial Balance → Export to Excel',
+  },
+  {
+    name: 'Zoho Books',
+    path: 'Reports → Accountant → Trial Balance → Export → XLSX',
+  },
+  {
+    name: 'General CSV',
+    path: 'Export a CSV with columns: Account Name, Opening Dr, Opening Cr, Transactions Dr, Transactions Cr',
+  },
 ];
 
-export default function TBUploadZone({ companyId, onUploadComplete, onError, existingTB, useAI = false }: TBUploadZoneProps): React.ReactElement {
-  const [isUploading, setIsUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
-  const [isDragOver, setIsDragOver] = useState(false);
-  const [uploadedFile, setUploadedFile] = useState<string | null>(null);
-  const [useAIToggle, setUseAIToggle] = useState(useAI);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+type UploadState = 'idle' | 'uploading' | 'success' | 'error';
 
-  const handleFileUpload = useCallback(async (file: File) => {
-    setIsUploading(true);
-    setUploadProgress(0);
+export default function TBUploadZone({
+  companyId,
+  onUploadComplete,
+  onError,
+  useAI = true,
+  onAIToggle,
+  existingTB,
+}: TBUploadZoneProps) {
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const [uploadState, setUploadState] = useState<UploadState>('idle');
+  const [progress,    setProgress]    = useState(0);
+  const [filename,    setFilename]    = useState('');
+  const [result,      setResult]      = useState<UploadResult | null>(null);
+  const [isDragging,  setIsDragging]  = useState(false);
+  const [aiOn,        setAiOn]        = useState(useAI);
+
+  const handleFile = useCallback(async (file: File) => {
+    const allowed = ['xlsx', 'xls', 'csv'];
+    const ext     = file.name.split('.').pop()?.toLowerCase() ?? '';
+    if (!allowed.includes(ext)) {
+      onError(`Unsupported file type: .${ext}. Please upload .xlsx, .xls, or .csv`);
+      return;
+    }
+
+    setFilename(file.name);
+    setUploadState('uploading');
+    setProgress(0);
+
     const formData = new FormData();
-    formData.append('trialbalance', file);
-    const url = `/api/trial-balance/${companyId}/upload${useAIToggle ? '?useAI=true' : ''}`;
+    formData.append('file', file);
+    if (aiOn) formData.append('useAI', 'true');
 
-    return new Promise<void>((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
-      xhr.upload.addEventListener('progress', (e) => {
-        if (e.lengthComputable) setUploadProgress(Math.round((e.loaded / e.total) * 90));
-      });
-      xhr.onload = () => {
-        setUploadProgress(100);
-        if (xhr.status >= 200 && xhr.status < 300) {
-          const result: ParsedTrialBalance = JSON.parse(xhr.responseText);
-          setUploadedFile(file.name);
-          onUploadComplete(result);
-          resolve();
-        } else {
-          const err = JSON.parse(xhr.responseText)?.error ?? 'Upload failed.';
-          onError(err);
-          reject(err);
+    const xhr = new XMLHttpRequest();
+
+    xhr.upload.onprogress = e => {
+      if (e.lengthComputable) setProgress(Math.round((e.loaded / e.total) * 90));
+    };
+
+    xhr.onload = () => {
+      setProgress(100);
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          const data = JSON.parse(xhr.responseText);
+          const r: UploadResult = {
+            filename:     file.name,
+            accountCount: data.data?.rows?.length ?? 0,
+            rowCount:     data.data?.rows?.length ?? 0,
+          };
+          setResult(r);
+          setUploadState('success');
+          onUploadComplete(data.data);
+        } catch {
+          setUploadState('error');
+          onError('Server returned an unexpected response.');
         }
-        setIsUploading(false);
-      };
-      xhr.onerror = () => { onError('Network error during upload.'); setIsUploading(false); reject(); };
-      xhr.open('POST', url);
-      xhr.send(formData);
-    });
-  }, [companyId, useAIToggle, onUploadComplete, onError]);
+      } else {
+        setUploadState('error');
+        try {
+          const d = JSON.parse(xhr.responseText);
+          onError(d.error ?? 'Upload failed.');
+        } catch {
+          onError(`Upload failed with status ${xhr.status}.`);
+        }
+      }
+    };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) handleFileUpload(file).catch(() => {});
-  };
+    xhr.onerror = () => {
+      setUploadState('error');
+      onError('Network error during upload. Please check your connection.');
+    };
+
+    xhr.open('POST', `/api/trial-balance/${companyId}/upload`);
+    xhr.send(formData);
+  }, [companyId, aiOn, onUploadComplete, onError]);
 
   const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault(); setIsDragOver(false);
+    e.preventDefault();
+    setIsDragging(false);
     const file = e.dataTransfer.files[0];
-    if (file) handleFileUpload(file).catch(() => {});
+    if (file) handleFile(file);
   };
 
-  const downloadSampleCSV = () => {
-    const csv = `Account Name,Opening Dr,Opening Cr,During Dr,During Cr,Closing Dr,Closing Cr\nPaid-up Capital,0,5000000,0,0,0,5000000\nCash in Hand,10000,0,50000,30000,30000,0\nSales Revenue,0,0,0,1000000,0,1000000\nSalaries,0,0,500000,0,500000,0`;
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'Sample_Trial_Balance.csv'; a.click();
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
   };
 
-  if (existingTB && !isUploading && !uploadedFile) {
-    return (
-      <div className="space-y-4">
-        <Card>
-          <div className="flex items-center gap-4">
-            <CheckCircle2 className="w-8 h-8 text-green-500 flex-shrink-0" />
-            <div className="flex-1 min-w-0">
-              <p className="font-semibold text-slate-800">Trial Balance Loaded</p>
-              <p className="text-sm text-slate-500">{existingTB.rows?.length ?? 0} accounts · {existingTB.rows?.filter((r) => !r.needsReview)?.length ?? 0} auto-matched · {existingTB.rows?.filter((r) => r.needsReview)?.length ?? 0} need review</p>
+  const handleDragLeave = () => setIsDragging(false);
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) handleFile(file);
+    // Reset input so same file can be re-uploaded
+    e.target.value = '';
+  };
+
+  const toggleAI = () => {
+    const next = !aiOn;
+    setAiOn(next);
+    onAIToggle?.(next);
+  };
+
+  const handleReupload = () => {
+    setUploadState('idle');
+    setResult(null);
+    setProgress(0);
+    fileRef.current?.click();
+  };
+
+  return (
+    <div className="grid grid-cols-5 gap-5">
+      {/* ── Left: Upload area ─────────────────────────────────────── */}
+      <div className="col-span-3">
+        <Card title="Upload Trial Balance File" padding="md">
+          {/* Drop zone */}
+          {uploadState === 'idle' && (
+            <div
+              role="button"
+              tabIndex={0}
+              aria-label="Upload trial balance file — click or drop file here"
+              onClick={() => fileRef.current?.click()}
+              onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') fileRef.current?.click(); }}
+              onDrop={handleDrop}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              className={[
+                'border border-dashed rounded p-8 text-center cursor-pointer transition-colors',
+                isDragging
+                  ? 'border-blue-400 bg-blue-50'
+                  : 'border-slate-300 bg-slate-50 hover:bg-slate-100 hover:border-slate-400',
+              ].join(' ')}
+            >
+              <svg
+                className="h-8 w-8 text-slate-300 mx-auto mb-2"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={1.5}
+                aria-hidden="true"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round"
+                  d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+              </svg>
+              <p className="text-sm text-slate-500">
+                Drop file here or click to browse
+              </p>
+              <p className="text-xs text-slate-400 mt-1">
+                Accepts .xlsx, .xls, .csv
+              </p>
             </div>
-            <Button variant="outline" size="sm" icon={<RefreshCw size={14} />} onClick={() => { setUploadedFile(null); fileInputRef.current?.click(); }}>Re-upload</Button>
+          )}
+
+          {/* Uploading state */}
+          {uploadState === 'uploading' && (
+            <div className="py-4 space-y-2">
+              <p className="text-xs text-slate-600 truncate">Processing {filename}…</p>
+              <ProgressBar value={progress} showValue size="md" />
+            </div>
+          )}
+
+          {/* Success state */}
+          {uploadState === 'success' && result && (
+            <div className="flex items-center gap-2.5 py-2">
+              <span className="h-2 w-2 rounded-full bg-emerald-500 flex-shrink-0" aria-hidden="true" />
+              <span className="text-xs text-slate-700 truncate flex-1" title={result.filename}>
+                {result.filename} — {result.accountCount} accounts detected
+              </span>
+              <button
+                type="button"
+                onClick={handleReupload}
+                className="text-xs text-blue-600 hover:text-blue-800 underline flex-shrink-0 transition-colors"
+              >
+                Re-upload
+              </button>
+            </div>
+          )}
+
+          {/* Error state */}
+          {uploadState === 'error' && (
+            <div className="flex items-center gap-2.5 py-2">
+              <span className="h-2 w-2 rounded-full bg-red-500 flex-shrink-0" aria-hidden="true" />
+              <span className="text-xs text-red-600 flex-1">Upload failed.</span>
+              <button
+                type="button"
+                onClick={handleReupload}
+                className="text-xs text-blue-600 hover:text-blue-800 underline flex-shrink-0"
+              >
+                Try again
+              </button>
+            </div>
+          )}
+
+          {/* Hidden file input */}
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".xlsx,.xls,.csv"
+            className="hidden"
+            onChange={handleInputChange}
+            aria-hidden="true"
+          />
+
+          {/* AI toggle */}
+          <div className="flex items-center justify-between py-2.5 border-t border-slate-100 mt-3">
+            <div>
+              <p className="text-xs text-slate-600 font-medium leading-none">
+                Use AI Account Matching
+              </p>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Claude AI improves classification of unrecognised accounts
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={aiOn}
+              aria-label="Toggle AI account matching"
+              onClick={toggleAI}
+              className={[
+                'relative w-9 h-5 rounded-full flex-shrink-0 cursor-pointer transition-colors duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600',
+                aiOn ? 'bg-blue-600' : 'bg-slate-300',
+              ].join(' ')}
+            >
+              <span
+                className={[
+                  'absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-200',
+                  aiOn ? 'translate-x-4' : 'translate-x-0.5',
+                ].join(' ')}
+              />
+            </button>
           </div>
         </Card>
       </div>
-    );
-  }
 
-  return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-      {/* Upload zone */}
-      <div className="lg:col-span-2">
-        <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={handleFileChange} />
-        <div
-          className={['border-2 border-dashed rounded-2xl p-12 text-center cursor-pointer transition-all', isDragOver ? 'border-blue-500 bg-blue-50' : 'border-blue-300 hover:border-blue-500 hover:bg-blue-50'].join(' ')}
-          onClick={() => !isUploading && fileInputRef.current?.click()}
-          onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
-          onDragLeave={() => setIsDragOver(false)}
-          onDrop={handleDrop}
-          role="button" tabIndex={0} aria-label="Upload trial balance file"
-        >
-          {isUploading ? (
-            <div className="space-y-4">
-              <p className="text-blue-700 font-semibold text-lg">Uploading and classifying accounts…</p>
-              {useAIToggle && <p className="text-blue-500 text-sm">Claude AI is analysing unmatched accounts…</p>}
-              <ProgressBar value={uploadProgress} color="blue" size="md" showPercentage label="Processing" />
-            </div>
-          ) : (
-            <>
-              <UploadCloud className="mx-auto mb-4 text-blue-400" size={64} />
-              <p className="text-xl font-semibold text-blue-700 mb-1">Drop your Trial Balance file here</p>
-              <p className="text-slate-500 mb-3">or click to browse files</p>
-              <p className="text-xs text-slate-400">Supported formats: Excel (.xlsx, .xls) · CSV (.csv)</p>
-            </>
-          )}
-        </div>
-
-        {/* AI toggle */}
-        <label className="flex items-center gap-3 mt-4 cursor-pointer p-3 bg-purple-50 border border-purple-200 rounded-xl">
-          <input type="checkbox" checked={useAIToggle} onChange={(e) => setUseAIToggle(e.target.checked)} className="rounded text-purple-600" />
-          <div>
-            <p className="text-sm font-semibold text-purple-800">Enable Claude AI for better account recognition</p>
-            <p className="text-xs text-purple-600">Uses Anthropic Claude to suggest NFRS categories for accounts that couldn't be automatically matched</p>
+      {/* ── Right: Instructions ────────────────────────────────────── */}
+      <div className="col-span-2">
+        <Card title="Export from Your Software" padding="sm">
+          <div className="divide-y divide-slate-100">
+            {EXPORT_PATHS.map(sw => (
+              <div key={sw.name} className="py-2.5 first:pt-0 last:pb-0">
+                <p className="text-xs font-medium text-slate-700">{sw.name}</p>
+                <p className="text-xs text-slate-500 font-mono bg-slate-50 px-1.5 py-0.5 rounded mt-0.5 leading-snug break-words">
+                  {sw.path}
+                </p>
+              </div>
+            ))}
           </div>
-        </label>
 
-        {uploadedFile && <Alert type="success" title="Upload Complete" message={`"${uploadedFile}" processed successfully. Review account mappings below.`} />}
+          <a
+            href="/sample-trial-balance.csv"
+            download
+            className="text-xs text-blue-600 hover:text-blue-800 underline mt-3 block transition-colors"
+          >
+            Download sample CSV format
+          </a>
+        </Card>
       </div>
-
-      {/* Instructions */}
-      <Card title="How to Export Your Trial Balance" padding="sm">
-        <div className="space-y-4">
-          {SOFTWARE_INSTRUCTIONS.map((sw) => (
-            <div key={sw.name} className="border-b border-slate-100 pb-3 last:border-0">
-              <p className="text-xs font-bold text-slate-700 uppercase tracking-wide mb-1">{sw.name}</p>
-              <p className="text-xs text-slate-500 leading-relaxed">{sw.steps}</p>
-            </div>
-          ))}
-          <Button variant="ghost" size="sm" className="w-full mt-2" onClick={downloadSampleCSV}>
-            ↓ Download Sample Format
-          </Button>
-        </div>
-      </Card>
     </div>
   );
 }

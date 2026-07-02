@@ -104,17 +104,17 @@ const StatementsPage: React.FC = () => {
         const w: string[] = [];
         if (data.balanceSheet) {
           const bs = data.balanceSheet as BalanceSheet;
-          const diff = Math.abs((bs.totalAssets?.cy ?? 0) - (bs.totalLiabilitiesAndEquity?.cy ?? 0));
+          const diff = Math.abs((bs.totalAssets ?? 0) - (bs.totalEquityAndLiabilities ?? 0));
           if (diff > 1) w.push(`Balance sheet does not balance — difference: ${formatNPR(diff)}`);
         }
         if (data.cashFlow) {
           const cf = data.cashFlow as CashFlowStatement;
           const computed =
-            (cf.openingCash?.cy ?? 0) +
-            (cf.netCashFromOperating?.cy ?? 0) +
-            (cf.netCashFromInvesting?.cy ?? 0) +
-            (cf.netCashFromFinancing?.cy ?? 0);
-          if (Math.abs(computed - (cf.closingCash?.cy ?? 0)) > 1) {
+            (cf.openingCash ?? 0) +
+            (cf.netCashFromOperating ?? 0) +
+            (cf.netCashFromInvesting ?? 0) +
+            (cf.netCashFromFinancing ?? 0);
+          if (Math.abs(computed - (cf.closingCash ?? 0)) > 1) {
             w.push('Cash flow statement reconciliation difference — please review working capital movements.');
           }
         }
@@ -136,7 +136,7 @@ const StatementsPage: React.FC = () => {
   const ce = state.changesInEquity as ChangesInEquity | null;
 
   const bsBalanced = bs
-    ? Math.abs((bs.totalAssets?.cy ?? 0) - (bs.totalLiabilitiesAndEquity?.cy ?? 0)) < 2
+    ? Math.abs((bs.totalAssets ?? 0) - (bs.totalEquityAndLiabilities ?? 0)) < 2
     : false;
 
   const tabs = [
@@ -179,7 +179,7 @@ const StatementsPage: React.FC = () => {
             {bsBalanced
               ? '✅ Balance Sheet balances — Assets = Liabilities + Equity'
               : `⚠️ Balance Sheet does not balance — difference: ${formatNPR(
-                  Math.abs((bs.totalAssets?.cy ?? 0) - (bs.totalLiabilitiesAndEquity?.cy ?? 0))
+                  Math.abs((bs.totalAssets ?? 0) - (bs.totalEquityAndLiabilities ?? 0))
                 )}`}
           </p>
           {!bsBalanced && (
@@ -200,24 +200,24 @@ const StatementsPage: React.FC = () => {
       {/* Tabs */}
       <Tabs
         tabs={tabs}
-        activeTab={activeTab}
+        active={activeTab}
         onChange={(id) => setActiveTab(id as TabId)}
-        variant="underline"
+        variant="line"
       />
 
       {/* Tab Content */}
       <div className="min-h-96">
         {activeTab === 'balance_sheet' && bs && state.company && (
-          <BalanceSheetView balanceSheet={bs} company={state.company} />
+          <BalanceSheetView data={bs} company={state.company} />
         )}
         {activeTab === 'income_statement' && is && state.company && (
-          <IncomeStatementView incomeStatement={is} company={state.company} />
+          <IncomeStatementView data={is} company={state.company} />
         )}
         {activeTab === 'cash_flow' && cf && state.company && (
-          <CashFlowView cashFlow={cf} company={state.company} />
+          <CashFlowView />
         )}
         {activeTab === 'equity' && ce && state.company && (
-          <ChangesInEquityView changesInEquity={ce} company={state.company} />
+          <ChangesInEquityView />
         )}
         {activeTab === 'notes' && (
           <NotesPreview companyId={companyId} />

@@ -1,131 +1,248 @@
-// ===== src/components/statements/BalanceSheetView.tsx =====
+// src/components/statements/BalanceSheetView.tsx
 import React from 'react';
-import type { BalanceSheet, CompanyProfile, NotesData } from '../../types';
-import { formatNPR } from '../../utils/numberFormat';
+import Button        from '../ui/Button';
+import PrintButton   from '../output/PrintButton';
+import { BalanceSheet } from '../../types/financials';
+import { CompanyProfile } from '../../types/company';
 
 interface BalanceSheetViewProps {
-  balanceSheet: BalanceSheet;
-  company: CompanyProfile;
-  notes?: NotesData;
+  data:         BalanceSheet;
+  company:      CompanyProfile;
+  previousYear?: Partial<BalanceSheet>;
 }
 
-interface LineProps { label: string; note?: string; cy: number; py: number; isTotal?: boolean; isSubTotal?: boolean; isSectionHeader?: boolean; indent?: number; }
+function fmt(n: number | undefined | null, rl: number): string {
+  if (n === undefined || n === null || n === 0) return '—';
+  const r   = Math.round(n / rl) * rl;
+  const abs = Math.abs(r).toLocaleString('en-IN');
+  return r < 0 ? `(${abs})` : abs;
+}
 
-function Line({ label, note, cy, py, isTotal, isSubTotal, isSectionHeader, indent = 0 }: LineProps): React.ReactElement {
-  if (isSectionHeader) {
-    return (
-      <tr className="bg-slate-800">
-        <td colSpan={4} className="px-4 py-2 text-white font-bold text-sm uppercase tracking-wide">{label}</td>
-      </tr>
-    );
-  }
-  const rowCls = isTotal ? 'bg-blue-50 border-t-2 border-b-2 border-blue-600' : isSubTotal ? 'bg-slate-50 border-t border-b border-slate-300' : '';
-  const fontCls = (isTotal || isSubTotal) ? 'font-bold text-slate-900' : 'text-slate-700';
-  const indent_px = `${indent * 16}px`;
-
+// ── Table row helpers ──────────────────────────────────────────────────────
+function SectionRow({ label }: { label: string }) {
   return (
-    <tr className={`${rowCls} hover:bg-blue-50/30 transition-colors`}>
-      <td className={`px-4 py-2 ${fontCls} text-sm`} style={{ paddingLeft: `calc(1rem + ${indent_px})` }}>
-        {label}
-      </td>
-      <td className="px-2 py-2 text-xs text-blue-600 italic text-center w-12">{note}</td>
-      <td className={`px-4 py-2 text-right font-mono text-sm ${fontCls} w-36`}>{cy !== 0 ? formatNPR(cy, 100) : '–'}</td>
-      <td className={`px-4 py-2 text-right font-mono text-sm text-slate-500 w-36`}>{py !== 0 ? formatNPR(py, 100) : '–'}</td>
+    <tr className="row-section-head">
+      <td colSpan={4}>{label}</td>
     </tr>
   );
 }
 
-export default function BalanceSheetView({ balanceSheet: bs, company }: BalanceSheetViewProps): React.ReactElement {
-  const fy = company.fiscalYear ?? '2081/82';
-  const [, endBS] = fy.split('/');
+function DataRow({
+  label,
+  note,
+  cy,
+  py,
+  rl,
+  indent = false,
+}: {
+  label:   string;
+  note?:   string;
+  cy:      number | undefined | null;
+  py?:     number | undefined | null;
+  rl:      number;
+  indent?: boolean;
+}) {
+  const isZero = !cy || cy === 0;
+  return (
+    <tr>
+      <td className={`${indent ? 'pl-8' : ''} text-xs text-slate-700`}>{label}</td>
+      <td className="text-center text-xs">
+        {note && <span className="text-blue-600 font-normal">{note}</span>}
+      </td>
+      <td className={`amount text-xs ${isZero ? 'amount-zero' : ''}`}>
+        {fmt(cy, rl)}
+      </td>
+      <td className={`amount text-xs ${!py || py === 0 ? 'amount-zero' : ''}`}>
+        {fmt(py, rl)}
+      </td>
+    </tr>
+  );
+}
+
+function TotalRow({
+  label,
+  cy,
+  py,
+  rl,
+  grand = false,
+}: {
+  label:  string;
+  cy:     number | undefined | null;
+  py?:    number | undefined | null;
+  rl:     number;
+  grand?: boolean;
+}) {
+  const cls = grand ? 'row-grand-total' : 'row-total';
+  return (
+    <tr className={cls}>
+      <td className="text-xs">{label}</td>
+      <td />
+      <td className="amount text-xs">{fmt(cy, rl)}</td>
+      <td className="amount text-xs">{fmt(py, rl)}</td>
+    </tr>
+  );
+}
+
+function BlankRow() {
+  return <tr><td colSpan={4} className="py-1" /></tr>;
+}
+
+export default function BalanceSheetView({
+  data,
+  company,
+  previousYear,
+}: BalanceSheetViewProps) {
+  const rl   = company.accountingPolicies?.roundingLevel ?? 100;
+  const cy   = company.fiscalYear;
+  const diff = data.checkDifference ?? (data.totalAssets - data.totalEquityAndLiabilities);
 
   return (
-    <div className="max-w-5xl mx-auto bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden print:shadow-none print:border-0">
-      {/* Header */}
-      <div className="bg-slate-900 text-white text-center py-6 px-8">
-        <h1 className="text-xl font-bold uppercase tracking-wide">{company.companyName}</h1>
-        <h2 className="text-base font-semibold mt-1">STATEMENT OF FINANCIAL POSITION</h2>
-        <p className="text-sm text-slate-300 italic mt-0.5">As at 31 Ashadh {endBS ?? ''} (15 July 2025)</p>
-        <p className="text-xs text-slate-400 mt-1">All figures in NPR (Nepalese Rupees)</p>
+    <div className="statement-page max-w-4xl mx-auto">
+      {/* Print / no-print actions */}
+      <div className="no-print flex justify-end mb-3">
+        <PrintButton label="Print Statement" />
       </div>
 
-      {/* Column headers */}
-      <div className="grid grid-cols-4 gap-0 bg-blue-50 border-b border-blue-200 px-4 py-2">
-        <div className="text-sm font-semibold text-slate-700">Particulars</div>
-        <div className="text-xs font-medium text-slate-500 text-center">Note</div>
-        <div className="text-sm font-semibold text-slate-700 text-right">31 Ashadh {endBS ?? ''}</div>
-        <div className="text-sm font-medium text-slate-500 text-right">Previous Year</div>
+      {/* Statement header */}
+      <div className="statement-header">
+        <p className="statement-company-name">{company.companyName}</p>
+        <p className="statement-title">Statement of Financial Position</p>
+        <p className="statement-date">
+          As at {cy?.endDateBS ?? '31 Ashadh 2082'} ({cy?.endDateAD ?? 'July 15, 2025'})
+        </p>
+        <p className="text-xs text-slate-400 mt-1">
+          All amounts in NPR rounded to nearest {rl.toLocaleString()}
+        </p>
       </div>
 
-      <table className="w-full border-collapse">
+      {/* Main table */}
+      <table className="fin-table w-full mt-4">
+        <colgroup>
+          <col style={{ width: '55%' }} />
+          <col style={{ width: '6%' }} />
+          <col style={{ width: '19.5%' }} />
+          <col style={{ width: '19.5%' }} />
+        </colgroup>
+        <thead>
+          <tr>
+            <th className="text-left">Particulars</th>
+            <th className="text-center">Note</th>
+            <th className="text-right">{cy?.endDateBS ?? 'FY 2081/82'}</th>
+            <th className="text-right">FY {
+              cy?.bsYear?.replace(/(\d+)\/(\d+)/, (_, a, b) => `${+a-1}/${+b-1}`) ?? 'Prior Year'
+            }</th>
+          </tr>
+        </thead>
+
         <tbody>
-          <Line label="A.  NON-CURRENT ASSETS" isSectionHeader />
-          <Line label="Property, Plant and Equipment" note="3.1" cy={bs.nca_ppe} py={bs.nca_ppe_py} indent={1} />
-          <Line label="Investments" note="3.2" cy={bs.nca_investments} py={bs.nca_investments_py} indent={1} />
-          <Line label="Other Receivables (Non-current)" note="3.4" cy={bs.nca_receivables} py={bs.nca_receivables_py} indent={1} />
-          <Line label="Other Non-Current Assets" note="3.5" cy={bs.nca_other} py={bs.nca_other_py} indent={1} />
-          <Line label="Total Non-Current Assets" cy={bs.totalNonCurrentAssets} py={bs.totalNonCurrentAssets_py} isSubTotal />
+          {/* ── A: NON-CURRENT ASSETS ─────────────────────────────────── */}
+          <SectionRow label="A  NON-CURRENT ASSETS" />
+          <DataRow label="Property, Plant &amp; Equipment (Net)" note="3.1" cy={data.nca_ppe}        py={previousYear?.nca_ppe}        rl={rl} indent />
+          <DataRow label="Investments"                            note="3.2" cy={data.nca_investments} py={previousYear?.nca_investments} rl={rl} indent />
+          <DataRow label="Other Receivables"                      note="3.4" cy={data.nca_receivables} py={previousYear?.nca_receivables} rl={rl} indent />
+          <DataRow label="Other Non-Current Assets"              note="3.5" cy={data.nca_other}       py={previousYear?.nca_other}       rl={rl} indent />
+          <TotalRow label="Total Non-Current Assets"                        cy={data.totalNonCurrentAssets} py={previousYear?.totalNonCurrentAssets} rl={rl} />
+          <BlankRow />
 
-          <Line label="B.  CURRENT ASSETS" isSectionHeader />
-          <Line label="Investments (Current)" note="3.2" cy={bs.ca_investments} py={bs.ca_investments_py} indent={1} />
-          <Line label="Inventories" note="3.7" cy={bs.ca_inventories} py={bs.ca_inventories_py} indent={1} />
-          <Line label="Trade and Other Receivables" note="3.3" cy={bs.ca_tradeReceivables} py={bs.ca_tradeReceivables_py} indent={1} />
-          <Line label="Cash and Cash Equivalents" note="3.8" cy={bs.ca_cashAndEquivalents} py={bs.ca_cashAndEquivalents_py} indent={1} />
-          <Line label="Other Current Assets" note="3.6" cy={bs.ca_other} py={bs.ca_other_py} indent={1} />
-          <Line label="Total Current Assets" cy={bs.totalCurrentAssets} py={bs.totalCurrentAssets_py} isSubTotal />
+          {/* ── B: CURRENT ASSETS ─────────────────────────────────────── */}
+          <SectionRow label="B  CURRENT ASSETS" />
+          <DataRow label="Inventories"          note="3.7" cy={data.ca_inventories}      py={previousYear?.ca_inventories}      rl={rl} indent />
+          <DataRow label="Trade Receivables"    note="3.3" cy={data.ca_tradeReceivables} py={previousYear?.ca_tradeReceivables} rl={rl} indent />
+          <DataRow label="Other Current Assets" note="3.4 / 3.6" cy={data.ca_other} py={previousYear?.ca_other_py} rl={rl} indent />
+          <DataRow label="Cash and cash equivalents" note="3.8" cy={data.ca_cashAndEquivalents} py={previousYear?.ca_cashAndEquivalents} rl={rl} indent />
+          <TotalRow label="Total Current Assets"        cy={data.totalCurrentAssets}    py={previousYear?.totalCurrentAssets}  rl={rl} />
+          <BlankRow />
+          <TotalRow label="TOTAL ASSETS" cy={data.totalAssets} py={previousYear?.totalAssets} rl={rl} grand />
+          <BlankRow />
 
-          <Line label="TOTAL ASSETS" cy={bs.totalAssets} py={bs.totalAssets_py} isTotal />
+          {/* ── C: EQUITY ──────────────────────────────────────────────── */}
+          <SectionRow label="C  EQUITY" />
+          <DataRow label="Share Capital"              note="3.9"  cy={data.eq_shareCapital}   py={previousYear?.eq_shareCapital}   rl={rl} indent />
+          <DataRow label="Retained earnings" cy={data.eq_retainedEarnings} py={previousYear?.eq_retainedEarnings} rl={rl} indent />
+          <DataRow label="Other reserves" note="3.10" cy={data.eq_reserves} py={previousYear?.eq_reserves} rl={rl} indent />
+          <TotalRow label="Total Equity"              cy={data.totalEquity} py={previousYear?.totalEquity} rl={rl} />
+          <BlankRow />
 
-          <Line label="C.  EQUITY" isSectionHeader />
-          <Line label="Share Capital" note="3.9" cy={bs.eq_shareCapital} py={bs.eq_shareCapital_py} indent={1} />
-          <Line label="Reserves" note="3.10" cy={bs.eq_reserves} py={bs.eq_reserves_py} indent={1} />
-          <Line label="Retained Earnings" cy={bs.eq_retainedEarnings} py={bs.eq_retainedEarnings_py} indent={1} />
-          <Line label="Total Equity" cy={bs.totalEquity} py={bs.totalEquity_py} isSubTotal />
+          {/* ── D: NON-CURRENT LIABILITIES ─────────────────────────────── */}
+          <SectionRow label="D  NON-CURRENT LIABILITIES" />
+          <DataRow label="Borrowings — Non-Current"   note="3.11" cy={data.ncl_borrowings}    py={previousYear?.ncl_borrowings}   rl={rl} indent />
+          <DataRow label="Employee benefits" note="3.12" cy={data.ncl_employeeBenefits} py={previousYear?.ncl_employeeBenefits} rl={rl} indent />
+          <DataRow label="Deferred Tax Liability"              cy={data.ncl_deferredTax}  py={previousYear?.ncl_deferredTax} rl={rl} indent />
+          <TotalRow label="Total Non-Current Liabilities" cy={data.totalNonCurrentLiabilities} py={previousYear?.totalNonCurrentLiabilities} rl={rl} />
+          <BlankRow />
 
-          <Line label="D.  NON-CURRENT LIABILITIES" isSectionHeader />
-          <Line label="Loans and Borrowings" note="3.11" cy={bs.ncl_borrowings} py={bs.ncl_borrowings_py} indent={1} />
-          <Line label="Employee Benefit Liabilities" note="3.12" cy={bs.ncl_employeeBenefits} py={bs.ncl_employeeBenefits_py} indent={1} />
-          <Line label="Provisions" cy={bs.ncl_provisions} py={bs.ncl_provisions_py} indent={1} />
-          <Line label="Total Non-Current Liabilities" cy={bs.totalNonCurrentLiabilities} py={bs.totalNonCurrentLiabilities_py} isSubTotal />
+          {/* ── E: CURRENT LIABILITIES ─────────────────────────────────── */}
+          <SectionRow label="E  CURRENT LIABILITIES" />
+          <DataRow label="Borrowings — Current"      note="3.11" cy={data.cl_borrowings}     py={previousYear?.cl_borrowings}    rl={rl} indent />
+          <DataRow label="Trade payables" note="3.13" cy={data.cl_tradePayables} py={previousYear?.cl_tradePayables} rl={rl} indent />
+          <DataRow label="Provisions" cy={data.cl_provisions} py={previousYear?.cl_provisions} rl={rl} indent />
+          <DataRow label="Current tax liabilities" note="3.15" cy={data.cl_incomeTaxPayable} py={previousYear?.cl_incomeTaxPayable} rl={rl} indent />
+          <DataRow label="Other Current Liabilities" note="3.14" cy={data.cl_other}          py={previousYear?.cl_other}         rl={rl} indent />
+          <TotalRow label="Total Current Liabilities" cy={data.totalCurrentLiabilities} py={previousYear?.totalCurrentLiabilities} rl={rl} />
+          <BlankRow />
 
-          <Line label="E.  CURRENT LIABILITIES" isSectionHeader />
-          <Line label="Loans and Borrowings" note="3.11" cy={bs.cl_borrowings} py={bs.cl_borrowings_py} indent={1} />
-          <Line label="Trade and Other Payables" note="3.13" cy={bs.cl_tradePayables} py={bs.cl_tradePayables_py} indent={1} />
-          <Line label="Income Tax Liability" cy={bs.cl_incomeTaxPayable} py={bs.cl_incomeTaxPayable_py} indent={1} />
-          <Line label="Employee Benefit Liability" note="3.12" cy={bs.cl_provisions} py={bs.cl_provisions_py} indent={1} />
-          <Line label="Other Current Liabilities" cy={bs.cl_other} py={bs.cl_other_py} indent={1} />
-          <Line label="Total Current Liabilities" cy={bs.totalCurrentLiabilities} py={bs.totalCurrentLiabilities_py} isSubTotal />
+          <TotalRow
+            label="TOTAL EQUITY AND LIABILITIES"
+            cy={data.totalEquityAndLiabilities}
+            py={previousYear?.totalEquityAndLiabilities}
+            rl={rl}
+            grand
+          />
 
-          <Line label="TOTAL EQUITY AND LIABILITIES" cy={bs.totalEquityAndLiabilities} py={bs.totalEquityAndLiabilities_py} isTotal />
-
-          {bs.checkDifference !== 0 && (
-            <tr className="bg-red-50">
-              <td colSpan={2} className="px-4 py-2 text-red-700 font-semibold text-sm">⚠️ Balance Sheet does not balance!</td>
-              <td className="px-4 py-2 text-right font-mono text-sm text-red-700 font-bold">{formatNPR(bs.checkDifference)}</td>
-              <td />
+          {/* Balance check row */}
+          {Math.abs(diff) > rl && (
+            <tr>
+              <td
+                colSpan={4}
+                className="px-3 py-2 text-xs text-red-700 bg-red-50 border border-red-200"
+                role="alert"
+              >
+                ERROR: Balance sheet does not balance. Difference: {Math.abs(diff).toLocaleString('en-IN')}
+              </td>
             </tr>
           )}
         </tbody>
       </table>
 
-      {/* Footer */}
-      <div className="px-8 py-4 border-t border-slate-200 bg-slate-50">
-        <p className="text-xs text-slate-500 italic">The notes referred to above form an integral part of these financial statements.</p>
-        <div className="grid grid-cols-2 mt-6 gap-8">
+      {/* Signature block */}
+      <div className="border-t border-slate-200 mt-6 pt-4">
+        <p className="text-xs text-slate-500 mb-4">For and on behalf of the Board of Directors</p>
+        <div className="grid grid-cols-3 gap-4 text-xs text-slate-600">
           <div>
-            <p className="text-xs font-medium text-slate-600">For and on behalf of the Board of Directors</p>
-            <div className="mt-6 border-t border-slate-400 pt-1">
-              <p className="text-sm font-medium text-slate-700">{company.chairperson ?? 'Chairperson'}</p>
-              <p className="text-xs text-slate-500">Chairperson</p>
-            </div>
+            <div className="h-10" />
+            <p className="border-t border-slate-400 pt-1 font-medium">
+              {company.chairperson || '_______________'}
+            </p>
+            <p className="text-slate-400">Chairperson</p>
           </div>
           <div>
-            <p className="text-xs font-medium text-slate-600">For {company.auditorInfo?.auditorFirmName ?? 'Audit Firm'}</p>
-            <div className="mt-6 border-t border-slate-400 pt-1">
-              <p className="text-sm font-medium text-slate-700">{company.auditorInfo?.auditorName ?? 'Auditor'}</p>
-              <p className="text-xs text-slate-500">{company.auditorInfo?.position ?? 'Engagement Partner'}</p>
-            </div>
+            <div className="h-10" />
+            <p className="border-t border-slate-400 pt-1 font-medium">
+              {company.director || '_______________'}
+            </p>
+            <p className="text-slate-400">Director</p>
           </div>
+          <div>
+            <div className="h-10" />
+            <p className="border-t border-slate-400 pt-1 font-medium">
+              {company.accountsHead || '_______________'}
+            </p>
+            <p className="text-slate-400">Head of Accounts</p>
+          </div>
+        </div>
+
+        <div className="mt-5 text-xs text-slate-500 flex items-start justify-between">
+         {/* Auditor */}
+        <div className="flex flex-col items-center">
+          <div className="w-32 h-16 border-b border-dashed border-slate-400 mb-2"></div>
+          <p className="font-bold">{company?.auditorInfo?.auditorName ?? '........................'}</p>
+          <p className="text-xs text-slate-500">
+            {company?.auditorInfo?.position === 'Partner' ? 'Engagement Partner' : company?.auditorInfo?.position ?? 'Auditor'}
+          </p>
+          <p className="font-bold mt-1">{company?.auditorInfo?.auditorFirmName ?? '........................'}</p>
+          <p className="text-xs text-slate-500">Chartered Accountants</p>
+        </div>
+          <p>Date: ___________</p>
         </div>
       </div>
     </div>

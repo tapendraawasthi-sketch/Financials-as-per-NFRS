@@ -1,121 +1,128 @@
-// ===== src/components/ui/DataTable.tsx =====
-import React from 'react';
+// src/components/ui/DataTable.tsx
+import React, { useState } from 'react';
 
 interface Column<T> {
-  key: keyof T | string;
-  header: string;
-  render?: (value: unknown, row: T, index: number) => React.ReactNode;
-  align?: 'left' | 'center' | 'right';
-  width?: string;
+  key:       string;
+  header:    string;
+  render?:   (value: any, row: T, index: number) => React.ReactNode;
+  align?:    'left' | 'center' | 'right';
+  width?:    string;
   sortable?: boolean;
+  mono?:     boolean;
 }
 
-interface DataTableProps<T> {
-  columns: Column<T>[];
-  data: T[];
-  keyField: string;
+interface DataTableProps<T extends Record<string, any>> {
+  columns:       Column<T>[];
+  data:          T[];
+  keyField:      string;
   emptyMessage?: string;
-  stickyHeader?: boolean;
-  striped?: boolean;
-  compact?: boolean;
-  maxHeight?: string;
-  onRowClick?: (row: T) => void;
+  maxHeight?:    string;
+  compact?:      boolean;
+  onRowClick?:   (row: T) => void;
+  footer?:       React.ReactNode;
+  className?:    string;
 }
 
-function DataTable<T extends Record<string, unknown>>({
+// Sort chevrons
+function SortIcon({ dir }: { dir: 'asc' | 'desc' | null }) {
+  if (!dir) return (
+    <svg className="h-3 w-3 opacity-30" fill="none" viewBox="0 0 24 24"
+      stroke="currentColor" strokeWidth={2} aria-hidden="true">
+      <polyline points="8 9 12 5 16 9" />
+      <polyline points="16 15 12 19 8 15" />
+    </svg>
+  );
+  return (
+    <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24"
+      stroke="currentColor" strokeWidth={2} aria-hidden="true">
+      {dir === 'asc'
+        ? <polyline points="18 15 12 9 6 15" />
+        : <polyline points="6 9 12 15 18 9" />
+      }
+    </svg>
+  );
+}
+
+export default function DataTable<T extends Record<string, any>>({
   columns,
   data,
   keyField,
-  emptyMessage = 'No data to display.',
-  stickyHeader = false,
-  striped = true,
-  compact = false,
+  emptyMessage = 'No data',
   maxHeight,
+  compact      = false,
   onRowClick,
-}: DataTableProps<T>): React.ReactElement {
-  const [sortKey, setSortKey] = React.useState<string | null>(null);
-  const [sortDir, setSortDir] = React.useState<'asc' | 'desc'>('asc');
+  footer,
+  className    = '',
+}: DataTableProps<T>) {
+  const [sortKey, setSortKey] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
-  const handleSort = (col: Column<T>) => {
-    if (!col.sortable) return;
-    const key = col.key as string;
+  const handleSort = (key: string) => {
     if (sortKey === key) {
-      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+      setSortDir(d => (d === 'asc' ? 'desc' : 'asc'));
     } else {
       setSortKey(key);
       setSortDir('asc');
     }
   };
 
-  const sortedData = React.useMemo(() => {
-    if (!sortKey) return data;
-    return [...data].sort((a, b) => {
-      const av = a[sortKey];
-      const bv = b[sortKey];
-      if (av === bv) return 0;
-      const cmp =
-        typeof av === 'number' && typeof bv === 'number'
-          ? av - bv
-          : String(av ?? '').localeCompare(String(bv ?? ''));
-      return sortDir === 'asc' ? cmp : -cmp;
-    });
-  }, [data, sortKey, sortDir]);
+  const sorted = sortKey
+    ? [...data].sort((a, b) => {
+        const va = a[sortKey] ?? '';
+        const vb = b[sortKey] ?? '';
+        const cmp = va < vb ? -1 : va > vb ? 1 : 0;
+        return sortDir === 'asc' ? cmp : -cmp;
+      })
+    : data;
 
-  const cellPadding = compact ? 'px-3 py-1.5' : 'px-4 py-3';
-  const headPadding = compact ? 'px-3 py-2' : 'px-4 py-3';
+  const cellPad = compact ? 'px-3 py-1.5' : 'px-3 py-2';
 
-  const alignClass = (align?: 'left' | 'center' | 'right') => {
-    if (align === 'center') return 'text-center';
-    if (align === 'right') return 'text-right';
-    return 'text-left';
-  };
+  const alignClass = (align?: Column<T>['align']) =>
+    align === 'right'
+      ? 'text-right'
+      : align === 'center'
+      ? 'text-center'
+      : 'text-left';
 
   return (
-    <div className="overflow-hidden rounded-xl border border-slate-200">
+    <div
+      className={`border border-slate-200 rounded-md overflow-hidden ${
+        maxHeight ? 'flex flex-col' : ''
+      } ${className}`}
+    >
       <div
-        className="overflow-x-auto"
-        style={maxHeight ? { maxHeight, overflowY: 'auto' } : undefined}
+        className={maxHeight ? 'overflow-y-auto' : ''}
+        style={maxHeight ? { maxHeight } : {}}
       >
-        <table className="w-full text-sm border-collapse">
-          {/* Head */}
-          <thead
-            className={[
-              'bg-slate-50',
-              stickyHeader ? 'sticky top-0 z-10' : '',
-            ].join(' ')}
-          >
-            <tr>
-              {columns.map((col) => (
+        <table className="w-full text-xs border-collapse" role="grid">
+          <thead>
+            <tr className="bg-slate-50 border-b border-slate-200">
+              {columns.map(col => (
                 <th
-                  key={col.key as string}
-                  style={col.width ? { width: col.width } : undefined}
+                  key={col.key}
+                  scope="col"
+                  style={col.width ? { width: col.width } : {}}
                   className={[
-                    headPadding,
-                    'text-slate-600 font-medium text-xs uppercase tracking-wider border-b border-slate-200',
+                    cellPad,
+                    'font-semibold text-slate-500 text-[11px] uppercase tracking-wide whitespace-nowrap',
                     alignClass(col.align),
                     col.sortable
-                      ? 'cursor-pointer select-none hover:bg-slate-100 transition-colors'
+                      ? 'cursor-pointer select-none hover:text-slate-700'
                       : '',
-                  ].join(' ')}
-                  onClick={() => col.sortable && handleSort(col)}
+                  ]
+                    .filter(Boolean)
+                    .join(' ')}
+                  onClick={col.sortable ? () => handleSort(col.key) : undefined}
                   aria-sort={
-                    sortKey === (col.key as string)
-                      ? sortDir === 'asc'
-                        ? 'ascending'
-                        : 'descending'
+                    col.sortable && sortKey === col.key
+                      ? sortDir === 'asc' ? 'ascending' : 'descending'
                       : undefined
                   }
                 >
                   <span className="inline-flex items-center gap-1">
                     {col.header}
                     {col.sortable && (
-                      <span className="opacity-40 text-slate-400">
-                        {sortKey === (col.key as string) ? (
-                          sortDir === 'asc' ? '↑' : '↓'
-                        ) : (
-                          '↕'
-                        )}
-                      </span>
+                      <SortIcon dir={sortKey === col.key ? sortDir : null} />
                     )}
                   </span>
                 </th>
@@ -123,64 +130,73 @@ function DataTable<T extends Record<string, unknown>>({
             </tr>
           </thead>
 
-          {/* Body */}
-          <tbody className="divide-y divide-slate-100">
-            {sortedData.length === 0 ? (
+          <tbody>
+            {sorted.length === 0 ? (
               <tr>
                 <td
                   colSpan={columns.length}
-                  className="px-4 py-10 text-center text-slate-400 text-sm italic"
+                  className="text-center py-8 text-slate-400 text-xs"
                 >
                   {emptyMessage}
                 </td>
               </tr>
             ) : (
-              sortedData.map((row, rowIdx) => {
-                const rowKey = String(row[keyField] ?? rowIdx);
-                const stripeClass =
-                  striped && rowIdx % 2 === 1 ? 'bg-slate-50' : 'bg-white';
-
-                return (
-                  <tr
-                    key={rowKey}
-                    className={[
-                      stripeClass,
-                      onRowClick
-                        ? 'cursor-pointer hover:bg-blue-50 transition-colors'
-                        : '',
-                    ].join(' ')}
-                    onClick={() => onRowClick?.(row)}
-                  >
-                    {columns.map((col) => {
-                      const rawValue = row[col.key as string];
-                      const cell = col.render
-                        ? col.render(rawValue, row, rowIdx)
-                        : rawValue !== null && rawValue !== undefined
-                        ? String(rawValue)
-                        : '–';
-
-                      return (
-                        <td
-                          key={col.key as string}
-                          className={[
-                            cellPadding,
-                            'text-slate-700',
-                            alignClass(col.align),
-                          ].join(' ')}
-                        >
-                          {cell as React.ReactNode}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                );
-              })
+              sorted.map((row, i) => (
+                <tr
+                  key={row[keyField] ?? i}
+                  onClick={onRowClick ? () => onRowClick(row) : undefined}
+                  role={onRowClick ? 'button' : undefined}
+                  tabIndex={onRowClick ? 0 : undefined}
+                  onKeyDown={
+                    onRowClick
+                      ? e => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            onRowClick(row);
+                          }
+                        }
+                      : undefined
+                  }
+                  className={[
+                    'border-b border-slate-100 last:border-0 transition-colors',
+                    onRowClick
+                      ? 'cursor-pointer hover:bg-blue-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600'
+                      : 'hover:bg-slate-50/70',
+                    i % 2 === 1 ? 'bg-slate-50/50' : 'bg-white',
+                  ]
+                    .filter(Boolean)
+                    .join(' ')}
+                >
+                  {columns.map(col => {
+                    const val = row[col.key];
+                    return (
+                      <td
+                        key={col.key}
+                        className={[
+                          cellPad,
+                          'text-slate-700',
+                          alignClass(col.align),
+                          col.mono ? 'font-mono tabular-nums' : '',
+                        ]
+                          .filter(Boolean)
+                          .join(' ')}
+                      >
+                        {col.render ? col.render(val, row, i) : val ?? '—'}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))
             )}
           </tbody>
+
+          {footer && (
+            <tfoot className="border-t border-slate-200 bg-slate-50">
+              {footer}
+            </tfoot>
+          )}
         </table>
       </div>
     </div>
   );
 }
-
-export default DataTable;

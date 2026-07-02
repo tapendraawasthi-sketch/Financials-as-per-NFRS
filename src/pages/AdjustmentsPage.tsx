@@ -22,27 +22,31 @@ const AdjustmentsPage: React.FC = () => {
   const assetCategories = state.company?.accountingPolicies?.assetCategories ?? [];
   const fiscalYear = state.company?.fiscalYear.bsYear ?? '2081/82';
 
-  const handleSaveAssets = async () => {
-    if (!companyId) return;
+  const handleSaveAssets = async (assets: any[]) => {
+    if (!companyId) return [];
     setIsLoading(true);
     setError(null);
     try {
       // Calculate depreciation after saving assets
       const depResponse = await fetch(`/api/adjustments/${companyId}/calculate-depreciation`, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ assets })
       });
       if (!depResponse.ok) throw new Error('Failed to calculate depreciation');
       const depData = await depResponse.json();
       setDepreciationPreview(`Depreciation calculated: NPR ${depData.totalDepreciation?.toLocaleString() ?? 0}`);
       setSubStep('provisions');
+      return depData.summary || [];
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to save assets.');
+      return [];
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleSaveProvisions = async () => {
+  const handleSaveProvisions = async (rows: any[]) => {
     setSubStep('review');
   };
 
@@ -104,9 +108,9 @@ const AdjustmentsPage: React.FC = () => {
       {/* Tabs */}
       <Tabs
         tabs={tabs}
-        activeTab={subStep}
+        active={subStep}
         onChange={(id) => setSubStep(id as SubStep)}
-        variant="underline"
+        variant="line"
       />
 
       {/* ── Assets Tab ── */}
@@ -119,10 +123,8 @@ const AdjustmentsPage: React.FC = () => {
             </p>
           </div>
           <AssetRegisterTable
-            companyId={companyId}
-            assetCategories={assetCategories}
             fiscalYear={fiscalYear}
-            onSave={handleSaveAssets}
+            onCalculate={handleSaveAssets}
           />
         </div>
       )}
@@ -137,13 +139,6 @@ const AdjustmentsPage: React.FC = () => {
             </p>
           </div>
           <ProvisionInputs
-            companyId={companyId}
-            policies={state.company?.accountingPolicies}
-            profitBeforeBonus={
-              // Pass approximate PBT if available for bonus calculation
-              (state.adjustments as YearEndAdjustments | null)?.provisions
-                ?.find((p) => p.type === 'staffBonus')?.amount ?? 0
-            }
             onSave={handleSaveProvisions}
           />
         </div>
@@ -153,8 +148,8 @@ const AdjustmentsPage: React.FC = () => {
       {subStep === 'review' && (
         <div className="space-y-4">
           <AdjustmentJournalView
-            companyId={companyId}
-            adjustments={state.adjustments as YearEndAdjustments | null}
+            entries={state.adjustments?.journalEntries as any ?? []}
+            onAddManual={(entry) => console.log('Add manual', entry)}
           />
 
           <div className="bg-green-50 border border-green-200 rounded-xl p-6 text-center">

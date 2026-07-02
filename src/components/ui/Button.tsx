@@ -1,115 +1,110 @@
-// ===== src/components/ui/Button.tsx =====
+// src/components/ui/Button.tsx
 import React from 'react';
 
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: 'primary' | 'secondary' | 'danger' | 'ghost' | 'outline';
-  size?: 'sm' | 'md' | 'lg';
-  loading?: boolean;
-  icon?: React.ReactNode;
-  iconPosition?: 'left' | 'right';
+  variant?:  'primary' | 'secondary' | 'danger' | 'ghost' | 'link';
+  size?:     'xs' | 'sm' | 'md';
+  loading?:  boolean;
+  icon?:     React.ReactNode;
+  iconRight?: React.ReactNode;
 }
 
-const VARIANT_CLASSES: Record<NonNullable<ButtonProps['variant']>, string> = {
+const BASE =
+  'inline-flex items-center justify-center gap-1.5 font-medium rounded border ' +
+  'transition-colors focus-visible:outline focus-visible:outline-2 ' +
+  'focus-visible:outline-offset-1 focus-visible:outline-blue-600 ' +
+  'disabled:opacity-50 disabled:cursor-not-allowed select-none whitespace-nowrap';
+
+const VARIANTS: Record<NonNullable<ButtonProps['variant']>, string> = {
   primary:
-    'bg-blue-700 hover:bg-blue-800 text-white font-semibold rounded-lg transition-colors ' +
-    'disabled:opacity-50 disabled:cursor-not-allowed',
+    'bg-blue-700 hover:bg-blue-800 active:bg-blue-900 text-white ' +
+    'border-blue-700 hover:border-blue-800',
   secondary:
-    'bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-lg transition-colors ' +
-    'disabled:opacity-50 disabled:cursor-not-allowed',
+    'bg-white hover:bg-slate-50 active:bg-slate-100 text-slate-700 border-slate-300',
   danger:
-    'bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg transition-colors ' +
-    'disabled:opacity-50 disabled:cursor-not-allowed',
+    'bg-white hover:bg-red-50 active:bg-red-100 text-red-700 ' +
+    'border-red-300 hover:border-red-400',
   ghost:
-    'hover:bg-slate-100 text-slate-600 font-medium rounded-lg transition-colors ' +
-    'disabled:opacity-50 disabled:cursor-not-allowed',
-  outline:
-    'border-2 border-blue-700 text-blue-700 hover:bg-blue-50 font-semibold rounded-lg transition-colors ' +
-    'disabled:opacity-50 disabled:cursor-not-allowed',
+    'bg-transparent hover:bg-slate-100 active:bg-slate-200 ' +
+    'text-slate-600 border-transparent',
+  link:
+    'bg-transparent text-blue-700 hover:text-blue-800 underline ' +
+    'border-transparent p-0 h-auto',
 };
 
-const SIZE_CLASSES: Record<NonNullable<ButtonProps['size']>, string> = {
-  sm: 'px-3 py-1.5 text-sm',
-  md: 'px-4 py-2 text-sm',
-  lg: 'px-6 py-3 text-base',
+const SIZES: Record<NonNullable<ButtonProps['size']>, string> = {
+  xs: 'h-6 px-2 text-xs',
+  sm: 'h-7 px-2.5 text-xs',
+  md: 'h-8 px-3 text-sm',
 };
 
-/** Animated spinning circle SVG for loading state. */
-function Spinner(): React.ReactElement {
+function Spinner() {
   return (
     <svg
-      className="animate-spin"
-      xmlns="http://www.w3.org/2000/svg"
-      width={16}
-      height={16}
-      viewBox="0 0 24 24"
+      className="animate-spin h-3.5 w-3.5 flex-shrink-0"
       fill="none"
-      stroke="currentColor"
-      strokeWidth={2.5}
-      strokeLinecap="round"
+      viewBox="0 0 24 24"
+      aria-hidden="true"
     >
       <circle
-        cx={12}
-        cy={12}
-        r={10}
+        className="opacity-25"
+        cx="12"
+        cy="12"
+        r="10"
         stroke="currentColor"
-        strokeOpacity={0.3}
-        strokeWidth={2.5}
-        fill="none"
+        strokeWidth="4"
       />
-      <path d="M12 2 a10 10 0 0 1 10 10" stroke="currentColor" strokeWidth={2.5} />
+      <path
+        className="opacity-75"
+        fill="currentColor"
+        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+      />
     </svg>
   );
 }
 
-const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  (
-    {
-      variant = 'primary',
-      size = 'md',
-      loading = false,
-      icon,
-      iconPosition = 'left',
-      disabled,
-      children,
-      className = '',
-      ...rest
-    },
-    ref,
-  ) => {
-    const variantClass = VARIANT_CLASSES[variant];
-    const sizeClass = SIZE_CLASSES[size];
-    const isDisabled = disabled || loading;
+export default function Button({
+  variant   = 'primary',
+  size      = 'md',
+  loading   = false,
+  icon,
+  iconRight,
+  children,
+  disabled,
+  className = '',
+  ...props
+}: ButtonProps) {
+  const isLink = variant === 'link';
 
-    const spinnerOrIcon = loading ? <Spinner /> : icon;
-    const hasLeadingContent = spinnerOrIcon && (loading || iconPosition === 'left');
-    const hasTrailingContent = !loading && icon && iconPosition === 'right';
+  return (
+    <button
+      className={[
+        BASE,
+        VARIANTS[variant],
+        isLink ? '' : SIZES[size],
+        className,
+      ]
+        .filter(Boolean)
+        .join(' ')}
+      disabled={disabled || loading}
+      aria-busy={loading || undefined}
+      {...props}
+    >
+      {loading ? (
+        <Spinner />
+      ) : icon ? (
+        <span className="flex-shrink-0 h-3.5 w-3.5 flex items-center" aria-hidden="true">
+          {icon}
+        </span>
+      ) : null}
 
-    return (
-      <button
-        ref={ref}
-        disabled={isDisabled}
-        className={[
-          'inline-flex items-center justify-center gap-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-500',
-          variantClass,
-          sizeClass,
-          className,
-        ]
-          .filter(Boolean)
-          .join(' ')}
-        {...rest}
-      >
-        {hasLeadingContent && (
-          <span className="flex-shrink-0">{spinnerOrIcon}</span>
-        )}
-        {children && <span>{children}</span>}
-        {hasTrailingContent && (
-          <span className="flex-shrink-0">{icon}</span>
-        )}
-      </button>
-    );
-  },
-);
+      {children}
 
-Button.displayName = 'Button';
-
-export default Button;
+      {!loading && iconRight ? (
+        <span className="flex-shrink-0 h-3.5 w-3.5 flex items-center" aria-hidden="true">
+          {iconRight}
+        </span>
+      ) : null}
+    </button>
+  );
+}

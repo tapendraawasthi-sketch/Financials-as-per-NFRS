@@ -1,281 +1,221 @@
 // src/components/statements/ChangesInEquityView.tsx
 import React from 'react';
-import { ChangesInEquity, CompanyProfile } from '../../types';
+import { useAppStore } from '../../store/appStore';
 import { formatNPR } from '../../utils/numberFormat';
 
-interface ChangesInEquityViewProps {
-  changesInEquity: ChangesInEquity;
-  company: CompanyProfile;
+function fmtAmt(n: number): string {
+  if (n === 0) return '—';
+  if (n < 0) return `(${formatNPR(Math.abs(n))})`;
+  return formatNPR(n);
 }
 
-interface MatrixRow {
-  label: string;
-  shareCapital: number;
-  sharePremium: number;
-  generalReserve: number;
-  retainedEarnings: number;
-  otherReserves?: number;
-  total: number;
-  bold?: boolean;
-  isTotal?: boolean;
-  isSectionHeader?: boolean;
-  emptyRow?: boolean;
-  indented?: boolean;
-}
+export default function ChangesInEquityView() {
+  const { state } = useAppStore();
+  const financials = state.changesInEquity ? { changesInEquity: state.changesInEquity } : {};
+  const company = state.company;
+  const fiscalYear = state.company?.fiscalYear;
 
-const formatCell = (val: number | undefined): string => {
-  if (val === undefined || val === null) return '–';
-  return formatNPR(val);
-};
+  const startDateBS = fiscalYear?.startDateBS ?? '[Start Date]';
+  const endDateBS = fiscalYear?.endDateBS ?? '[End Date]';
+  const companyName = company?.companyName ?? 'Company Name';
+  const roundingLevel = company?.accountingPolicies?.roundingLevel ?? 1000;
 
-const ChangesInEquityView: React.FC<ChangesInEquityViewProps> = ({ changesInEquity: ce, company }) => {
-  const fy = company.fiscalYear;
+  const eq = financials?.changesInEquity;
 
-  const columns = [
-    { key: 'shareCapital', label: 'Share Capital' },
-    { key: 'sharePremium', label: 'Share Premium' },
-    { key: 'generalReserve', label: 'General Reserve' },
-    { key: 'retainedEarnings', label: 'Retained Earnings' },
-    { key: 'total', label: 'Total' },
-  ] as const;
+  // Opening balances
+  const openShareCapital = eq?.cyOpeningShareCapital ?? 0;
+  const openSharePremium = eq?.cyOpeningSharePremium ?? 0;
+  const openGeneralReserve = eq?.cyOpeningGeneralReserve ?? 0;
+  const openRetainedEarnings = eq?.cyOpeningRetainedEarnings ?? 0;
+  const openTotal = eq?.cyOpeningTotal ?? 0;
 
-  const rows: MatrixRow[] = [
-    // ── Prior Year ──
-    {
-      label: `Balance at ${fy.startDateBS} (Opening — Previous Year)`,
-      shareCapital: ce.pyOpeningShareCapital ?? 0,
-      sharePremium: ce.pyOpeningSharePremium ?? 0,
-      generalReserve: ce.pyOpeningGeneralReserve ?? 0,
-      retainedEarnings: ce.pyOpeningRetainedEarnings ?? 0,
-      total: ce.pyOpeningTotal ?? 0,
-      bold: true,
-      isTotal: false,
-    },
-    {
-      label: 'Net Profit/(Loss) for the Previous Year',
-      shareCapital: 0,
-      sharePremium: 0,
-      generalReserve: 0,
-      retainedEarnings: ce.pyNetProfit ?? 0,
-      total: ce.pyNetProfit ?? 0,
-      indented: true,
-    },
-    {
-      label: 'Dividends Paid (Previous Year)',
-      shareCapital: 0,
-      sharePremium: 0,
-      generalReserve: 0,
-      retainedEarnings: ce.pyDividends ?? 0,
-      total: ce.pyDividends ?? 0,
-      indented: true,
-    },
-    {
-      label: 'Transfer to General Reserve',
-      shareCapital: 0,
-      sharePremium: 0,
-      generalReserve: ce.pyTransferToReserve ?? 0,
-      retainedEarnings: ce.pyTransferToReserve ? -(ce.pyTransferToReserve) : 0,
-      total: 0,
-      indented: true,
-    },
-    {
-      label: 'Other Comprehensive Income (Previous Year)',
-      shareCapital: 0,
-      sharePremium: 0,
-      generalReserve: 0,
-      retainedEarnings: ce.pyOtherComprehensiveIncome ?? 0,
-      total: ce.pyOtherComprehensiveIncome ?? 0,
-      indented: true,
-    },
-    {
-      label: `Balance at ${fy.endDateBS ? fy.endDateBS.replace(`/${fy.bsYear.split('/')[1]}`, `/${String(parseInt(fy.bsYear.split('/')[1]) - 1).padStart(2, '0')}`) : 'End of Previous Year'} (Closing — Previous Year)`,
-      shareCapital: ce.cyOpeningShareCapital ?? 0,
-      sharePremium: ce.cyOpeningSharePremium ?? 0,
-      generalReserve: ce.cyOpeningGeneralReserve ?? 0,
-      retainedEarnings: ce.cyOpeningRetainedEarnings ?? 0,
-      total: ce.cyOpeningTotal ?? 0,
-      bold: true,
-      isTotal: true,
-    },
-    // ── Spacer ──
-    {
-      label: '',
-      shareCapital: 0, sharePremium: 0, generalReserve: 0, retainedEarnings: 0, total: 0,
-      emptyRow: true,
-    },
-    // ── Current Year ──
-    {
-      label: `Balance at Start of ${fy.bsYear} (Opening — Current Year)`,
-      shareCapital: ce.cyOpeningShareCapital ?? 0,
-      sharePremium: ce.cyOpeningSharePremium ?? 0,
-      generalReserve: ce.cyOpeningGeneralReserve ?? 0,
-      retainedEarnings: ce.cyOpeningRetainedEarnings ?? 0,
-      total: ce.cyOpeningTotal ?? 0,
-      bold: true,
-    },
-    {
-      label: 'Net Profit/(Loss) for the Year',
-      shareCapital: 0,
-      sharePremium: 0,
-      generalReserve: 0,
-      retainedEarnings: ce.cyNetProfit ?? 0,
-      total: ce.cyNetProfit ?? 0,
-      indented: true,
-    },
-    {
-      label: 'Dividends Paid',
-      shareCapital: 0,
-      sharePremium: 0,
-      generalReserve: 0,
-      retainedEarnings: ce.cyDividends ?? 0,
-      total: ce.cyDividends ?? 0,
-      indented: true,
-    },
-    {
-      label: 'Issue of Share Capital',
-      shareCapital: ce.cyShareCapitalIssued ?? 0,
-      sharePremium: ce.cySharePremiumReceived ?? 0,
-      generalReserve: 0,
-      retainedEarnings: 0,
-      total: (ce.cyShareCapitalIssued ?? 0) + (ce.cySharePremiumReceived ?? 0),
-      indented: true,
-    },
-    {
-      label: 'Transfer to General Reserve',
-      shareCapital: 0,
-      sharePremium: 0,
-      generalReserve: ce.cyTransferToReserve ?? 0,
-      retainedEarnings: ce.cyTransferToReserve ? -(ce.cyTransferToReserve) : 0,
-      total: 0,
-      indented: true,
-    },
-    {
-      label: 'Other Comprehensive Income / (Loss)',
-      shareCapital: 0,
-      sharePremium: 0,
-      generalReserve: 0,
-      retainedEarnings: ce.cyOtherComprehensiveIncome ?? 0,
-      total: ce.cyOtherComprehensiveIncome ?? 0,
-      indented: true,
-    },
-    // ── Closing ──
-    {
-      label: `Balance at ${fy.endDateBS} (Closing — Current Year)`,
-      shareCapital: ce.cyClosingShareCapital ?? 0,
-      sharePremium: ce.cyClosingSharePremium ?? 0,
-      generalReserve: ce.cyClosingGeneralReserve ?? 0,
-      retainedEarnings: ce.cyClosingRetainedEarnings ?? 0,
-      total: ce.cyClosingTotal ?? 0,
-      bold: true,
-      isTotal: true,
-    },
-  ];
+  // Movements
+  const netProfit = eq?.cyNetProfit ?? 0;
+  const newShareCapital = eq?.cyShareCapitalIssued ?? 0;
+  const sharePremium = eq?.cySharePremiumReceived ?? 0;
+  const transferToReserve = eq?.cyTransferToReserve ?? 0;
+  const dividendPaid = eq?.cyDividends ?? 0;
 
-  const getCellValue = (row: MatrixRow, key: typeof columns[number]['key']): number => {
-    return row[key] ?? 0;
-  };
+  // Closing balances
+  const closeShareCapital = eq?.cyClosingShareCapital ?? 0;
+  const closeSharePremium = eq?.cyClosingSharePremium ?? 0;
+  const closeGeneralReserve = eq?.cyClosingGeneralReserve ?? 0;
+  const closeRetainedEarnings = eq?.cyClosingRetainedEarnings ?? 0;
+  const closeTotal = eq?.cyClosingTotal ?? 0;
+
+  const AmtCell = ({ value, bold }: { value: number; bold?: boolean }) => (
+    <td
+      className={[
+        'text-right font-mono tabular-nums text-[12px] px-3 py-1.5',
+        bold ? 'font-semibold' : '',
+        value < 0 ? 'text-red-700' : value === 0 ? 'text-slate-300' : 'text-slate-800',
+      ]
+        .filter(Boolean)
+        .join(' ')}
+    >
+      {fmtAmt(value)}
+    </td>
+  );
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden print:shadow-none print:border-0">
-      {/* Company Header */}
-      <div className="text-center py-6 border-b border-slate-200 bg-slate-50 px-6">
-        <h2 className="text-lg font-bold text-slate-800 uppercase tracking-wide">{company.companyName}</h2>
-        {company.address?.district && (
-          <p className="text-sm text-slate-500 mt-1">{company.address.district}, Nepal</p>
-        )}
-        <h3 className="text-base font-semibold text-slate-700 mt-3 uppercase tracking-widest">
-          Statement of Changes in Equity
-        </h3>
-        <p className="text-sm text-slate-500 mt-1">
-          For the year ended {fy.endDateBS} ({fy.endDateAD})
-        </p>
-        <p className="text-xs text-slate-400 mt-1">(All amounts in NPR unless otherwise stated)</p>
+    <div className="statement-page">
+      {/* Print button */}
+      <div className="flex justify-end mb-3 no-print">
+        <button
+          className="px-3 py-1.5 text-xs font-medium border border-slate-300 rounded text-slate-600 hover:bg-slate-50"
+          onClick={() => window.print()}
+        >
+          Print
+        </button>
       </div>
 
-      {/* Matrix Table */}
+      {/* Header */}
+      <div className="text-center mb-6">
+        <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-widest mb-1">
+          {companyName}
+        </p>
+        <h2 className="text-base font-bold text-slate-900 uppercase tracking-wide">
+          Statement of Changes in Equity
+        </h2>
+        <p className="text-[11px] text-slate-500 mt-1">
+          For the year ended {endDateBS}
+        </p>
+        <p className="text-[10px] text-slate-400 mt-0.5">
+          All amounts in NPR {roundingLevel} unless stated otherwise
+        </p>
+      </div>
+
+      {/* Wide matrix table */}
       <div className="overflow-x-auto">
-        <table className="w-full border-collapse min-w-[700px]">
+        <table className="fin-table w-full" style={{ minWidth: '720px' }}>
           <thead>
-            <tr className="border-b-2 border-slate-300 bg-slate-100">
-              <th className="px-3 py-2 text-left text-xs font-semibold text-slate-600 uppercase tracking-wide min-w-[220px]">
+            <tr>
+              <th className="text-left" style={{ width: '28%' }}>
                 Particulars
               </th>
-              {columns.map((col) => (
-                <th
-                  key={col.key}
-                  className={`px-3 py-2 text-right text-xs font-semibold text-slate-600 uppercase tracking-wide w-28 ${
-                    col.key === 'total' ? 'bg-slate-200 border-l-2 border-slate-300' : ''
-                  }`}
-                >
-                  {col.label}<br />
-                  <span className="font-normal text-slate-400 text-xs">(NPR)</span>
-                </th>
-              ))}
+              <th className="text-right" style={{ width: '14.4%' }}>
+                Share Capital
+              </th>
+              <th className="text-right" style={{ width: '14.4%' }}>
+                Share Premium
+              </th>
+              <th className="text-right" style={{ width: '14.4%' }}>
+                General Reserve
+              </th>
+              <th className="text-right" style={{ width: '14.4%' }}>
+                Retained Earnings
+              </th>
+              <th className="text-right" style={{ width: '14.4%' }}>
+                Total
+              </th>
             </tr>
           </thead>
           <tbody>
-            {rows.map((row, idx) => {
-              if (row.emptyRow) {
-                return <tr key={idx}><td colSpan={6} className="h-3 bg-slate-50" /></tr>;
-              }
+            {/* Opening balance */}
+            <tr className="row-section-head">
+              <td className="font-semibold">Balance as at {startDateBS}</td>
+              <AmtCell value={openShareCapital} bold />
+              <AmtCell value={openSharePremium} bold />
+              <AmtCell value={openGeneralReserve} bold />
+              <AmtCell value={openRetainedEarnings} bold />
+              <AmtCell value={openTotal} bold />
+            </tr>
 
-              const rowCls = [
-                row.isTotal ? 'border-t-2 border-b-2 border-slate-400 bg-slate-50' : '',
-                row.bold ? 'bg-slate-50' : 'hover:bg-blue-50/30',
-              ].filter(Boolean).join(' ');
+            {/* Net profit */}
+            <tr>
+              <td className="pl-3">Net profit for the year</td>
+              <td className="text-right font-mono tabular-nums text-[12px] px-3 py-1.5 text-slate-300">
+                —
+              </td>
+              <td className="text-right font-mono tabular-nums text-[12px] px-3 py-1.5 text-slate-300">
+                —
+              </td>
+              <td className="text-right font-mono tabular-nums text-[12px] px-3 py-1.5 text-slate-300">
+                —
+              </td>
+              <AmtCell value={netProfit} />
+              <AmtCell value={netProfit} />
+            </tr>
 
-              const labelCls = [
-                'px-3 py-2 text-sm border-b border-slate-100',
-                row.bold ? 'font-semibold text-slate-800' : 'text-slate-600',
-                row.isTotal ? 'font-bold text-slate-800' : '',
-              ].filter(Boolean).join(' ');
+            {/* Issue of share capital */}
+            <tr>
+              <td className="pl-3">Issue of share capital</td>
+              <AmtCell value={newShareCapital} />
+              <AmtCell value={sharePremium} />
+              <td className="text-right font-mono tabular-nums text-[12px] px-3 py-1.5 text-slate-300">
+                —
+              </td>
+              <td className="text-right font-mono tabular-nums text-[12px] px-3 py-1.5 text-slate-300">
+                —
+              </td>
+              <AmtCell value={newShareCapital + sharePremium} />
+            </tr>
 
-              const cellCls = (isLast: boolean) => [
-                'px-3 py-2 text-right text-sm tabular-nums border-b border-slate-100',
-                row.bold ? 'font-semibold' : '',
-                row.isTotal ? 'font-bold' : '',
-                isLast ? 'bg-slate-100 border-l-2 border-slate-300' : '',
-              ].filter(Boolean).join(' ');
+            {/* Transfer to general reserve */}
+            <tr>
+              <td className="pl-3">Transfer to general reserve</td>
+              <td className="text-right font-mono tabular-nums text-[12px] px-3 py-1.5 text-slate-300">
+                —
+              </td>
+              <td className="text-right font-mono tabular-nums text-[12px] px-3 py-1.5 text-slate-300">
+                —
+              </td>
+              <AmtCell value={transferToReserve} />
+              <AmtCell value={-transferToReserve} />
+              <td className="text-right font-mono tabular-nums text-[12px] px-3 py-1.5 text-slate-300">
+                —
+              </td>
+            </tr>
 
-              return (
-                <tr key={idx} className={rowCls}>
-                  <td className={labelCls} style={{ paddingLeft: row.indented ? '28px' : '12px' }}>
-                    {row.indented && <span className="text-slate-300 mr-1">└</span>}
-                    {row.label}
-                  </td>
-                  {columns.map((col, ci) => (
-                    <td key={col.key} className={cellCls(ci === columns.length - 1)}>
-                      {formatCell(getCellValue(row, col.key))}
-                    </td>
-                  ))}
-                </tr>
-              );
-            })}
+            {/* Dividend paid */}
+            <tr>
+              <td className="pl-3">Dividend paid</td>
+              <td className="text-right font-mono tabular-nums text-[12px] px-3 py-1.5 text-slate-300">
+                —
+              </td>
+              <td className="text-right font-mono tabular-nums text-[12px] px-3 py-1.5 text-slate-300">
+                —
+              </td>
+              <td className="text-right font-mono tabular-nums text-[12px] px-3 py-1.5 text-slate-300">
+                —
+              </td>
+              <AmtCell value={-dividendPaid} />
+              <AmtCell value={-dividendPaid} />
+            </tr>
+
+            {/* Closing balance */}
+            <tr className="row-grand-total">
+              <td>Balance as at {endDateBS}</td>
+              <AmtCell value={closeShareCapital} bold />
+              <AmtCell value={closeSharePremium} bold />
+              <AmtCell value={closeGeneralReserve} bold />
+              <AmtCell value={closeRetainedEarnings} bold />
+              <AmtCell value={closeTotal} bold />
+            </tr>
           </tbody>
         </table>
       </div>
 
-      {/* Notes */}
-      <div className="px-6 py-4 border-t border-slate-200 bg-slate-50">
-        <p className="text-xs text-slate-500">
-          <span className="font-semibold">Note:</span> The above statement should be read in conjunction with the
-          accompanying notes to the financial statements (Notes 3.1 to 3.23). Figures in brackets represent
-          reductions/negative amounts.
-        </p>
-      </div>
-
-      {/* Signatory footer */}
-      <div className="mt-4 mx-6 mb-6 grid grid-cols-3 gap-8 border-t border-slate-200 pt-6 print:mt-12">
-        {['Prepared by', 'Approved by Director', 'Auditor'].map((role) => (
-          <div key={role} className="text-center">
-            <div className="border-b border-slate-400 mb-1 h-10" />
-            <p className="text-xs text-slate-500">{role}</p>
-            <p className="text-xs text-slate-400 mt-0.5">Name / Signature / Date</p>
+      {/* Signature block */}
+      <div className="mt-10 pt-4 border-t border-slate-200">
+        <div className="grid grid-cols-3 gap-8 text-center">
+          <div>
+            <div className="border-t border-slate-800 pt-2 mt-6 text-[11px] text-slate-600">
+              Chairperson
+            </div>
           </div>
-        ))}
+          <div>
+            <div className="border-t border-slate-800 pt-2 mt-6 text-[11px] text-slate-600">
+              Director
+            </div>
+          </div>
+          <div>
+            <div className="border-t border-slate-800 pt-2 mt-6 text-[11px] text-slate-600">
+              Head of Accounts
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
-};
-
-export default ChangesInEquityView;
+}

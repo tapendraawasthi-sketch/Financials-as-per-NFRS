@@ -304,7 +304,7 @@ export const CHART_OF_ACCOUNTS: ChartAccountEntry[] = [
     normalBalance: 'credit',
     synonyms: [
       'pf payable',
-      'provident fund',
+      'provident fund payable',
       'ssf payable',
       'cit payable',
       'social security fund',
@@ -665,7 +665,7 @@ export const CHART_OF_ACCOUNTS: ChartAccountEntry[] = [
   },
   {
     label: 'Biological Assets',
-    nfrsCategory: 'other_noncurrent_assets',
+    nfrsCategory: 'nca_other',
     noteRef: '3.5',
     normalBalance: 'debit',
     synonyms: [
@@ -822,7 +822,7 @@ export const CHART_OF_ACCOUNTS: ChartAccountEntry[] = [
   },
   {
     label: 'Non-Current Assets Held for Sale',
-    nfrsCategory: 'other_current_assets',
+    nfrsCategory: 'other_receivables_other',
     noteRef: '3.6',
     normalBalance: 'debit',
     synonyms: [
@@ -1311,6 +1311,12 @@ export const CHART_OF_ACCOUNTS: ChartAccountEntry[] = [
       'registration fee',
       'ird registration',
       'octroi',
+      'dastur',
+      'renew dastur',
+      'renew charge',
+      'company registrar office fee',
+      'cro fee',
+      'ird fine',
     ],
   },
   {
@@ -1455,7 +1461,7 @@ export const CHART_OF_ACCOUNTS: ChartAccountEntry[] = [
   },
   {
     label: 'Advertisement & Promotion',
-    nfrsCategory: 'admin_advertisement',
+    nfrsCategory: 'admin_other',
     noteRef: '3.22',
     normalBalance: 'debit',
     synonyms: [
@@ -1480,6 +1486,11 @@ export const CHART_OF_ACCOUNTS: ChartAccountEntry[] = [
       'staff refreshment',
       'food expense',
       'refreshment expenses',
+      'chiya kharcha',
+      'staff chiya',
+      'atithi satkar',
+      'guest entertainment',
+      'tea expense',
     ],
   },
   {
@@ -1494,6 +1505,12 @@ export const CHART_OF_ACCOUNTS: ChartAccountEntry[] = [
       'general expenses',
       'other overhead',
       'miscellaneous expense',
+      'chanda',
+      'donation',
+      'pooja kharcha',
+      'dashain kharcha',
+      'tihar kharcha',
+      'festival expense',
     ],
   },
   {

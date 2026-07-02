@@ -43,32 +43,54 @@ export function normalize(s: string): string {
 // ---------------------------------------------------------------------------
 // 2. levenshtein
 // ---------------------------------------------------------------------------
-const MAX_EDIT_LEN = 100;
+// ── Memoized Levenshtein distance ─────────────────────────────────────────
+const levenshteinCache = new Map<string, number>();
+
+/** Cache is bounded: clear when it exceeds 50,000 entries to prevent unbounded memory growth */
+const CACHE_LIMIT = 50_000;
 
 export function levenshtein(a: string, b: string): number {
-  const m = Math.min(a.length, MAX_EDIT_LEN);
-  const n = Math.min(b.length, MAX_EDIT_LEN);
-  const as = a.slice(0, m);
-  const bs = b.slice(0, n);
-  if (m === 0) return n;
-  if (n === 0) return m;
+  if (a === b) return 0;
+  if (a.length === 0) return b.length;
+  if (b.length === 0) return a.length;
 
-  // Use two-row rolling array for O(m) space
-  let prev = Array.from({ length: n + 1 }, (_, i) => i);
-  const curr = new Array<number>(n + 1);
+  // Ensure consistent key ordering (symmetric function)
+  const key = a < b ? `${a}\x00${b}` : `${b}\x00${a}`;
+
+  const cached = levenshteinCache.get(key);
+  if (cached !== undefined) return cached;
+
+  // Prune cache if too large
+  if (levenshteinCache.size >= CACHE_LIMIT) {
+    levenshteinCache.clear();
+  }
+
+  // Standard DP implementation
+  const m   = a.length;
+  const n   = b.length;
+  const dp  = new Array<number[]>(m + 1);
+  for (let i = 0; i <= m; i++) dp[i] = new Array<number>(n + 1).fill(0);
+
+  for (let i = 0; i <= m; i++) dp[i][0] = i;
+  for (let j = 0; j <= n; j++) dp[0][j] = j;
 
   for (let i = 1; i <= m; i++) {
-    curr[0] = i;
     for (let j = 1; j <= n; j++) {
-      if (as[i - 1] === bs[j - 1]) {
-        curr[j] = prev[j - 1];
+      if (a[i - 1] === b[j - 1]) {
+        dp[i][j] = dp[i - 1][j - 1];
       } else {
-        curr[j] = 1 + Math.min(prev[j], curr[j - 1], prev[j - 1]);
+        dp[i][j] = 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
       }
     }
-    prev = [...curr];
   }
-  return prev[n];
+
+  const result = dp[m][n];
+  levenshteinCache.set(key, result);
+  return result;
+}
+
+export function clearLevenshteinCache(): void {
+  levenshteinCache.clear();
 }
 
 // ---------------------------------------------------------------------------
@@ -108,6 +130,8 @@ const KEYWORD_BUCKETS: Array<{
   { pattern: /\b(creditor|accounts? payable|trade payable|supplier payable)\b/i,       nfrsCategory: 'trade_payables_creditors', confidence: 85 },
   { pattern: /\bcash\b/i,            nfrsCategory: 'cash_in_hand',              confidence: 80 },
   { pattern: /\bpetty cash\b/i,      nfrsCategory: 'cash_in_hand',              confidence: 90 },
+  { pattern: /\b(term loan|long term loan|bank loan)\b/i, nfrsCategory: 'borrowings_noncurrent_bank', confidence: 88 },
+  { pattern: /\b(fd|fixed deposit)\b/i, nfrsCategory: 'bank_fixed_deposit_current', confidence: 85 },
   { pattern: /\bbank\b/i,            nfrsCategory: 'bank_current_account',       confidence: 80 },
   { pattern: /\b(land|plot|property)\b/i, nfrsCategory: 'ppe_land',             confidence: 82 },
   { pattern: /\bbuilding/i,          nfrsCategory: 'ppe_buildings',              confidence: 82 },
@@ -120,6 +144,7 @@ const KEYWORD_BUCKETS: Array<{
   { pattern: /\baccumulated depreciation\b/i, nfrsCategory: 'accum_depreciation', confidence: 92 },
   { pattern: /\b(salary|salaries|wages and salary)\b/i, nfrsCategory: 'emp_expense_salaries', confidence: 82 },
   { pattern: /\b(provident fund|pf|ssf|cit)\b.*expense/i, nfrsCategory: 'emp_expense_pf', confidence: 82 },
+  { pattern: /\b(provident fund|pf|ssf|cit)\b/i, nfrsCategory: 'emp_expense_pf', confidence: 80 },
   { pattern: /\b(interest expense|loan interest|interest paid)\b/i, nfrsCategory: 'finance_cost_interest', confidence: 85 },
   { pattern: /\b(bank charge|bank commission|bank fee)\b/i, nfrsCategory: 'finance_cost_bank_charges', confidence: 85 },
   { pattern: /\btds\b/i,             nfrsCategory: 'tds_payable',               confidence: 82 },

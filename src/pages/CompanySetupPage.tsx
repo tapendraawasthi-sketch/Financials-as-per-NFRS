@@ -8,7 +8,9 @@ import WizardProgress from '../components/layout/WizardProgress';
 import LoadingSpinner from '../components/ui/LoadingSpinner';
 import Alert from '../components/ui/Alert';
 
-type SubStep = 'company_info' | 'accounting_policies';
+import PreviousYearData from '../components/company/PreviousYearData';
+
+type SubStep = 'company_info' | 'accounting_policies' | 'previous_year_data';
 
 const wizardSteps = [
   { id: 'company_setup' as const, label: 'Company Info', description: 'Basic company details' },
@@ -27,7 +29,7 @@ const CompanySetupPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const handleCompanySubmit = async (data: Omit<CompanyProfile, 'id'>) => {
+  const handleCompanySubmit = async (data: any) => {
     setIsLoading(true);
     setError(null);
     try {
@@ -57,7 +59,7 @@ const CompanySetupPage: React.FC = () => {
     }
   };
 
-  const handlePoliciesSubmit = async (policies: AccountingPolicies) => {
+  const handlePoliciesSubmit = async (policies: any) => {
     if (!state.company?.id) {
       setError('Company ID not found. Please save company details first.');
       return;
@@ -78,11 +80,36 @@ const CompanySetupPage: React.FC = () => {
 
       const updatedCompany: CompanyProfile = await response.json();
       dispatch({ type: 'SET_COMPANY', payload: updatedCompany });
+      setSubStep('previous_year_data');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to save accounting policies.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handlePreviousYearSubmit = async (prevData: any) => {
+    if (!state.company?.id) return;
+    setIsLoading(true);
+    setError(null);
+    try {
+      const response = await fetch(`/api/company/${state.company.id}/previous-year`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(prevData),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to save previous year data');
+      }
+
+      const updatedCompany: CompanyProfile = await response.json();
+      dispatch({ type: 'SET_COMPANY', payload: updatedCompany });
       dispatch({ type: 'COMPLETE_STEP', payload: 'company_setup' });
       dispatch({ type: 'COMPLETE_STEP', payload: 'accounting_policies' });
       dispatch({ type: 'SET_STEP', payload: 'trial_balance_upload' });
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to save accounting policies.');
+      setError(err instanceof Error ? err.message : 'Failed to save previous year data.');
     } finally {
       setIsLoading(false);
     }
@@ -101,10 +128,8 @@ const CompanySetupPage: React.FC = () => {
     <div className="max-w-3xl mx-auto px-4 py-6 space-y-6">
       {/* Wizard Progress */}
       <WizardProgress
-        steps={wizardSteps.map((s) => ({ ...s, icon: null }))}
         currentStep={subStep === 'company_info' ? 'company_setup' : 'accounting_policies'}
         completedSteps={state.completedSteps}
-        onStepClick={(step) => dispatch({ type: 'SET_STEP', payload: step })}
       />
 
       {/* Step indicator */}
@@ -133,6 +158,20 @@ const CompanySetupPage: React.FC = () => {
         >
           2. Accounting Policies
         </button>
+        <span className="text-slate-300">›</span>
+        <button
+          onClick={() => state.company?.id && setSubStep('previous_year_data')}
+          disabled={!state.company?.id}
+          className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+            subStep === 'previous_year_data'
+              ? 'bg-blue-100 text-blue-700'
+              : state.company?.id
+              ? 'text-slate-400 hover:text-slate-600'
+              : 'text-slate-200 cursor-not-allowed'
+          }`}
+        >
+          3. Previous Year Data
+        </button>
       </div>
 
       {/* Error Alert */}
@@ -155,8 +194,7 @@ const CompanySetupPage: React.FC = () => {
           </div>
           <CompanyInfoForm
             initialData={state.company ?? undefined}
-            onSubmit={handleCompanySubmit}
-            isLoading={isLoading}
+            onSave={handleCompanySubmit}
           />
         </div>
       )}
@@ -171,9 +209,24 @@ const CompanySetupPage: React.FC = () => {
             </p>
           </div>
           <AccountingPoliciesForm
-            initialPolicies={state.company?.accountingPolicies}
-            fiscalYear={state.company?.fiscalYear.bsYear ?? '2081/82'}
-            onSubmit={handlePoliciesSubmit}
+            initialData={state.company?.accountingPolicies}
+            onSave={handlePoliciesSubmit}
+          />
+        </div>
+      )}
+
+      {subStep === 'previous_year_data' && (
+        <div>
+          <div className="mb-6">
+            <h2 className="text-xl font-bold text-slate-800">Step 3: Previous Year Data</h2>
+            <p className="text-sm text-slate-500 mt-1">
+              Enter the audited balances from the previous year. These are used as comparative figures in the financial statements.
+            </p>
+          </div>
+          <PreviousYearData
+            initialData={state.company?.previousYearData}
+            onSave={handlePreviousYearSubmit}
+            isLoading={isLoading}
           />
         </div>
       )}

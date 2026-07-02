@@ -1,153 +1,309 @@
-// ===== src/components/trialBalance/TBAccountMapper.tsx =====
-import React, { useState, useMemo } from 'react';
-import type { ParsedTrialBalance, NFRSCategory } from '../../types';
-import { CHART_OF_ACCOUNTS } from '../../data/chartOfAccounts';
-import { formatNPR } from '../../utils/numberFormat';
-import Badge from '../ui/Badge';
+// src/components/trialBalance/TBAccountMapper.tsx
+import React, { useState, useMemo, useCallback, useRef } from 'react';
+import Tabs   from '../ui/Tabs';
 import Button from '../ui/Button';
-import Alert from '../ui/Alert';
-import Tabs from '../ui/Tabs';
+import { MappedTBRow, NFRSCategory } from '../../types/trialBalance';
+import { NFRS_CATEGORY_INFO } from '../../data/nfrsCategories';
+
+const ALL_NFRS_CATEGORIES = NFRS_CATEGORY_INFO.map(c => c.value);
+const NFRS_CATEGORY_LABELS = NFRS_CATEGORY_INFO.reduce((acc, c) => {
+  acc[c.value] = c.label;
+  return acc;
+}, {} as Record<NFRSCategory, string>);
 
 interface TBAccountMapperProps {
-  companyId: string;
-  parsedTB: ParsedTrialBalance;
-  onMappingComplete: (updatedTB: ParsedTrialBalance) => void;
+  rows:            MappedTBRow[];
+  companyId:       string;
+  onMappingChange: (rowIndex: string, category: NFRSCategory) => void;
+  onConfirm:       () => Promise<void> | void;
+  onRerunAI?:      () => void;
 }
 
-const METHOD_VARIANT: Record<string, 'info' | 'success' | 'warning' | 'purple' | 'default' | 'danger'> = {
-  exact: 'info', synonym: 'info', fuzzy: 'warning', ai: 'purple', manual: 'success', unmatched: 'danger',
-};
+type FilterTab = 'all' | 'review' | 'unmatched' | 'mapped';
 
-const ALL_CATEGORIES = [...new Set(CHART_OF_ACCOUNTS.map((e) => e.nfrsCategory))].sort();
+// Minimal debounce
+function debounce<T extends (...args: any[]) => void>(fn: T, ms: number): T {
+  let timer: ReturnType<typeof setTimeout>;
+  return ((...args: Parameters<T>) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), ms);
+  }) as T;
+}
 
-const GROUPED_OPTIONS = [
-  { group: 'Assets', cats: ALL_CATEGORIES.filter((c) => c.startsWith('ppe_') || c.startsWith('nca_') || c.startsWith('ca_') || c.startsWith('investment_') || c.startsWith('inventory_') || c.startsWith('trade_receivables') || c.startsWith('other_') || c.startsWith('cash_') || c.startsWith('bank_') || c === 'accum_depreciation') },
-  { group: 'Liabilities', cats: ALL_CATEGORIES.filter((c) => c.startsWith('borrowings_') || c.startsWith('trade_payables') || c.startsWith('employee_payables') || c.endsWith('_payable') || c.startsWith('tds_') || c.startsWith('other_payables') || c === 'income_tax_payable' || c === 'audit_fee_payable') },
-  { group: 'Equity', cats: ALL_CATEGORIES.filter((c) => ['share_capital','share_premium','general_reserve','retained_earnings'].includes(c)) },
-  { group: 'Income', cats: ALL_CATEGORIES.filter((c) => c.startsWith('revenue_') || c.startsWith('other_income_') || c.startsWith('cogs_opening')) },
-  { group: 'Expenses', cats: ALL_CATEGORIES.filter((c) => c.startsWith('cogs_') || c.startsWith('direct_') || c.startsWith('emp_expense_') || c.startsWith('finance_cost_') || c.startsWith('depreciation_') || c.startsWith('impairment_') || c.startsWith('admin_') || c === 'income_tax_expense') },
-];
+function fmtBalance(row: MappedTBRow): string {
+  const cb = row.closingBalance ?? 0;
+  if (cb === 0) return '—';
+  const abs = Math.abs(cb)
+    .toFixed(0)
+    .replace(/(\d)(?=(\d{2})+(?!\d)(?=\d{3}))/g, '$1,');
+  return cb > 0 ? `Dr ${abs}` : `Cr ${abs}`;
+}
 
-export default function TBAccountMapper({ companyId, parsedTB, onMappingComplete }: TBAccountMapperProps): React.ReactElement {
-  const [tb, setTB] = useState(parsedTB);
-  const [activeTab, setActiveTab] = useState('needs_review');
-  const [search, setSearch] = useState('');
-  const [saving, setSaving] = useState<number | null>(null);
+function confidenceColor(n: number): string {
+  if (n >= 80) return '#16a34a';
+  if (n >= 60) return '#d97706';
+  return '#dc2626';
+}
 
-  const stats = useMemo(() => {
-    const total = tb.rows.length;
-    const autoMatched = tb.rows.filter((r) => (r.confidence ?? 0) >= 80 && !r.needsReview).length;
-    const needsReview = tb.rows.filter((r) => r.needsReview && (r.nfrsCategory as string) !== 'unclassified').length;
-    const unmatched = tb.rows.filter((r) => (r.nfrsCategory as string) === 'unclassified' || !r.matchedLabel).length;
-    return { total, autoMatched, needsReview, unmatched };
-  }, [tb]);
+function methodLabel(m?: string): string {
+  switch (m) {
+    case 'exact':   return 'Exact';
+    case 'synonym': return 'Synonym';
+    case 'fuzzy':   return 'Fuzzy';
+    case 'ai':      return 'AI';
+    case 'manual':  return 'Manual';
+    default:        return '—';
+  }
+}
 
+export default function TBAccountMapper({
+  rows,
+  companyId,
+  onMappingChange,
+  onConfirm,
+  onRerunAI,
+}: TBAccountMapperProps) {
+  const [activeTab,    setActiveTab]    = useState<FilterTab>('all');
+  const [search,       setSearch]       = useState('');
+  const [confirming,   setConfirming]   = useState(false);
+  const [confirmErr,   setConfirmErr]   = useState<string | null>(null);
+
+  // Counts
+  const autoMappedCount  = rows.filter(r => (r.confidence ?? 0) >= 80).length;
+  const needsReviewCount = rows.filter(r => (r.confidence ?? 0) > 0 && (r.confidence ?? 0) < 80).length;
+  const unmatchedCount   = rows.filter(r => (r.confidence ?? 0) === 0 || !r.nfrsCategory || r.nfrsCategory === 'unclassified').length;
+  const mappedCount      = rows.length - unmatchedCount;
+
+  // Filtered rows
   const filteredRows = useMemo(() => {
-    let rows = tb.rows;
-    if (search) rows = rows.filter((r) => r.rawLabel.toLowerCase().includes(search.toLowerCase()));
-    if (activeTab === 'needs_review') rows = rows.filter((r) => r.needsReview);
-    if (activeTab === 'unmatched') rows = rows.filter((r) => (r.nfrsCategory as string) === 'unclassified' || !r.matchedLabel);
-    if (activeTab === 'mapped') rows = rows.filter((r) => !r.needsReview && r.matchedLabel);
-    return rows;
-  }, [tb.rows, search, activeTab]);
-
-  const handleMappingChange = async (rowIndex: number, nfrsCategory: NFRSCategory) => {
-    setSaving(rowIndex);
-    const matchedLabel = CHART_OF_ACCOUNTS.find((a) => a.nfrsCategory === nfrsCategory)?.label ?? nfrsCategory;
-    try {
-      const response = await fetch(`/api/trial-balance/${companyId}/mapping`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ updates: [{ rowIndex, nfrsCategory, matchedLabel }] }),
-      });
-      if (response.ok) {
-        const updated = await response.json() as ParsedTrialBalance;
-        setTB(updated);
+    const base = rows.filter(r => {
+      switch (activeTab) {
+        case 'review':
+          return (r.confidence ?? 0) > 0 && (r.confidence ?? 0) < 80;
+        case 'unmatched':
+          return (r.confidence ?? 0) === 0 || !r.nfrsCategory || r.nfrsCategory === 'unclassified';
+        case 'mapped':
+          return (r.confidence ?? 0) >= 80;
+        default:
+          return true;
       }
-    } catch {}
-    setSaving(null);
+    });
+
+    if (!search.trim()) return base;
+    const q = search.toLowerCase();
+    return base.filter(r => r.rawLabel?.toLowerCase().includes(q));
+  }, [rows, activeTab, search]);
+
+  // Debounced mapping API call
+  const debouncedUpdate = useCallback(
+    debounce((rowIndex: string, category: NFRSCategory) => {
+      fetch(`/api/trial-balance/${companyId}/mapping/${rowIndex}`, {
+        method:  'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ nfrsCategory: category }),
+      }).catch(console.error);
+      onMappingChange(rowIndex, category);
+    }, 300),
+    [companyId, onMappingChange]
+  );
+
+  const handleConfirm = async () => {
+    setConfirming(true);
+    setConfirmErr(null);
+    try {
+      await onConfirm();
+    } catch (err: any) {
+      setConfirmErr(err?.message ?? 'Failed to confirm mappings.');
+    } finally {
+      setConfirming(false);
+    }
   };
 
   const tabs = [
-    { id: 'all',          label: 'All',         badge: stats.total },
-    { id: 'needs_review', label: 'Needs Review', badge: stats.needsReview },
-    { id: 'unmatched',    label: 'Unmatched',    badge: stats.unmatched },
-    { id: 'mapped',       label: 'Mapped',       badge: stats.autoMatched },
-  ];
+    { id: 'all',      label: 'All',           count: rows.length        },
+    { id: 'review',   label: 'Review Needed', count: needsReviewCount   },
+    { id: 'unmatched',label: 'Unmatched',     count: unmatchedCount     },
+    { id: 'mapped',   label: 'Mapped',        count: mappedCount        },
+  ] as const;
+
+  const thCls = 'px-3 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wide text-left bg-slate-50 border-b border-slate-200 whitespace-nowrap';
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-3">
-        <Badge label={`Total: ${stats.total}`} variant="default" size="md" />
-        <Badge label={`Auto-matched: ${stats.autoMatched}`} variant="success" size="md" />
-        <Badge label={`Needs Review: ${stats.needsReview}`} variant="warning" size="md" />
-        <Badge label={`Unmatched: ${stats.unmatched}`} variant="danger" size="md" />
-        <div className="ml-auto">
-          <input type="text" placeholder="Search accounts…" className="px-3 py-1.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none w-56"
-            value={search} onChange={(e) => setSearch(e.target.value)} />
-        </div>
+    <div>
+      {/* ── Top bar ─────────────────────────────────────────────────── */}
+      <div className="flex items-center justify-between mb-3 gap-4">
+        <Tabs
+          variant="pill"
+          active={activeTab}
+          onChange={id => setActiveTab(id as FilterTab)}
+          tabs={tabs.map(t => ({
+            id:    t.id,
+            label: t.label,
+            count: t.count,
+          }))}
+        />
+
+        <input
+          type="search"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Search accounts..."
+          className="h-7 w-48 rounded border border-slate-300 bg-white px-2.5 text-xs text-slate-700 placeholder:text-slate-400 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+          aria-label="Search accounts"
+        />
       </div>
 
-      <div className="bg-slate-50 rounded-xl px-4 py-2">
-        <p className="text-xs text-slate-600">Mapping completion: <strong>{stats.autoMatched + stats.needsReview}</strong> / {stats.total} accounts classified</p>
-      </div>
-
-      <Tabs tabs={tabs} activeTab={activeTab} onChange={setActiveTab} variant="underline" />
-
-      <div className="overflow-hidden rounded-xl border border-slate-200">
-        <table className="w-full text-sm">
-          <thead className="bg-slate-50 border-b border-slate-200">
+      {/* ── Mapping table ────────────────────────────────────────────── */}
+      <div
+        className="border border-slate-200 rounded-md overflow-auto"
+        style={{ maxHeight: 560 }}
+        role="grid"
+        aria-label="Account mapping table"
+        aria-rowcount={filteredRows.length + 1}
+      >
+        <table className="w-full border-collapse text-xs" style={{ minWidth: 740 }}>
+          <thead>
             <tr>
-              {['Account Name', 'NFRS Category', 'Confidence', 'Method', 'Closing Balance'].map((h) => (
-                <th key={h} className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">{h}</th>
-              ))}
+              <th className={`${thCls} w-1/3`}>Your Account Name</th>
+              <th className={`${thCls} w-1/3`}>NFRS Category</th>
+              <th className={`${thCls} w-16 text-center`}>Confidence</th>
+              <th className={`${thCls} w-20`}>Method</th>
+              <th className={`${thCls} w-24 text-right`}>Closing Balance</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100">
+          <tbody>
             {filteredRows.length === 0 ? (
-              <tr><td colSpan={5} className="px-4 py-10 text-center text-slate-400 italic text-sm">No accounts in this category.</td></tr>
-            ) : filteredRows.map((row) => (
-              <tr key={row.rowIndex} className={row.needsReview ? 'bg-amber-50/30' : ''}>
-                <td className="px-4 py-3">
-                  <p className="font-medium text-slate-800 truncate max-w-xs" title={row.rawLabel}>{row.rawLabel}</p>
-                  {row.matchedLabel && <p className="text-xs text-slate-400">{row.matchedLabel}</p>}
-                </td>
-                <td className="px-4 py-3">
-                  <select className="w-full px-2 py-1 border border-slate-200 rounded text-xs bg-white focus:ring-1 focus:ring-blue-500 outline-none"
-                    value={(row.nfrsCategory as string) ?? ''}
-                    disabled={saving === row.rowIndex}
-                    onChange={(e) => handleMappingChange(row.rowIndex, e.target.value as NFRSCategory)}
-                  >
-                    <option value="">-- Select NFRS Category --</option>
-                    {GROUPED_OPTIONS.map(({ group, cats }) => (
-                      <optgroup key={group} label={group}>
-                        {cats.map((cat) => <option key={cat} value={cat}>{cat.replace(/_/g, ' ')}</option>)}
-                      </optgroup>
-                    ))}
-                    <option value="unclassified">Unclassified</option>
-                  </select>
-                </td>
-                <td className="px-4 py-3">
-                  <Badge label={`${row.confidence ?? 0}%`} variant={(row.confidence ?? 0) >= 90 ? 'success' : (row.confidence ?? 0) >= 75 ? 'warning' : 'danger'} size="sm" />
-                </td>
-                <td className="px-4 py-3">
-                  <Badge label={row.matchMethod ?? 'unknown'} variant={METHOD_VARIANT[row.matchMethod ?? ''] ?? 'default'} size="sm" />
-                </td>
-                <td className="px-4 py-3 text-right font-mono text-xs text-slate-700">
-                  {formatNPR((row.closingDr ?? 0) - (row.closingCr ?? 0))}
+              <tr>
+                <td colSpan={5} className="text-center py-8 text-slate-400 text-xs">
+                  {search ? 'No accounts match your search.' : 'No accounts in this category.'}
                 </td>
               </tr>
-            ))}
+            ) : (
+              filteredRows.map((row, i) => {
+                const isUnmatched =
+                  (row.confidence ?? 0) === 0 ||
+                  !row.nfrsCategory ||
+                  row.nfrsCategory === 'unclassified';
+                const needsReview =
+                  (row.confidence ?? 0) > 0 && (row.confidence ?? 0) < 80;
+
+                const rowBg = isUnmatched
+                  ? 'bg-red-50/30'
+                  : needsReview
+                  ? 'bg-amber-50/40'
+                  : i % 2 === 0
+                  ? 'bg-white'
+                  : 'bg-slate-50/40';
+
+                return (
+                  <tr
+                    key={row.rowIndex ?? i}
+                    className={`${rowBg} border-b border-slate-100 last:border-0 hover:bg-slate-100/60 transition-colors`}
+                    aria-rowindex={i + 2}
+                  >
+                    {/* Account name */}
+                    <td
+                      className="px-3 py-1.5 text-slate-700 max-w-[240px]"
+                      title={row.rawLabel}
+                    >
+                      <span className="block truncate">
+                        {row.rawLabel?.length > 40
+                          ? row.rawLabel.slice(0, 40) + '…'
+                          : row.rawLabel}
+                      </span>
+                    </td>
+
+                    {/* NFRS category selector — raw select for compactness */}
+                    <td className="px-3 py-1.5">
+                      <select
+                        value={row.nfrsCategory ?? 'unclassified'}
+                        onChange={e =>
+                          debouncedUpdate(
+                            String(row.rowIndex ?? i),
+                            e.target.value as NFRSCategory
+                          )
+                        }
+                        className="h-7 w-full text-xs px-2 border border-slate-200 rounded bg-white text-slate-700 outline-none focus:border-blue-500 transition-colors cursor-pointer"
+                        aria-label={`NFRS category for ${row.rawLabel}`}
+                      >
+                        <option value="unclassified">— Select category —</option>
+                        {ALL_NFRS_CATEGORIES.map(cat => (
+                          <option key={cat} value={cat}>
+                            {NFRS_CATEGORY_LABELS[cat] ?? cat}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+
+                    {/* Confidence */}
+                    <td className="px-3 py-1.5 text-center">
+                      <span
+                        className="text-[11px] font-mono font-semibold"
+                        style={{ color: confidenceColor(row.confidence ?? 0) }}
+                      >
+                        {row.confidence ?? 0}%
+                      </span>
+                    </td>
+
+                    {/* Method */}
+                    <td className="px-3 py-1.5">
+                      <span className="text-[11px] text-slate-400">
+                        {methodLabel(row.matchMethod)}
+                      </span>
+                    </td>
+
+                    {/* Closing balance */}
+                    <td className="px-3 py-1.5 text-right font-mono text-[11px] text-slate-600">
+                      {fmtBalance(row)}
+                    </td>
+                  </tr>
+                );
+              })
+            )}
           </tbody>
         </table>
       </div>
 
-      {stats.unmatched > 0 && <Alert type="warning" title="Unmatched Accounts" message={`${stats.unmatched} account(s) are still unclassified. These will be excluded from financial statements. Please select a category for each.`} />}
+      {/* ── Footer bar ───────────────────────────────────────────────── */}
+      <div className="flex items-center justify-between mt-3 pt-3 border-t border-slate-200">
+        <div className="flex items-center gap-3">
+          <p className="text-xs text-slate-500">
+            {mappedCount} accounts mapped.{' '}
+            {needsReviewCount > 0
+              ? `${needsReviewCount} still need review.`
+              : 'All accounts reviewed.'}
+          </p>
 
-      <div className="flex justify-end">
-        <Button size="lg" disabled={stats.unmatched > 0} onClick={() => onMappingComplete(tb)}>
-          Confirm Mappings &amp; Continue →
-        </Button>
+          {unmatchedCount > 0 && onRerunAI && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onRerunAI}
+            >
+              Re-match with AI
+            </Button>
+          )}
+        </div>
+
+        <div className="flex flex-col items-end gap-1">
+          <Button
+            variant="primary"
+            size="md"
+            disabled={needsReviewCount > 0 || unmatchedCount > 0}
+            loading={confirming}
+            onClick={handleConfirm}
+          >
+            Confirm Mappings and Continue
+          </Button>
+          {(needsReviewCount > 0 || unmatchedCount > 0) && (
+            <p className="text-xs text-amber-600">
+              Map all accounts before continuing.
+            </p>
+          )}
+          {confirmErr && (
+            <p className="text-xs text-red-600">{confirmErr}</p>
+          )}
+        </div>
       </div>
     </div>
   );

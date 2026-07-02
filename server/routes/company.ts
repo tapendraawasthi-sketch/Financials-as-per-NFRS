@@ -1,7 +1,8 @@
 // ===== server/routes/company.ts =====
 import { Router, Request, Response } from 'express';
 import { asyncHandler } from '../middleware/errorHandler';
-import { sessionStore, generateSessionId } from '../store/sessionStore';
+import { sessionStore } from '../store/sessionStore';
+import crypto from 'crypto';
 import { validateCompanyProfile, validateAccountingPolicies } from '../../src/utils/validation';
 import { getFiscalYearOptions } from '../../src/data/fiscalYears';
 import type { CompanyProfile } from '../../src/types';
@@ -16,8 +17,8 @@ router.post('/', asyncHandler(async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Validation failed', errors: validation.errors });
   }
 
-  const id = generateSessionId();
-  const now = new Date();
+  const id = crypto.randomUUID();
+  const now = new Date().toISOString();
   const company: CompanyProfile = {
     ...body,
     id,
@@ -25,8 +26,7 @@ router.post('/', asyncHandler(async (req: Request, res: Response) => {
     updatedAt: now,
   } as CompanyProfile;
 
-  sessionStore.create(id);
-  sessionStore.update(id, { company });
+  sessionStore.set(id, { company });
 
   return res.status(201).json(company);
 }));
@@ -49,8 +49,8 @@ router.put('/:companyId', asyncHandler(async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Validation failed', errors: validation.errors });
   }
 
-  const updated = sessionStore.update(req.params.companyId, {
-    company: { ...session.company, ...body, updatedAt: new Date() } as CompanyProfile,
+  const updated = sessionStore.set(req.params.companyId, {
+    company: { ...session.company, ...body, updatedAt: new Date().toISOString() } as CompanyProfile,
   });
   return res.json(updated?.company);
 }));
@@ -66,8 +66,18 @@ router.post('/:companyId/policies', asyncHandler(async (req: Request, res: Respo
   }
 
   const updatedCompany = { ...session.company!, accountingPolicies: req.body };
-  sessionStore.update(req.params.companyId, { company: updatedCompany as CompanyProfile });
+  sessionStore.set(req.params.companyId, { company: updatedCompany as CompanyProfile });
   return res.json({ message: 'Accounting policies saved.', policies: req.body });
+}));
+
+// PUT /:companyId/previous-year — Update previous year balances
+router.put('/:companyId/previous-year', asyncHandler(async (req: Request, res: Response) => {
+  const session = sessionStore.get(req.params.companyId);
+  if (!session) return res.status(404).json({ error: 'Company not found.' });
+
+  const updatedCompany = { ...session.company!, previousYearData: req.body, updatedAt: new Date() };
+  sessionStore.set(req.params.companyId, { company: updatedCompany as CompanyProfile });
+  return res.json(updatedCompany);
 }));
 
 // GET /fiscal-years/options

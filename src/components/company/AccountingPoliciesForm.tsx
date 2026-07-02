@@ -1,185 +1,421 @@
-// ===== src/components/company/AccountingPoliciesForm.tsx =====
+// src/components/company/AccountingPoliciesForm.tsx
 import React, { useState } from 'react';
-import type { AccountingPolicies } from '../../types';
-import { validateAccountingPolicies } from '../../utils/validation';
-import Button from '../ui/Button';
-import Card from '../ui/Card';
-import InputField from '../ui/InputField';
+import Card           from '../ui/Card';
 import SelectDropdown from '../ui/SelectDropdown';
-import Alert from '../ui/Alert';
+import NumberInput    from '../ui/NumberInput';
+import Button         from '../ui/Button';
+import { AccountingPolicies } from '../../types/company';
 
-interface AccountingPoliciesFormProps {
-  initialPolicies?: AccountingPolicies;
-  fiscalYear: string;
-  onSubmit: (policies: AccountingPolicies) => void;
-  isLoading?: boolean;
+// ── Asset category defaults ────────────────────────────────────────────────
+interface AssetCategoryRow {
+  id:           string;
+  name:         string;
+  usefulLife:   number;
+  residualPct:  number;
+  method:       'SLM' | 'WDV';
+  wdvRate:      number;
+  noDepn:       boolean;
 }
 
-const DEFAULT_POLICIES: Partial<AccountingPolicies> = {
-  depreciationMethod: 'StraightLine',
-  incomeTaxRatePercent: 25,
-  bonusRatePercent: 10,
-  gratuityDaysPerYear: 15,
-  roundingLevel: 100,
-  assetCategories: [
-    { id: 'land', name: 'Land', usefulLifeYears: 0, residualValuePercent: 100, depreciationMethod: 'StraightLine' },
-    { id: 'buildings', name: 'Buildings', usefulLifeYears: 25, residualValuePercent: 5, depreciationMethod: 'StraightLine' },
-    { id: 'vehicles', name: 'Vehicles', usefulLifeYears: 10, residualValuePercent: 5, depreciationMethod: 'StraightLine' },
-    { id: 'computers', name: 'Computers & IT', usefulLifeYears: 5, residualValuePercent: 5, depreciationMethod: 'StraightLine' },
-    { id: 'furniture', name: 'Furniture & Fixtures', usefulLifeYears: 10, residualValuePercent: 5, depreciationMethod: 'StraightLine' },
-    { id: 'plant', name: 'Plant & Machinery', usefulLifeYears: 15, residualValuePercent: 5, depreciationMethod: 'StraightLine' },
-    { id: 'intangibles', name: 'Intangible Assets', usefulLifeYears: 5, residualValuePercent: 0, depreciationMethod: 'StraightLine' },
-  ],
-};
-
-const ROUNDING_OPTIONS = [
-  { value: '1',     label: '1 (Exact)' },
-  { value: '10',    label: '10' },
-  { value: '100',   label: '100 (Recommended)' },
-  { value: '1000',  label: '1,000' },
-  { value: '10000', label: '10,000' },
+const DEFAULTS: AssetCategoryRow[] = [
+  { id: 'land',       name: 'Land',                noDepn: true,  usefulLife: 0,  residualPct: 100, method: 'SLM', wdvRate: 0   },
+  { id: 'buildings',  name: 'Buildings',            noDepn: false, usefulLife: 40, residualPct: 5,   method: 'SLM', wdvRate: 5   },
+  { id: 'vehicles',   name: 'Vehicles',             noDepn: false, usefulLife: 5,  residualPct: 10,  method: 'WDV', wdvRate: 25  },
+  { id: 'computers',  name: 'Computers',            noDepn: false, usefulLife: 5,  residualPct: 0,   method: 'SLM', wdvRate: 25  },
+  { id: 'office_eq',  name: 'Office Equipment',     noDepn: false, usefulLife: 10, residualPct: 5,   method: 'WDV', wdvRate: 15  },
+  { id: 'furniture',  name: 'Furniture & Fixtures', noDepn: false, usefulLife: 10, residualPct: 5,   method: 'WDV', wdvRate: 15  },
+  { id: 'plant',      name: 'Plant & Machinery',    noDepn: false, usefulLife: 15, residualPct: 5,   method: 'WDV', wdvRate: 20  },
+  { id: 'intangible', name: 'Intangible Assets',    noDepn: false, usefulLife: 5,  residualPct: 0,   method: 'SLM', wdvRate: 0   },
 ];
 
-const COST_FORMULA_OPTIONS = [{ value: 'fifo', label: 'FIFO (First-In, First-Out)' }, { value: 'weighted_avg', label: 'Weighted Average Method' }];
+const ROUNDING_OPTIONS = [
+  { value: '1',     label: '1 — Exact'                       },
+  { value: '10',    label: '10 — Nearest ten'                },
+  { value: '100',   label: '100 — Nearest hundred (recommended)' },
+  { value: '1000',  label: '1,000 — Nearest thousand'        },
+  { value: '10000', label: '10,000 — Nearest ten-thousand'   },
+];
 
-export default function AccountingPoliciesForm({ initialPolicies, fiscalYear, onSubmit, isLoading }: AccountingPoliciesFormProps): React.ReactElement {
-  const [policies, setPolicies] = useState<Partial<AccountingPolicies>>(initialPolicies ?? DEFAULT_POLICIES);
-  const [errors, setErrors] = useState<Record<string, string>>({});
-  const [recognizeGratuity, setRecognizeGratuity] = useState(true);
-  const [recognizeLeave, setRecognizeLeave] = useState(false);
+const METHOD_OPTIONS = [
+  { value: 'SLM', label: 'Straight Line Method (SLM)' },
+  { value: 'WDV', label: 'Written Down Value (WDV)'   },
+];
 
-  const set = (key: string, val: unknown) => setPolicies((p) => ({ ...p, [key]: val }));
+const INVENTORY_OPTIONS = [
+  { value: 'WeightedAverage', label: 'Weighted Average'                },
+  { value: 'FIFO',            label: 'FIFO (First-In First-Out)'       },
+];
 
-  const handleSubmit = (e: React.FormEvent) => {
+// ── Tiny inline cell input ─────────────────────────────────────────────────
+const CellInput = ({
+  value,
+  onChange,
+  disabled = false,
+  type     = 'number',
+  min,
+  max,
+}: {
+  value:     string | number;
+  onChange:  (v: string) => void;
+  disabled?: boolean;
+  type?:     string;
+  min?:      number;
+  max?:      number;
+}) => (
+  <input
+    type={type}
+    value={value}
+    disabled={disabled}
+    min={min}
+    max={max}
+    onChange={e => onChange(e.target.value)}
+    className={[
+      'h-6 w-full rounded border text-xs text-right px-1.5 outline-none transition-colors',
+      disabled
+        ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
+        : 'bg-white border-slate-300 text-slate-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-500',
+    ].join(' ')}
+  />
+);
+
+const CellSelect = ({
+  value,
+  onChange,
+  options,
+  disabled = false,
+}: {
+  value:     string;
+  onChange:  (v: string) => void;
+  options:   { value: string; label: string }[];
+  disabled?: boolean;
+}) => (
+  <select
+    value={value}
+    disabled={disabled}
+    onChange={e => onChange(e.target.value)}
+    className={[
+      'h-6 w-full rounded border text-xs px-1 outline-none transition-colors appearance-none',
+      disabled
+        ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
+        : 'bg-white border-slate-300 text-slate-700 focus:border-blue-500 cursor-pointer',
+    ].join(' ')}
+  >
+    {options.map(o => (
+      <option key={o.value} value={o.value}>{o.label}</option>
+    ))}
+  </select>
+);
+
+// ── Component ──────────────────────────────────────────────────────────────
+interface FormState {
+  defaultDepnMethod:  'SLM' | 'WDV';
+  inventoryMethod:    string;
+  recognizeGratuity:  boolean;
+  gratuityDays:       number;
+  recognizeLeave:     boolean;
+  bonusRate:          number | '';
+  taxRate:            number | '';
+  roundingLevel:      string;
+  categories:         AssetCategoryRow[];
+}
+
+interface AccountingPoliciesFormProps {
+  initialData?: Partial<AccountingPolicies>;
+  onSave:       (data: FormState) => Promise<void> | void;
+}
+
+export default function AccountingPoliciesForm({
+  initialData,
+  onSave,
+}: AccountingPoliciesFormProps) {
+  const [form, setForm] = useState<FormState>({
+    defaultDepnMethod: 'WDV',
+    inventoryMethod:   'WeightedAverage',
+    recognizeGratuity: true,
+    gratuityDays:      15,
+    recognizeLeave:    true,
+    bonusRate:         10,
+    taxRate:           25,
+    roundingLevel:     '100',
+    categories:        DEFAULTS.map(d => ({ ...d })),
+    ...buildInitial(initialData),
+  });
+
+  const [saving,  setSaving]  = useState(false);
+  const [saveErr, setSaveErr] = useState<string | null>(null);
+
+  function buildInitial(d?: Partial<AccountingPolicies>): Partial<FormState> {
+    if (!d) return {};
+    return {
+      defaultDepnMethod: d.depreciationMethod as 'SLM' | 'WDV' | undefined,
+      inventoryMethod:   d.inventoryCostMethod,
+      recognizeGratuity: d.recognizeGratuity,
+      gratuityDays:      d.gratuityDaysPerYear,
+      recognizeLeave:    d.recognizeLeaveEncashment,
+      bonusRate:         d.bonusRatePercent,
+      taxRate:           d.incomeTaxRatePercent,
+      roundingLevel:     String(d.roundingLevel ?? 100),
+    };
+  }
+
+  const set = <K extends keyof FormState>(k: K, v: FormState[K]) =>
+    setForm(prev => ({ ...prev, [k]: v }));
+
+  const setCategory = (idx: number, key: keyof AssetCategoryRow, value: any) =>
+    setForm(prev => {
+      const cats = prev.categories.map((c, i) =>
+        i === idx ? { ...c, [key]: value } : c
+      );
+      return { ...prev, categories: cats };
+    });
+
+  const restoreDefaults = () =>
+    setForm(prev => ({ ...prev, categories: DEFAULTS.map(d => ({ ...d })) }));
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const validation = validateAccountingPolicies(policies);
-    if (!validation.isValid) { setErrors(validation.errors); return; }
-    setErrors({});
-    onSubmit(policies as AccountingPolicies);
-  };
-
-  const roundingExample = (level: number) => {
-    const val = 1234567;
-    const rounded = Math.round(val / level) * level;
-    return `1,234,567 → ${rounded.toLocaleString()}`;
+    setSaving(true);
+    setSaveErr(null);
+    try {
+      await onSave(form);
+    } catch (err: any) {
+      setSaveErr(err?.message ?? 'Failed to save. Please try again.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6 max-w-4xl mx-auto">
-      <Card title="Property, Plant & Equipment (PPE)" subtitle="Depreciation method selection">
-        <div className="flex gap-6 mb-4">
-          {(['StraightLine', 'WrittenDownValue'] as const).map((method) => (
-            <label key={method} className="flex items-center gap-2 cursor-pointer">
-              <input type="radio" name="depMethod" value={method} checked={(policies.depreciationMethod as string) === method}
-                onChange={() => set('depreciationMethod', method)} className="text-blue-700 focus:ring-blue-500" />
-              <span className="text-sm font-medium text-slate-700">{method === 'StraightLine' ? 'Straight Line Method (SLM)' : 'Written Down Value (WDV)'}</span>
-            </label>
-          ))}
+    <form
+      onSubmit={handleSubmit}
+      noValidate
+      className="max-w-3xl space-y-4"
+      aria-label="Accounting policies"
+    >
+      {/* ── Card 1: Depreciation Policy ─────────────────────────────── */}
+      <Card title="Depreciation Policy" padding="md">
+        <div className="form-grid-2 mb-4">
+          <SelectDropdown
+            label="Default Method"
+            value={form.defaultDepnMethod}
+            onChange={e => set('defaultDepnMethod', e.target.value as 'SLM' | 'WDV')}
+            options={METHOD_OPTIONS}
+          />
+          {/* Second column intentionally empty — per-asset config in table */}
+          <div />
         </div>
-        <Alert type="info" message={policies.depreciationMethod === 'StraightLine' ? 'SLM: Equal annual depreciation charge over asset life. Common for buildings and furniture in Nepal.' : 'WDV: Higher depreciation in early years, reduces each year. Common for vehicles and computers.'} />
-      </Card>
 
-      <Card title="Asset Category Configuration" subtitle="Useful life and rates per category">
+        {/* Asset category table */}
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="fin-table w-full">
             <thead>
-              <tr className="bg-slate-50 border-b border-slate-200">
-                {['Category', 'Useful Life (Years)', 'Residual Value %', 'WDV Rate %'].map((h) => (
-                  <th key={h} className="px-3 py-2 text-left text-xs font-medium text-slate-500 uppercase">{h}</th>
-                ))}
+              <tr>
+                <th className="text-left w-40">Asset Class</th>
+                <th className="text-right w-24">Useful Life (yrs)</th>
+                <th className="text-right w-28">Residual Value %</th>
+                <th className="text-center w-28">Method</th>
+                <th className="text-right w-24">WDV Rate %</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
-              {(policies.assetCategories ?? []).map((cat, idx) => (
-                <tr key={cat.id}>
-                  <td className="px-3 py-2 font-medium text-slate-700">{cat.name}</td>
-                  <td className="px-3 py-2">
-                    <input type="number" min={0} className="w-20 px-2 py-1 border border-slate-200 rounded text-sm"
-                      value={cat.usefulLifeYears} onChange={(e) => {
-                        const cats = [...(policies.assetCategories ?? [])];
-                        cats[idx] = { ...cats[idx], usefulLifeYears: Number(e.target.value) };
-                        set('assetCategories', cats);
-                      }} />
+            <tbody>
+              {form.categories.map((cat, idx) => (
+                <tr key={cat.id} className={cat.noDepn ? 'opacity-50' : ''}>
+                  <td className="text-slate-700 text-xs font-medium">{cat.name}</td>
+
+                  <td className="text-right">
+                    <CellInput
+                      value={cat.noDepn ? '—' : cat.usefulLife}
+                      onChange={v => setCategory(idx, 'usefulLife', parseInt(v) || 0)}
+                      disabled={cat.noDepn}
+                      min={1}
+                      max={100}
+                    />
                   </td>
-                  <td className="px-3 py-2">
-                    <input type="number" min={0} max={100} className="w-20 px-2 py-1 border border-slate-200 rounded text-sm"
-                      value={cat.residualValuePercent ?? 5} onChange={(e) => {
-                        const cats = [...(policies.assetCategories ?? [])];
-                        cats[idx] = { ...cats[idx], residualValuePercent: Number(e.target.value) };
-                        set('assetCategories', cats);
-                      }} />
+
+                  <td className="text-right">
+                    <CellInput
+                      value={cat.noDepn ? '—' : cat.residualPct}
+                      onChange={v => setCategory(idx, 'residualPct', parseFloat(v) || 0)}
+                      disabled={cat.noDepn}
+                      min={0}
+                      max={100}
+                    />
                   </td>
-                  <td className="px-3 py-2 text-slate-400 text-xs">
-                    {policies.depreciationMethod === 'WrittenDownValue' ? '25% (default)' : 'N/A (SLM)'}
+
+                  <td>
+                    <CellSelect
+                      value={cat.method}
+                      onChange={v => setCategory(idx, 'method', v)}
+                      disabled={cat.noDepn}
+                      options={[
+                        { value: 'SLM', label: 'SLM' },
+                        { value: 'WDV', label: 'WDV' },
+                      ]}
+                    />
+                  </td>
+
+                  <td className="text-right">
+                    <CellInput
+                      value={cat.noDepn || cat.method !== 'WDV' ? '—' : cat.wdvRate}
+                      onChange={v => setCategory(idx, 'wdvRate', parseFloat(v) || 0)}
+                      disabled={cat.noDepn || cat.method !== 'WDV'}
+                      min={0}
+                      max={100}
+                    />
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-      </Card>
 
-      <Card title="Inventories">
-        <SelectDropdown label="Inventory Cost Formula" options={COST_FORMULA_OPTIONS}
-          value={(policies as any).inventoryCostFormula ?? 'weighted_avg'}
-          onChange={(e) => set('inventoryCostFormula', e.target.value)} />
-        <p className="text-xs text-slate-500 mt-2">FIFO: Oldest stock treated as sold first. Weighted Average: Cost averaged over all units. Most Nepal businesses use Weighted Average.</p>
-      </Card>
-
-      <Card title="Employee Benefits">
-        <div className="space-y-4">
-          <label className="flex items-center gap-3 cursor-pointer">
-            <input type="checkbox" checked={recognizeGratuity} onChange={(e) => setRecognizeGratuity(e.target.checked)} className="rounded" />
-            <span className="text-sm font-medium text-slate-700">Recognise Gratuity Provision</span>
-          </label>
-          {recognizeGratuity && (
-            <div className="ml-6">
-              <InputField label="Gratuity Days per Year" type="number" error={errors.gratuityDaysPerYear}
-                value={String(policies.gratuityDaysPerYear ?? 15)}
-                onChange={(e) => set('gratuityDaysPerYear', Number(e.target.value))} />
-            </div>
-          )}
-          <label className="flex items-center gap-3 cursor-pointer">
-            <input type="checkbox" checked={recognizeLeave} onChange={(e) => setRecognizeLeave(e.target.checked)} className="rounded" />
-            <span className="text-sm font-medium text-slate-700">Recognise Leave Encashment Provision</span>
-          </label>
-          <InputField label="Bonus Rate %" type="number" error={errors.bonusRatePercent}
-            helperText="% of Net Profit (per Nepal Company Act / Bonus Act 2030)"
-            value={String(policies.bonusRatePercent ?? 10)}
-            onChange={(e) => set('bonusRatePercent', Number(e.target.value))} />
+        <div className="flex justify-end mt-2">
+          <button
+            type="button"
+            onClick={restoreDefaults}
+            className="text-xs text-blue-600 hover:text-blue-800 underline transition-colors"
+          >
+            Restore Defaults
+          </button>
         </div>
       </Card>
 
-      <Card title="Income Tax">
-        <InputField label="Corporate Income Tax Rate (%)" type="number" error={errors.incomeTaxRatePercent}
-          helperText="Standard rate is 25%. Listed companies: 20%. Manufacturing: 20%. Consult your tax advisor."
-          value={String(policies.incomeTaxRatePercent ?? 25)}
-          onChange={(e) => set('incomeTaxRatePercent', Number(e.target.value))} />
+      {/* ── Card 2: Inventory ────────────────────────────────────────── */}
+      <Card title="Inventory" padding="md">
+        <div className="form-grid-2">
+          <SelectDropdown
+            label="Cost Formula"
+            value={form.inventoryMethod}
+            onChange={e => set('inventoryMethod', e.target.value)}
+            options={INVENTORY_OPTIONS}
+          />
+          <div />
+        </div>
       </Card>
 
-      <Card title="Presentation">
-        <div className="mb-3">
-          <p className="text-sm font-medium text-slate-700 mb-1">Currency</p>
-          <p className="text-sm text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">NPR (Nepalese Rupees) — fixed for Nepal NFRS compliance</p>
-        </div>
-        <div>
-          <p className="text-sm font-medium text-slate-700 mb-2">Level of Rounding</p>
+      {/* ── Card 3: Employee Benefits ────────────────────────────────── */}
+      <Card title="Employee Benefits" padding="md">
+        <div className="form-grid-3">
+          {/* Gratuity */}
           <div className="space-y-2">
-            {[1, 10, 100, 1000, 10000].map((level) => (
-              <label key={level} className="flex items-center gap-3 cursor-pointer">
-                <input type="radio" name="rounding" value={String(level)} checked={(policies.roundingLevel as number) === level}
-                  onChange={() => set('roundingLevel', level)} className="text-blue-700 focus:ring-blue-500" />
-                <span className="text-sm text-slate-700">{level.toLocaleString()}</span>
-                <span className="text-xs text-slate-400 font-mono">{roundingExample(level)}</span>
-                {level === 100 && <span className="text-xs text-green-600 font-semibold">Recommended</span>}
-              </label>
-            ))}
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={form.recognizeGratuity}
+                onChange={e => set('recognizeGratuity', e.target.checked)}
+                className="h-3.5 w-3.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+              />
+              <span className="text-xs font-medium text-slate-600">
+                Recognize gratuity provision
+              </span>
+            </label>
+            {form.recognizeGratuity && (
+              <NumberInput
+                label="Days per year"
+                value={form.gratuityDays}
+                onChange={v => set('gratuityDays', v)}
+                suffix="days/year"
+                min={1}
+                max={365}
+              />
+            )}
+          </div>
+
+          {/* Leave Encashment */}
+          <div className="space-y-2">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={form.recognizeLeave}
+                onChange={e => set('recognizeLeave', e.target.checked)}
+                className="h-3.5 w-3.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+              />
+              <span className="text-xs font-medium text-slate-600">
+                Recognize leave encashment
+              </span>
+            </label>
+          </div>
+
+          {/* Staff Bonus */}
+          <div>
+            <NumberInput
+              label="Bonus Rate"
+              value={form.bonusRate}
+              onChange={v => set('bonusRate', v)}
+              suffix="% of net profit"
+              placeholder="0"
+              min={0}
+              max={100}
+            />
           </div>
         </div>
       </Card>
 
-      <div className="flex justify-end">
-        <Button type="submit" size="lg" loading={isLoading}>Save Policies &amp; Continue →</Button>
+      {/* ── Card 4: Income Tax ───────────────────────────────────────── */}
+      <Card title="Income Tax" padding="md">
+        <div className="form-grid-3">
+          <NumberInput
+            label="Corporate Tax Rate"
+            value={form.taxRate}
+            onChange={v => set('taxRate', v)}
+            suffix="%"
+            min={0}
+            max={100}
+          />
+          <div />
+          <div />
+        </div>
+      </Card>
+
+      {/* ── Card 5: Presentation ────────────────────────────────────── */}
+      <Card title="Presentation" padding="md">
+        <div className="form-grid-2">
+          {/* Disabled currency field */}
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-medium text-slate-600 leading-none">
+              Currency
+            </label>
+            <input
+              type="text"
+              value="NPR — Nepalese Rupees"
+              disabled
+              className="h-8 w-full rounded border border-slate-200 px-2.5 text-sm text-slate-400 bg-slate-50 cursor-not-allowed outline-none"
+            />
+          </div>
+
+          <SelectDropdown
+            label="Rounding Level"
+            value={form.roundingLevel}
+            onChange={e => set('roundingLevel', e.target.value)}
+            options={ROUNDING_OPTIONS}
+          />
+        </div>
+      </Card>
+
+      {/* Save error */}
+      {saveErr && (
+        <div
+          role="alert"
+          className="flex items-center gap-2 rounded-md border border-red-200 bg-red-50 px-3.5 py-2.5 text-xs text-red-700"
+        >
+          <svg className="h-4 w-4 flex-shrink-0 text-red-500" fill="none"
+            viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+            <circle cx="12" cy="12" r="10" />
+            <line x1="15" y1="9" x2="9" y2="15" />
+            <line x1="9"  y1="9" x2="15" y2="15" />
+          </svg>
+          {saveErr}
+        </div>
+      )}
+
+      {/* Footer */}
+      <div className="flex items-center justify-between pt-1">
+        <p className="text-xs text-slate-500">
+          Asset category rates can be overridden per-asset in the Fixed Asset Register.
+        </p>
+        <Button type="submit" variant="primary" size="md" loading={saving}>
+          Save and Continue
+        </Button>
       </div>
     </form>
   );

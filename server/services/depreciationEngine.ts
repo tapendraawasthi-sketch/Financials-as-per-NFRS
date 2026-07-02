@@ -11,6 +11,7 @@ import type {
   TaxDepreciationPool,
   YearEndAdjustments,
 } from '../../src/types';
+import { DepreciationMethod } from '../../src/types';
 
 // Re-implement calendar utilities locally to avoid client/server import issues
 function normMonthName(name: string): number {
@@ -165,7 +166,7 @@ export function calculateAssetDepreciation(
   // Compute main depreciation
   let depnForYear = 0;
 
-  if (asset.depreciationMethod === 'StraightLine' || asset.depreciationMethod === 'slm') {
+  if (asset.depreciationMethod === DepreciationMethod.StraightLine) {
     depnForYear = calculateSLMDepreciation(
       openingCost + asset.additionalCost,
       asset.residualValue,
@@ -186,7 +187,7 @@ export function calculateAssetDepreciation(
 
   if (hasDisposal && asset.disposalValue !== undefined) {
     const disposalFraction = 1 - depreciationFraction; // portion of year BEFORE disposal
-    if (asset.depreciationMethod === 'StraightLine' || asset.depreciationMethod === 'slm') {
+    if (asset.depreciationMethod === DepreciationMethod.StraightLine) {
       depnOnDisposal = calculateSLMDepreciation(
         openingCost + asset.additionalCost,
         asset.residualValue,
@@ -213,6 +214,7 @@ export function calculateAssetDepreciation(
     assetName: asset.assetName,
     categoryId: asset.categoryId,
     openingCost,
+    netBookValueOpening,
     additions: asset.additionalCost,
     disposals: hasDisposal ? openingCost : 0,
     closingCost,

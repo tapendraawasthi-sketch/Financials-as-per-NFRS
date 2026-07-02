@@ -1,32 +1,15 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "experimentalDecorators": true,
-    "useDefineForClassFields": false,
-    "module": "ESNext",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "skipLibCheck": true,
+    "module": "ESNext",
     "moduleResolution": "bundler",
-    "isolatedModules": true,
-    "moduleDetection": "force",
-    "allowJs": true,
     "jsx": "react-jsx",
-    "allowImportingTsExtensions": true,
-    "noEmit": true,
     "strict": true,
-    "paths": {
-      "@/*": ["./*"]
-    }
+    "skipLibCheck": true,
+    "noEmit": true,
+    "paths": {}
   },
-  "include": [
-    "src",
-    "server",
-    "server.ts",
-    "*.ts",
-    "*.tsx"
-  ],
-  "exclude": [
-    "node_modules",
-    "dist"
-  ]
+  "include": ["src", "server"],
+  "exclude": ["node_modules", "dist"]
 }

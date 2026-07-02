@@ -5,58 +5,118 @@ import { asyncHandler } from '../middleware/errorHandler';
 import { sessionStore } from '../store/sessionStore';
 import { parseTrialBalance } from '../services/tbParser';
 import { matchAllAccounts } from '../services/accountMatcher';
-import { runAIMatching } from '../services/aiAccountMatcher';
+import { aiMatchUnresolved } from '../services/aiAccountMatcher';
 import { validateTrialBalanceTotals } from '../../src/utils/validation';
 import type { ParsedTrialBalance, NFRSCategory } from '../../src/types';
 
 const router = Router();
 
 // POST /:companyId/upload
-router.post('/:companyId/upload', tbUploadMiddleware, asyncHandler(async (req: Request, res: Response) => {
-  if (!req.file) return res.status(400).json({ error: 'No file uploaded. POST a file under the field name "trialbalance".' });
-
-  const session = sessionStore.get(req.params.companyId);
-  if (!session) return res.status(404).json({ error: 'Company session not found. Create a company first.' });
-
-  const parsed = await parseTrialBalance(req.file.buffer, req.file.originalname);
-  let matchResults = matchAllAccounts(parsed.rows);
-
-  if (req.query.useAI === 'true' && process.env.ANTHROPIC_API_KEY) {
-    try {
-      matchResults = await runAIMatching(matchResults);
-    } catch (aiErr) {
-      console.warn('[trialBalance.upload] AI matching failed, proceeding with deterministic results:', aiErr);
+router.post('/:companyId/upload', tbUploadMiddleware, async (req: Request, res: Response, next) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, error: 'No file uploaded. Please select a file and try again.' });
     }
-  }
 
-  const rows: ParsedTrialBalance['rows'] = parsed.rows.map((raw, i) => {
-    const match = matchResults[i];
-    return {
-      ...raw,
-      nfrsCategory: (match?.nfrsCategory ?? 'unclassified') as NFRSCategory,
-      matchedLabel: match?.matchedLabel ?? null,
-      confidence: match?.confidence ?? 0,
-      matchMethod: match?.method ?? 'unmatched',
-      needsReview: match?.needsReview ?? true,
-      candidates: match?.candidates ?? [],
-      userOverride: false,
+    // ── File size check (50 MB)
+    if (req.file.size > 50 * 1024 * 1024) {
+      return res.status(413).json({
+        success: false,
+        error: 'File size exceeds the 50 MB limit. Please reduce the file size by removing unnecessary sheets or rows.',
+      });
+    }
+
+    // ── Format check
+    const allowed = [
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'application/vnd.ms-excel',
+      'text/csv',
+      'application/csv',
+    ];
+    const ext = (req.file.originalname ?? '').split('.').pop()?.toLowerCase();
+    if (!allowed.includes(req.file.mimetype) && !['xlsx','xls','csv'].includes(ext ?? '')) {
+      return res.status(415).json({
+        success: false,
+        error: 'Unsupported file format. Please upload .xlsx, .xls, or .csv files exported from your accounting software.',
+      });
+    }
+
+    const session = sessionStore.get(req.params.companyId);
+    if (!session) return res.status(404).json({ error: 'Company session not found. Create a company first.' });
+
+    const parsed = await parseTrialBalance(req.file.buffer, req.file.originalname);
+    
+    // ── No data rows check
+    if (!parsed.rows || parsed.rows.length === 0) {
+      return res.status(422).json({
+        success: false,
+        error: 'No data rows found in the uploaded file. Please check your export settings and ensure the file contains account entries.',
+      });
+    }
+
+    let matchResults = matchAllAccounts(parsed.rows);
+
+    if (req.query.useAI === 'true' && process.env.ANTHROPIC_API_KEY) {
+      try {
+        const aiRes = await aiMatchUnresolved(parsed.rows.map(r => ({ rawLabel: r.rawLabel, closingBalance: r.closingDr - r.closingCr })), session.company!, process.env.ANTHROPIC_API_KEY!);
+        for (let i = 0; i < matchResults.length; i++) {
+          const ai = aiRes.find(a => a.rowIndex === matchResults[i].rowIndex);
+          if (ai && ai.confidence > (matchResults[i].confidence ?? 0)) {
+            matchResults[i] = {
+              ...matchResults[i],
+              nfrsCategory: ai.nfrsCategory as NFRSCategory,
+              confidence: ai.confidence,
+              method: 'ai',
+              needsReview: ai.confidence < 80,
+            };
+          }
+        }
+      } catch (aiErr) {
+        console.warn('[trialBalance.upload] AI matching failed, proceeding with deterministic results:', aiErr);
+      }
+    }
+
+    const rows: ParsedTrialBalance['rows'] = parsed.rows.map((raw, i) => {
+      const match = matchResults[i];
+      return {
+        ...raw,
+        nfrsCategory: (match?.nfrsCategory ?? 'unclassified') as NFRSCategory,
+        matchedLabel: match?.matchedLabel ?? null,
+        confidence: match?.confidence ?? 0,
+        matchMethod: match?.method ?? 'unmatched',
+        needsReview: match?.needsReview ?? true,
+        candidates: match?.candidates ?? [],
+        closingBalance: raw.closingDr - raw.closingCr,
+      };
+    });
+
+    const tb = {
+      ...parsed,
+      rows,
+      companyId: req.params.companyId,
+      uploadedAt: new Date().toISOString(),
+      uploadedFileName: req.file.originalname,
     };
-  });
 
-  const tb: ParsedTrialBalance = {
-    ...parsed,
-    rows,
-    companyId: req.params.companyId,
-    uploadedAt: new Date(),
-    filename: req.file.originalname,
-  };
+    const validation = validateTrialBalanceTotals(rows);
+    (tb as any).validation = validation;
 
-  const validation = validateTrialBalanceTotals(rows);
-  (tb as any).validation = validation;
+    // ── Significant imbalance check
+    const diff = Math.abs(validation.totalClosingDr - validation.totalClosingCr);
+    if (diff > 1000) {
+      return res.status(422).json({
+        success: false,
+        error: `Trial balance has a significant imbalance of NPR ${diff.toLocaleString('en-IN')}. Please check your accounting export before proceeding. Rounding differences up to NPR 1,000 are auto-adjusted.`,
+        data: tb, // still return data so user can review
+      });
+    }
 
-  sessionStore.update(req.params.companyId, { trialBalance: tb });
-  return res.json(tb);
-}));
+    sessionStore.set(req.params.companyId, { trialBalance: tb as any });
+    res.json({ success: true, data: tb });
+  } catch (err: any) {
+    next(err); // passes to errorMiddleware
+  }
+});
 
 // GET /:companyId
 router.get('/:companyId', asyncHandler(async (req: Request, res: Response) => {
@@ -83,7 +143,7 @@ router.put('/:companyId/mapping', asyncHandler(async (req: Request, res: Respons
         confidence: 100,
         matchMethod: 'manual',
         needsReview: false,
-        userOverride: true,
+        userOverride: 'manual',
       };
     }
   }
@@ -91,7 +151,7 @@ router.put('/:companyId/mapping', asyncHandler(async (req: Request, res: Respons
   const updatedTB = { ...session.trialBalance, rows: updatedRows };
   const validation = validateTrialBalanceTotals(updatedRows);
   (updatedTB as any).validation = validation;
-  sessionStore.update(req.params.companyId, { trialBalance: updatedTB });
+  sessionStore.set(req.params.companyId, { trialBalance: updatedTB });
   return res.json(updatedTB);
 }));
 
@@ -100,10 +160,10 @@ router.post('/:companyId/rematch-ai', asyncHandler(async (req: Request, res: Res
   const session = sessionStore.get(req.params.companyId);
   if (!session?.trialBalance) return res.status(404).json({ error: 'No trial balance loaded.' });
 
-  const lowConfRows = session.trialBalance.rows.filter((r) => !r.userOverride && (r.confidence ?? 0) < 80);
+  const lowConfRows = session.trialBalance.rows.filter((r: any) => !r.userOverride && (r.confidence ?? 0) < 80);
   if (lowConfRows.length === 0) return res.json({ message: 'All accounts already matched with high confidence.', updatedCount: 0 });
 
-  const aiInput = lowConfRows.map((r, i) => ({
+  const aiInput = lowConfRows.map((r: any) => ({
     rowIndex: r.rowIndex, rawLabel: r.rawLabel,
     matchedLabel: r.matchedLabel ?? null,
     nfrsCategory: (r.nfrsCategory ?? 'unclassified') as NFRSCategory | 'unclassified',
@@ -113,16 +173,16 @@ router.post('/:companyId/rematch-ai', asyncHandler(async (req: Request, res: Res
     needsReview: r.needsReview ?? true,
   }));
 
-  const aiResults = await runAIMatching(aiInput);
-  const aiByRowIndex = new Map(aiResults.map((r) => [r.rowIndex, r]));
-  const updatedRows = session.trialBalance.rows.map((row) => {
+  const aiResults = await aiMatchUnresolved(aiInput.map((r: any) => ({ rawLabel: r.rawLabel, closingBalance: 0 })), session.company!, process.env.ANTHROPIC_API_KEY!);
+  const aiByRowIndex = new Map(aiResults.map((r: any) => [r.rowIndex, r]));
+  const updatedRows = session.trialBalance.rows.map((row: any) => {
     const ai = aiByRowIndex.get(row.rowIndex);
     if (!ai || row.userOverride) return row;
-    return { ...row, nfrsCategory: ai.nfrsCategory as NFRSCategory, matchedLabel: ai.matchedLabel ?? row.matchedLabel, confidence: ai.confidence, matchMethod: ai.method, needsReview: ai.needsReview };
+    return { ...row, nfrsCategory: ai.nfrsCategory as NFRSCategory, matchedLabel: null, confidence: ai.confidence, matchMethod: 'ai' as const, needsReview: ai.confidence < 80 };
   });
 
   const updatedTB = { ...session.trialBalance, rows: updatedRows };
-  sessionStore.update(req.params.companyId, { trialBalance: updatedTB });
+  sessionStore.set(req.params.companyId, { trialBalance: updatedTB });
   return res.json({ updatedCount: aiResults.length, trialBalance: updatedTB });
 }));
 

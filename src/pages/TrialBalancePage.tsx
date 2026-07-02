@@ -52,10 +52,8 @@ const TrialBalancePage: React.FC = () => {
     <div className="max-w-5xl mx-auto px-4 py-6 space-y-6">
       {/* Wizard Progress */}
       <WizardProgress
-        steps={wizardSteps.map((s) => ({ ...s, icon: null }))}
         currentStep={subStep === 'upload' ? 'trial_balance_upload' : 'trial_balance_mapping'}
         completedSteps={state.completedSteps}
-        onStepClick={(step) => dispatch({ type: 'SET_STEP', payload: step })}
       />
 
       {/* Sub-step breadcrumb */}
@@ -191,8 +189,12 @@ const TrialBalancePage: React.FC = () => {
 
           <TBAccountMapper
             companyId={companyId}
-            parsedTB={tb}
-            onMappingComplete={handleMappingComplete}
+            rows={tb.rows}
+            onMappingChange={(rowIndex, category) => {
+              const newRows = tb.rows.map((r, index) => String(index) === String(rowIndex) ? { ...r, nfrsCategory: category, confidence: 100 } : r);
+              dispatch({ type: 'SET_TRIAL_BALANCE', payload: { ...tb, rows: newRows } });
+            }}
+            onConfirm={() => handleMappingComplete(tb)}
           />
         </div>
       )}

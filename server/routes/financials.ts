@@ -8,15 +8,17 @@ const router = Router();
 
 router.post('/:companyId/generate', asyncHandler(async (req: Request, res: Response) => {
   const session = sessionStore.get(req.params.companyId);
+  if (!session) return res.status(404).json({ error: 'Session not found' });
   const missing: string[] = [];
   if (!session?.company)      missing.push('company profile');
   if (!session?.trialBalance) missing.push('trial balance');
   if (!session?.adjustments)  missing.push('year-end adjustments');
   if (missing.length > 0) return res.status(400).json({ error: `Missing data: ${missing.join(', ')}.` });
 
-  const result = computeAllFinancials(session.trialBalance!, session.adjustments!, session.company!);
-  sessionStore.update(req.params.companyId, {
+  const result = computeAllFinancials(session.trialBalance!, session.adjustments!, session.company!, session.company!.previousYearData);
+  sessionStore.set(req.params.companyId, {
     adjustments: { ...session.adjustments!, taxableProfit: result.incomeStatement.profitBeforeTax, currentTaxExpense: result.incomeStatement.incomeTaxExpense },
+    financials: result
   } as any);
   (session as any).financials = result;
   return res.json(result);

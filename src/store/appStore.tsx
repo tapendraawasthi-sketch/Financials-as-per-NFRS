@@ -47,6 +47,7 @@ export type AppAction =
   | { type: 'SET_LOADING'; payload: boolean }
   | { type: 'SET_ERROR'; payload: string | null }
   | { type: 'RESTORE_STATE'; payload: AppState }
+  | { type: 'CLEAR_ERROR' }
   | { type: 'RESET_ALL' };
 
 // ---------------------------------------------------------------------------
@@ -143,6 +144,9 @@ export function appReducer(state: AppState, action: AppAction): AppState {
 
     case 'SET_ERROR':
       return { ...state, error: action.payload, isLoading: false };
+      
+    case 'CLEAR_ERROR':
+      return { ...state, error: null };
 
     case 'RESTORE_STATE':
       return action.payload;
@@ -185,7 +189,7 @@ function sanitizeForStorage(state: AppState): AppState {
     // Don't persist the raw file buffer — only the parsed data
     trialBalance: state.trialBalance
       ? { ...state.trialBalance }
-      : undefined,
+      : null,
   };
 }
 
@@ -218,7 +222,7 @@ function saveToStorage(state: AppState): void {
 }
 
 export function AppProvider({ children }: AppProviderProps): React.ReactElement {
-  const [state, dispatch] = React.useReducer(appReducer, initialAppState, (initial) => {
+  const [state, dispatch] = React.useReducer(appReducer, initialAppState, (initial: AppState) => {
     // On first render, try to restore from sessionStorage
     const restored = loadFromStorage();
     return restored ?? initial;
