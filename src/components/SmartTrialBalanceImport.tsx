@@ -206,7 +206,7 @@ export default function SmartTrialBalanceImport({ hasActiveTemplate }: SmartTria
                 </p>
               </div>
             </div>
-            <label className="flex items-center gap-1.5 text-[11px] font-medium text-gray-600 cursor-pointer">
+            <label>
               <input type="checkbox" checked={isPreviousYear} onChange={(e) => setIsPreviousYear(e.target.checked)} className="rounded cursor-pointer" />
               Import as Previous Year column
             </label>
@@ -299,3 +299,4 @@ export default function SmartTrialBalanceImport({ hasActiveTemplate }: SmartTria
     </div>
   );
 }
+

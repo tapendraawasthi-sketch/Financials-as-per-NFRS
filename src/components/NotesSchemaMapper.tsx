@@ -376,25 +376,25 @@ export default function NotesSchemaMapper({ graph, fileName }: NotesSchemaMapper
                 </div>
               ) : (
                 <div className="overflow-x-auto rounded-lg border border-gray-200/80">
-                  <table className="w-full text-left text-xs text-gray-600 border-collapse">
+                  <table className="fin-table">
                     <thead>
-                      <tr className="bg-gray-50 border-b border-gray-200 text-gray-500 uppercase font-mono text-[9px]">
-                        <th className="p-3 font-semibold w-16">Cell</th>
-                        <th className="p-3 font-semibold">Row Label</th>
-                        <th className="p-3 font-semibold text-right">Raw Value</th>
-                        <th className="p-3 font-semibold">Formula / Source Equation</th>
+                      <tr>
+                        <th>Cell</th>
+                        <th>Row Label</th>
+                        <th>Raw Value</th>
+                        <th>Formula / Source Equation</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
                       {liveCells.map((cell) => (
                         <tr key={`${cell.col}${cell.row}`} className="hover:bg-gray-50/50 transition-colors">
-                          <td className="p-3 font-mono font-bold text-gray-900 bg-gray-50/40">
+                          <td>
                             {cell.col}{cell.row}
                           </td>
-                          <td className="p-3 font-medium text-gray-700">
+                          <td>
                             {cell.label || <span className="text-gray-300 italic">(Unlabeled row)</span>}
                           </td>
-                          <td className="p-3 text-right font-mono font-bold text-gray-900">
+                          <td>
                             {typeof cell.val === "number" 
                               ? cell.val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
                               : cell.val !== null ? String(cell.val) : <span className="text-gray-300">-</span>
@@ -421,3 +421,5 @@ export default function NotesSchemaMapper({ graph, fileName }: NotesSchemaMapper
     </div>
   );
 }
+
+

@@ -143,39 +143,31 @@ export default function App() {
         </div>
 
         {/* Mode Switcher */}
-        <div className="flex bg-gray-100 p-0.5 rounded-lg border border-gray-200/50 flex-wrap">
+        <div className="flex bg-[var(--surface-card)] p-1 rounded-lg border border-[var(--border-default)] shadow-[var(--shadow-card)] flex-wrap gap-1">
           <button
             onClick={() => setActiveMode("trace")}
-            className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all flex items-center gap-1.5 ${
-              activeMode === "trace" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-900"
-            }`}
+            className={`btn ${activeMode === "trace" ? "btn-primary" : "btn-secondary"}`}
           >
             <Binary className="w-3.5 h-3.5 text-blue-500" />
             Lineage Auditor
           </button>
           <button
             onClick={() => setActiveMode("import")}
-            className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all flex items-center gap-1.5 ${
-              activeMode === "import" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-900"
-            }`}
+            className={`btn ${activeMode === "import" ? "btn-primary" : "btn-secondary"}`}
           >
             <UploadCloud className="w-3.5 h-3.5 text-emerald-500" />
             Smart TB Import
           </button>
           <button
             onClick={() => setActiveMode("form")}
-            className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all flex items-center gap-1.5 ${
-              activeMode === "form" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-900"
-            }`}
+            className={`btn ${activeMode === "form" ? "btn-primary" : "btn-secondary"}`}
           >
             <Hammer className="w-3.5 h-3.5 text-indigo-500" />
             Input Studio
           </button>
           <button
             onClick={() => setActiveMode("mapper")}
-            className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all flex items-center gap-1.5 ${
-              activeMode === "mapper" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-900"
-            }`}
+            className={`btn ${activeMode === "mapper" ? "btn-primary" : "btn-secondary"}`}
           >
             <Map className="w-3.5 h-3.5 text-purple-500" />
             Notes Mapper
@@ -213,7 +205,7 @@ export default function App() {
           <button
             onClick={triggerFileSelect}
             disabled={loading}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 bg-gray-950 hover:bg-gray-800 disabled:bg-gray-400 text-white rounded-lg text-xs font-semibold cursor-pointer transition-all shadow-sm"
+            className="btn btn-primary"
           >
             <Upload className="w-3.5 h-3.5" />
             Upload Workbook
@@ -225,14 +217,14 @@ export default function App() {
       <div className="flex-1 flex overflow-hidden relative">
         {/* Error Notification Toast */}
         {error && (
-          <div className="absolute top-4 left-1/2 transform -translate-x-1/2 bg-red-50 border border-red-200 rounded-xl p-4 shadow-lg z-50 max-w-md flex items-start gap-3 animate-bounce">
-            <AlertTriangle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+          <div className="toast toast-error">
+            <AlertTriangle className="w-5 h-5 flex-shrink-0" />
             <div className="text-left">
-              <h3 className="text-xs font-bold text-red-800 uppercase tracking-wide">Processing Error</h3>
-              <p className="text-xs text-red-700 mt-1">{error}</p>
+              <h3 className="font-bold">Processing Error</h3>
+              <p className="mt-1">{error}</p>
               <button
                 onClick={() => setError(null)}
-                className="text-[10px] font-bold text-red-800 underline mt-2 hover:text-red-950 cursor-pointer"
+                className="font-bold underline mt-2 cursor-pointer"
               >
                 Dismiss
               </button>

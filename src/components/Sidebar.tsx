@@ -77,10 +77,10 @@ export default function Sidebar({
   }, [graph, selectedSheet, filterType, searchQuery]);
 
   return (
-    <div id="model-sidebar" className="w-80 border-r border-gray-200 bg-white flex flex-col h-full overflow-hidden">
+    <div id="model-sidebar" className="w-80 border-r border-[var(--border-default)] bg-[var(--surface-card)] flex flex-col h-full overflow-hidden">
       {/* Sheet Tabs */}
       <div className="p-4 border-b border-gray-100">
-        <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider block mb-2">
+        <label>
           Sheets
         </label>
         <div className="flex flex-wrap gap-1.5">
@@ -112,7 +112,7 @@ export default function Sidebar({
             placeholder="Search cell coordinate or label..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-xs focus:ring-2 focus:ring-gray-200 focus:border-gray-400 bg-white transition-all outline-none"
+            className="pl-9"
           />
         </div>
 
@@ -258,3 +258,4 @@ export default function Sidebar({
     </div>
   );
 }
+

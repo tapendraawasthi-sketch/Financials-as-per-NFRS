@@ -305,7 +305,7 @@ export default function CellDetails({ graph, selectedCellKey }: CellDetailsProps
 
             {/* Direct Links (Precedents) */}
             <div className="text-left">
-              <label className="text-[10px] font-bold font-mono uppercase text-gray-400 tracking-wider block mb-2">
+              <label>
                 Direct Precedent Links ({precedents.length})
               </label>
               {precedents.length === 0 ? (
@@ -334,7 +334,7 @@ export default function CellDetails({ graph, selectedCellKey }: CellDetailsProps
 
             {/* Traced Source Cells (Inputs) */}
             <div className="text-left">
-              <label className="text-[10px] font-bold font-mono uppercase text-gray-400 tracking-wider block mb-2">
+              <label>
                 Ultimate Leaves / Inputs ({leaves.length})
               </label>
               {leaves.length === 0 ? (
@@ -435,3 +435,5 @@ export default function CellDetails({ graph, selectedCellKey }: CellDetailsProps
     </div>
   );
 }
+
+

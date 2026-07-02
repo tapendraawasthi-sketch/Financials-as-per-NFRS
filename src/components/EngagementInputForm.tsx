@@ -218,96 +218,96 @@ export default function EngagementInputForm({
           1. Legal & Management Particulars (Details sheet)
         </h3>
         
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="form-grid-2">
           <div>
-            <label className="block text-[11px] font-medium text-gray-500 mb-1">Name of Entity</label>
+            <label>Name of Entity</label>
             <input
               type="text"
-              className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-xs bg-white focus:ring-1 focus:ring-gray-900 focus:border-gray-900 transition-all"
+              
               value={company.name_of_entity}
               onChange={(e) => setCompany({ ...company, name_of_entity: e.target.value })}
               placeholder="e.g. Acme Corp Private Limited"
             />
           </div>
           <div>
-            <label className="block text-[11px] font-medium text-gray-500 mb-1">Entity Address</label>
+            <label>Entity Address</label>
             <input
               type="text"
-              className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-xs bg-white focus:ring-1 focus:ring-gray-900 focus:border-gray-900 transition-all"
+              
               value={company.address}
               onChange={(e) => setCompany({ ...company, address: e.target.value })}
               placeholder="e.g. Kathmandu, Nepal"
             />
           </div>
           <div>
-            <label className="block text-[11px] font-medium text-gray-500 mb-1">Type of Entity</label>
+            <label>Type of Entity</label>
             <input
               type="text"
-              className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-xs bg-white focus:ring-1 focus:ring-gray-900 focus:border-gray-900 transition-all"
+              
               value={company.type_of_entity}
               onChange={(e) => setCompany({ ...company, type_of_entity: e.target.value })}
               placeholder="e.g. Private Limited Company"
             />
           </div>
           <div>
-            <label className="block text-[11px] font-medium text-gray-500 mb-1">Chairperson Name</label>
+            <label>Chairperson Name</label>
             <input
               type="text"
-              className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-xs bg-white focus:ring-1 focus:ring-gray-900 focus:border-gray-900 transition-all"
+              
               value={company.chairperson}
               onChange={(e) => setCompany({ ...company, chairperson: e.target.value })}
             />
           </div>
           <div>
-            <label className="block text-[11px] font-medium text-gray-500 mb-1">Director Name</label>
+            <label>Director Name</label>
             <input
               type="text"
-              className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-xs bg-white focus:ring-1 focus:ring-gray-900 focus:border-gray-900 transition-all"
+              
               value={company.director}
               onChange={(e) => setCompany({ ...company, director: e.target.value })}
             />
           </div>
           <div>
-            <label className="block text-[11px] font-medium text-gray-500 mb-1">Accounts Head Name</label>
+            <label>Accounts Head Name</label>
             <input
               type="text"
-              className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-xs bg-white focus:ring-1 focus:ring-gray-900 focus:border-gray-900 transition-all"
+              
               value={company.accounts_head}
               onChange={(e) => setCompany({ ...company, accounts_head: e.target.value })}
             />
           </div>
           <div>
-            <label className="block text-[11px] font-medium text-gray-500 mb-1">Auditor Name</label>
+            <label>Auditor Name</label>
             <input
               type="text"
-              className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-xs bg-white focus:ring-1 focus:ring-gray-900 focus:border-gray-900 transition-all"
+              
               value={company.auditor}
               onChange={(e) => setCompany({ ...company, auditor: e.target.value })}
             />
           </div>
           <div>
-            <label className="block text-[11px] font-medium text-gray-500 mb-1">Auditor Position</label>
+            <label>Auditor Position</label>
             <input
               type="text"
-              className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-xs bg-white focus:ring-1 focus:ring-gray-900 focus:border-gray-900 transition-all"
+              
               value={company.auditor_position}
               onChange={(e) => setCompany({ ...company, auditor_position: e.target.value })}
             />
           </div>
           <div>
-            <label className="block text-[11px] font-medium text-gray-500 mb-1">Name of Audit Firm</label>
+            <label>Name of Audit Firm</label>
             <input
               type="text"
-              className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-xs bg-white focus:ring-1 focus:ring-gray-900 focus:border-gray-900 transition-all"
+              
               value={company.audit_firm_name}
               onChange={(e) => setCompany({ ...company, audit_firm_name: e.target.value })}
             />
           </div>
           <div>
-            <label className="block text-[11px] font-medium text-gray-500 mb-1">Type of Audit Firm</label>
+            <label>Type of Audit Firm</label>
             <input
               type="text"
-              className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-xs bg-white focus:ring-1 focus:ring-gray-900 focus:border-gray-900 transition-all"
+              
               value={company.audit_firm_type}
               onChange={(e) => setCompany({ ...company, audit_firm_type: e.target.value })}
             />
@@ -323,38 +323,38 @@ export default function EngagementInputForm({
         </h3>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div>
-            <label className="block text-[11px] font-medium text-gray-500 mb-1">Number of Employees</label>
+            <label>Number of Employees</label>
             <input
               type="number"
-              className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-xs bg-white focus:ring-1 focus:ring-gray-900 focus:border-gray-900 transition-all"
+              
               value={employees.employee_count}
               onChange={(e) => setEmployees({ ...employees, employee_count: e.target.value })}
               placeholder="e.g. 150"
             />
           </div>
           <div>
-            <label className="block text-[11px] font-medium text-gray-500 mb-1 flex items-center gap-1">
+            <label>
               Employee Bonus Rate
               <span className="text-[10px] text-gray-400 font-normal">(as decimal)</span>
             </label>
             <input
               type="number"
               step="any"
-              className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-xs bg-white focus:ring-1 focus:ring-gray-900 focus:border-gray-900 transition-all"
+              
               value={employees.bonus_rate}
               onChange={(e) => setEmployees({ ...employees, bonus_rate: e.target.value })}
               placeholder="e.g. 0.10"
             />
           </div>
           <div>
-            <label className="block text-[11px] font-medium text-gray-500 mb-1 flex items-center gap-1">
+            <label>
               Income Tax Rate
               <span className="text-[10px] text-gray-400 font-normal">(as decimal)</span>
             </label>
             <input
               type="number"
               step="any"
-              className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-xs bg-white focus:ring-1 focus:ring-gray-900 focus:border-gray-900 transition-all"
+              
               value={incomeTaxRate}
               onChange={(e) => setIncomeTaxRate(e.target.value)}
               placeholder="e.g. 0.25"
@@ -379,7 +379,7 @@ export default function EngagementInputForm({
             </h4>
             <div className="space-y-2.5">
               <div>
-                <label className="block text-[10px] text-gray-500 mb-0.5">Raw Materials & Consumables</label>
+                <label>Raw Materials & Consumables</label>
                 <input
                   type="number"
                   className="w-full px-2.5 py-1.5 border border-gray-200 rounded-md text-xs bg-gray-50/30 focus:ring-1 focus:ring-gray-900 focus:border-gray-900 transition-all font-mono"
@@ -392,7 +392,7 @@ export default function EngagementInputForm({
                 />
               </div>
               <div>
-                <label className="block text-[10px] text-gray-500 mb-0.5">Work-in-progress</label>
+                <label>Work-in-progress</label>
                 <input
                   type="number"
                   className="w-full px-2.5 py-1.5 border border-gray-200 rounded-md text-xs bg-gray-50/30 focus:ring-1 focus:ring-gray-900 focus:border-gray-900 transition-all font-mono"
@@ -405,7 +405,7 @@ export default function EngagementInputForm({
                 />
               </div>
               <div>
-                <label className="block text-[10px] text-gray-500 mb-0.5">Finished goods & goods for resale</label>
+                <label>Finished goods & goods for resale</label>
                 <input
                   type="number"
                   className="w-full px-2.5 py-1.5 border border-gray-200 rounded-md text-xs bg-gray-50/30 focus:ring-1 focus:ring-gray-900 focus:border-gray-900 transition-all font-mono"
@@ -428,7 +428,7 @@ export default function EngagementInputForm({
             </h4>
             <div className="space-y-2.5">
               <div>
-                <label className="block text-[10px] text-gray-500 mb-0.5">Raw Materials & Consumables</label>
+                <label>Raw Materials & Consumables</label>
                 <input
                   type="number"
                   className="w-full px-2.5 py-1.5 border border-gray-200 rounded-md text-xs bg-gray-50/30 focus:ring-1 focus:ring-gray-900 focus:border-gray-900 transition-all font-mono"
@@ -441,7 +441,7 @@ export default function EngagementInputForm({
                 />
               </div>
               <div>
-                <label className="block text-[10px] text-gray-500 mb-0.5">Work-in-progress</label>
+                <label>Work-in-progress</label>
                 <input
                   type="number"
                   className="w-full px-2.5 py-1.5 border border-gray-200 rounded-md text-xs bg-gray-50/30 focus:ring-1 focus:ring-gray-900 focus:border-gray-900 transition-all font-mono"
@@ -454,7 +454,7 @@ export default function EngagementInputForm({
                 />
               </div>
               <div>
-                <label className="block text-[10px] text-gray-500 mb-0.5">Finished goods & goods for resale</label>
+                <label>Finished goods & goods for resale</label>
                 <input
                   type="number"
                   className="w-full px-2.5 py-1.5 border border-gray-200 rounded-md text-xs bg-gray-50/30 focus:ring-1 focus:ring-gray-900 focus:border-gray-900 transition-all font-mono"
@@ -506,7 +506,7 @@ export default function EngagementInputForm({
                 {/* Account select autocomplete dropdown */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-[10px] text-gray-500 mb-0.5 font-semibold">Account Label</label>
+                    <label>Account Label</label>
                     <select
                       className="w-full px-2.5 py-1 border border-gray-200 rounded text-xs bg-white focus:ring-1 focus:ring-gray-900 outline-none"
                       value={movement.account_label}
@@ -519,7 +519,7 @@ export default function EngagementInputForm({
                     </select>
                   </div>
                   <div>
-                    <label className="block text-[10px] text-gray-400 mb-0.5 italic">Custom Label (Optional)</label>
+                    <label>Custom Label (Optional)</label>
                     <input
                       type="text"
                       className="w-full px-2.5 py-1 border border-gray-200 rounded text-xs focus:ring-1 focus:ring-gray-900 transition-all"
@@ -533,7 +533,7 @@ export default function EngagementInputForm({
                 {/* Posting numeric inputs */}
                 <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
                   <div>
-                    <label className="block text-[9px] text-gray-500 mb-0.5">During Dr (CY)</label>
+                    <label>During Dr (CY)</label>
                     <input
                       type="number"
                       className="w-full px-2 py-1 border border-gray-200 rounded text-xs font-mono"
@@ -543,7 +543,7 @@ export default function EngagementInputForm({
                     />
                   </div>
                   <div>
-                    <label className="block text-[9px] text-gray-500 mb-0.5">During Cr (CY)</label>
+                    <label>During Cr (CY)</label>
                     <input
                       type="number"
                       className="w-full px-2 py-1 border border-gray-200 rounded text-xs font-mono"
@@ -553,7 +553,7 @@ export default function EngagementInputForm({
                     />
                   </div>
                   <div>
-                    <label className="block text-[9px] text-gray-500 mb-0.5">Adj Dr (CY)</label>
+                    <label>Adj Dr (CY)</label>
                     <input
                       type="number"
                       className="w-full px-2 py-1 border border-gray-200 rounded text-xs font-mono"
@@ -563,7 +563,7 @@ export default function EngagementInputForm({
                     />
                   </div>
                   <div>
-                    <label className="block text-[9px] text-gray-500 mb-0.5">Adj Cr (CY)</label>
+                    <label>Adj Cr (CY)</label>
                     <input
                       type="number"
                       className="w-full px-2 py-1 border border-gray-200 rounded text-xs font-mono"
@@ -573,7 +573,7 @@ export default function EngagementInputForm({
                     />
                   </div>
                   <div className="col-span-2 sm:col-span-1">
-                    <label className="block text-[9px] text-gray-400 mb-0.5">During Dr (PY)</label>
+                    <label>During Dr (PY)</label>
                     <input
                       type="number"
                       className="w-full px-2 py-1 border border-gray-200 rounded text-xs font-mono"
@@ -608,7 +608,7 @@ export default function EngagementInputForm({
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <div>
-              <label className="block text-[9px] text-gray-500 mb-0.5 font-medium">Due &lt;1 Year CY</label>
+              <label>Due &lt;1 Year CY</label>
               <input
                 type="number"
                 className="w-full px-2 py-1.5 border border-gray-200 rounded text-xs font-mono"
@@ -618,7 +618,7 @@ export default function EngagementInputForm({
               />
             </div>
             <div>
-              <label className="block text-[9px] text-gray-500 mb-0.5 font-medium">Due &gt;1 Year CY</label>
+              <label>Due &gt;1 Year CY</label>
               <input
                 type="number"
                 className="w-full px-2 py-1.5 border border-gray-200 rounded text-xs font-mono"
@@ -628,7 +628,7 @@ export default function EngagementInputForm({
               />
             </div>
             <div>
-              <label className="block text-[9px] text-gray-400 mb-0.5">Due &lt;1 Year PY</label>
+              <label>Due &lt;1 Year PY</label>
               <input
                 type="number"
                 className="w-full px-2 py-1.5 border border-gray-200 rounded text-xs font-mono"
@@ -638,7 +638,7 @@ export default function EngagementInputForm({
               />
             </div>
             <div>
-              <label className="block text-[9px] text-gray-400 mb-0.5">Due &gt;1 Year PY</label>
+              <label>Due &gt;1 Year PY</label>
               <input
                 type="number"
                 className="w-full px-2 py-1.5 border border-gray-200 rounded text-xs font-mono"
@@ -668,7 +668,7 @@ export default function EngagementInputForm({
           {note32Split.enabled && (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3 border-t border-gray-50 pt-3">
               <div>
-                <label className="block text-[9px] text-gray-500 mb-0.5 font-medium">Current CY</label>
+                <label>Current CY</label>
                 <input
                   type="number"
                   className="w-full px-2 py-1.5 border border-gray-200 rounded text-xs font-mono"
@@ -678,7 +678,7 @@ export default function EngagementInputForm({
                 />
               </div>
               <div>
-                <label className="block text-[9px] text-gray-500 mb-0.5 font-medium">Non-Current CY</label>
+                <label>Non-Current CY</label>
                 <input
                   type="number"
                   className="w-full px-2 py-1.5 border border-gray-200 rounded text-xs font-mono"
@@ -688,7 +688,7 @@ export default function EngagementInputForm({
                 />
               </div>
               <div>
-                <label className="block text-[9px] text-gray-400 mb-0.5 font-medium">Current PY</label>
+                <label>Current PY</label>
                 <input
                   type="number"
                   className="w-full px-2 py-1.5 border border-gray-200 rounded text-xs font-mono"
@@ -698,7 +698,7 @@ export default function EngagementInputForm({
                 />
               </div>
               <div>
-                <label className="block text-[9px] text-gray-400 mb-0.5 font-medium">Non-Current PY</label>
+                <label>Non-Current PY</label>
                 <input
                   type="number"
                   className="w-full px-2 py-1.5 border border-gray-200 rounded text-xs font-mono"
@@ -729,7 +729,7 @@ export default function EngagementInputForm({
           {note34Split.enabled && (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3 border-t border-gray-50 pt-3">
               <div>
-                <label className="block text-[9px] text-gray-500 mb-0.5 font-medium">Current CY</label>
+                <label>Current CY</label>
                 <input
                   type="number"
                   className="w-full px-2 py-1.5 border border-gray-200 rounded text-xs font-mono"
@@ -739,7 +739,7 @@ export default function EngagementInputForm({
                 />
               </div>
               <div>
-                <label className="block text-[9px] text-gray-500 mb-0.5 font-medium">Non-Current CY</label>
+                <label>Non-Current CY</label>
                 <input
                   type="number"
                   className="w-full px-2 py-1.5 border border-gray-200 rounded text-xs font-mono"
@@ -749,7 +749,7 @@ export default function EngagementInputForm({
                 />
               </div>
               <div>
-                <label className="block text-[9px] text-gray-400 mb-0.5 font-medium">Current PY</label>
+                <label>Current PY</label>
                 <input
                   type="number"
                   className="w-full px-2 py-1.5 border border-gray-200 rounded text-xs font-mono"
@@ -759,7 +759,7 @@ export default function EngagementInputForm({
                 />
               </div>
               <div>
-                <label className="block text-[9px] text-gray-400 mb-0.5 font-medium">Non-Current PY</label>
+                <label>Non-Current PY</label>
                 <input
                   type="number"
                   className="w-full px-2 py-1.5 border border-gray-200 rounded text-xs font-mono"
@@ -796,3 +796,4 @@ export default function EngagementInputForm({
     </form>
   );
 }
+
