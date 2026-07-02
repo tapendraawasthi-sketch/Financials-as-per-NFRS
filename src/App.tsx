@@ -29,10 +29,9 @@ const STEP_TITLES: Record<AppStep, { title: string; subtitle: string }> = {
 const AppInner: React.FC = () => {
   const { state, dispatch } = useAppStore();
 
-  const isDashboard =
-    state.currentStep === 'company_setup' &&
-    state.completedSteps.length === 0 &&
-    !state.company;
+  const [hasStarted, setHasStarted] = React.useState(false);
+
+  const isDashboard = !hasStarted;
 
   const handleNavigate = (step: AppStep) => {
     dispatch({ type: 'SET_STEP', payload: step });
@@ -56,7 +55,14 @@ const AppInner: React.FC = () => {
             <Alert type="error" message={state.error} onDismiss={handleDismissError} />
           </div>
         )}
-        <DashboardPage onStart={() => dispatch({ type: 'SET_STEP', payload: 'company_setup' })} />
+        <DashboardPage
+          onStart={() => {
+            dispatch({ type: 'RESET_ALL' });
+            setHasStarted(true);
+          }}
+          onContinue={() => setHasStarted(true)}
+          hasSession={Boolean(state.company || state.trialBalance || state.completedSteps.length > 0)}
+        />
       </>
     );
   }
@@ -86,7 +92,7 @@ const AppInner: React.FC = () => {
         return <OutputPage />;
 
       default:
-        return <DashboardPage onStart={() => dispatch({ type: 'SET_STEP', payload: 'company_setup' })} />;
+        return <CompanySetupPage />;
     }
   };
 
