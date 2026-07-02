@@ -19,25 +19,28 @@ function Spinner() {
 }
 
 const SIZE_CLS: Record<NonNullable<ButtonProps['size']>, string> = {
-  xs: 'h-6 px-2 text-[11px]',
-  sm: 'h-8 px-3 text-xs',
-  md: 'h-9 px-4 text-sm',
-  lg: 'h-10 px-5 text-sm',
+  xs: 'h-6 px-2.5 text-[11px]',
+  sm: 'h-8 px-3.5 text-xs',
+  md: 'h-10 px-5 text-[13px]',
+  lg: 'h-11 px-6 text-sm',
 };
 
 type VariantStyle = { className: string; style?: React.CSSProperties };
 const VARIANT_STYLES: Record<NonNullable<ButtonProps['variant']>, VariantStyle> = {
   primary: {
-    className: 'text-white font-semibold border-0 shadow-md hover:shadow-lg active:shadow-sm active:scale-[0.98] transition-all',
+    className: 'text-white font-semibold border-0 active:scale-[0.97] transition-all duration-150',
     style: {
-      background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
+      background: 'linear-gradient(135deg, #4f46e5 0%, #6366f1 50%, #818cf8 100%)',
+      boxShadow: '0 2px 12px rgba(99,102,241,0.35), 0 1px 3px rgba(0,0,0,0.1)',
     },
   },
   secondary: {
-    className: 'text-slate-700 font-medium border border-slate-200 bg-white hover:bg-slate-50 hover:border-slate-300 active:bg-slate-100 transition-all shadow-sm',
+    className: 'text-slate-700 font-medium border border-slate-200 bg-white hover:bg-slate-50 hover:border-slate-300 active:bg-slate-100 transition-all',
+    style: { boxShadow: '0 1px 3px rgba(0,0,0,0.06)' },
   },
   danger: {
-    className: 'text-red-700 font-medium border border-red-200 bg-white hover:bg-red-50 hover:border-red-300 active:bg-red-100 transition-all shadow-sm',
+    className: 'text-red-700 font-medium border border-red-200 bg-white hover:bg-red-50 hover:border-red-300 active:bg-red-100 transition-all',
+    style: { boxShadow: '0 1px 3px rgba(0,0,0,0.06)' },
   },
   ghost: {
     className: 'text-slate-600 font-medium border-transparent hover:text-slate-800 hover:bg-slate-100 active:bg-slate-200 transition-colors',

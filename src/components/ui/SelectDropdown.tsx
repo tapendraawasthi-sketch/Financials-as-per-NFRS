@@ -36,11 +36,11 @@ export default function SelectDropdown({
     <div className="flex flex-col gap-1.5">
       <label
         htmlFor={selectId}
-        className="text-[12px] font-semibold text-slate-600 leading-none uppercase tracking-wide"
+        className="text-[11px] font-bold text-slate-500 leading-none uppercase tracking-widest"
       >
         {label}
         {required && (
-          <span className="text-indigo-500 ml-0.5" aria-hidden="true">*</span>
+          <span className="text-indigo-400 ml-0.5" aria-hidden="true">*</span>
         )}
       </label>
 
@@ -48,15 +48,15 @@ export default function SelectDropdown({
         <select
           id={selectId}
           className={[
-            'h-10 w-full appearance-none rounded-lg px-3 pr-8',
-            'text-sm text-slate-800 bg-white outline-none transition-all duration-150 cursor-pointer',
+            'h-11 w-full appearance-none rounded-xl px-3.5 pr-9',
+            'text-[13px] text-slate-800 bg-white outline-none transition-all duration-150 cursor-pointer',
             error
-              ? 'border border-red-300 bg-red-50/50 focus:border-red-400 focus:ring-2 focus:ring-red-100'
-              : 'border border-slate-200 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-50 hover:border-slate-300',
-            props.disabled ? 'bg-slate-50 text-slate-400 cursor-not-allowed' : '',
+              ? 'border-2 border-red-300 bg-red-50/40 focus:border-red-400'
+              : 'border border-slate-200 focus:border-indigo-400 focus:ring-3 focus:ring-indigo-50 hover:border-slate-300',
+            props.disabled ? 'bg-slate-50 text-slate-400 cursor-not-allowed opacity-60' : '',
             className,
           ].filter(Boolean).join(' ')}
-          style={{ boxShadow: '0 1px 2px rgba(0,0,0,0.04)' }}
+          style={{ boxShadow: error ? 'none' : '0 1px 3px rgba(0,0,0,0.06), inset 0 1px 2px rgba(0,0,0,0.02)' }}
           aria-invalid={error ? 'true' : undefined}
           aria-describedby={error ? errorId : helperText ? helpId : undefined}
           aria-required={required}
@@ -73,7 +73,7 @@ export default function SelectDropdown({
         </select>
 
         <svg
-          className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400"
+          className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400"
           fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
           aria-hidden="true"
         >
@@ -82,7 +82,10 @@ export default function SelectDropdown({
       </div>
 
       {error && (
-        <p id={errorId} className="text-[11px] text-red-500 leading-tight font-medium" role="alert">
+        <p id={errorId} className="text-[11px] text-red-500 leading-tight font-medium flex items-center gap-1" role="alert">
+          <svg className="h-3 w-3 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+          </svg>
           {error}
         </p>
       )}

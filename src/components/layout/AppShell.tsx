@@ -3,7 +3,7 @@ import React from 'react';
 import Sidebar from './Sidebar';
 import Header  from './Header';
 import { AppStep } from '../../types';
-import { SlimWizardProgress } from './WizardProgress';
+
 
 interface AppShellProps {
   currentStep:      AppStep;
@@ -61,13 +61,7 @@ export default function AppShell({
           fiscalYear={fiscalYear}
         />
 
-        {/* item 34: slim progress bar beneath header, always visible on all steps */}
-        <div className="flex-shrink-0 no-print">
-          <SlimWizardProgress
-            currentStep={currentStep}
-            completedSteps={completedSteps}
-          />
-        </div>
+
 
         {/* item 31: error text raised to text-sm for readability */}
         {error && (

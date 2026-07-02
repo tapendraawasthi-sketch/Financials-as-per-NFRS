@@ -4,7 +4,6 @@ import { useAppStore } from '../store/appStore';
 import { CompanyProfile, AccountingPolicies } from '../types';
 import CompanyInfoForm from '../components/company/CompanyInfoForm';
 import AccountingPoliciesForm from '../components/company/AccountingPoliciesForm';
-import WizardProgress from '../components/layout/WizardProgress';
 import LoadingSpinner from '../components/ui/LoadingSpinner';
 import Alert from '../components/ui/Alert';
 
@@ -126,52 +125,46 @@ const CompanySetupPage: React.FC = () => {
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-6 space-y-6">
-      {/* Wizard Progress */}
-      <WizardProgress
-        currentStep={subStep === 'company_info' ? 'company_setup' : 'accounting_policies'}
-        completedSteps={state.completedSteps}
-      />
-
-      {/* Step indicator */}
-      <div className="flex items-center gap-2 text-sm text-slate-500">
-        <button
-          onClick={() => setSubStep('company_info')}
-          className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
-            subStep === 'company_info'
-              ? 'bg-blue-100 text-blue-700'
-              : 'text-slate-400 hover:text-slate-600'
-          }`}
-        >
-          1. Company Information
-        </button>
-        <span className="text-slate-300">›</span>
-        <button
-          onClick={() => state.company?.id && setSubStep('accounting_policies')}
-          disabled={!state.company?.id}
-          className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
-            subStep === 'accounting_policies'
-              ? 'bg-blue-100 text-blue-700'
-              : state.company?.id
-              ? 'text-slate-400 hover:text-slate-600'
-              : 'text-slate-200 cursor-not-allowed'
-          }`}
-        >
-          2. Accounting Policies
-        </button>
-        <span className="text-slate-300">›</span>
-        <button
-          onClick={() => state.company?.id && setSubStep('previous_year_data')}
-          disabled={!state.company?.id}
-          className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
-            subStep === 'previous_year_data'
-              ? 'bg-blue-100 text-blue-700'
-              : state.company?.id
-              ? 'text-slate-400 hover:text-slate-600'
-              : 'text-slate-200 cursor-not-allowed'
-          }`}
-        >
-          3. Previous Year Data
-        </button>
+      {/* Sub-step stepper */}
+      <div className="flex items-center gap-0">
+        {[
+          { key: 'company_info',        label: 'Company Information', num: 1 },
+          { key: 'accounting_policies', label: 'Accounting Policies', num: 2 },
+          { key: 'previous_year_data',  label: 'Previous Year Data',  num: 3 },
+        ].map((s, i, arr) => {
+          const isActive = subStep === s.key;
+          const isDone   = (s.key === 'company_info' && (subStep === 'accounting_policies' || subStep === 'previous_year_data'))
+                        || (s.key === 'accounting_policies' && subStep === 'previous_year_data');
+          const canClick = s.key === 'company_info' || !!state.company?.id;
+          return (
+            <div key={s.key} className="flex items-center">
+              <button
+                onClick={() => canClick && setSubStep(s.key as SubStep)}
+                disabled={!canClick}
+                className={[
+                  'flex items-center gap-2 px-4 py-2.5 rounded-lg text-xs font-semibold transition-all',
+                  isActive ? 'bg-indigo-600 text-white shadow-md shadow-indigo-200'
+                    : isDone ? 'text-emerald-700 bg-emerald-50 hover:bg-emerald-100'
+                    : canClick ? 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'
+                    : 'text-slate-300 cursor-not-allowed',
+                ].join(' ')}
+              >
+                <span className={[
+                  'h-5 w-5 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0',
+                  isActive ? 'bg-white/25 text-white'
+                    : isDone ? 'bg-emerald-200 text-emerald-700'
+                    : 'bg-slate-200 text-slate-500',
+                ].join(' ')}>
+                  {isDone ? '✓' : s.num}
+                </span>
+                {s.label}
+              </button>
+              {i < arr.length - 1 && (
+                <div className={`h-px w-6 flex-shrink-0 mx-1 ${isDone ? 'bg-emerald-300' : 'bg-slate-200'}`} />
+              )}
+            </div>
+          );
+        })}
       </div>
 
       {/* Error Alert */}
