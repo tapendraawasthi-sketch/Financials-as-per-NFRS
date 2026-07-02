@@ -116,19 +116,21 @@ export default function DashboardPage({
         {/* ── Quick action row ──────────────────────────────── */}
         {/* item 41: larger CTA buttons — h-10 px-6 text-base */}
         <div className="flex items-center gap-3">
-          <button
+          <Button
+            variant="primary"
+            size="lg"
             onClick={onStart}
-            className="h-10 px-6 text-sm font-semibold bg-blue-700 hover:bg-blue-800 text-white rounded-lg shadow-md hover:shadow-lg transition-all duration-150"
           >
             Start New Report
-          </button>
+          </Button>
           {sessionExists && onContinue && (
-            <button
+            <Button
+              variant="secondary"
+              size="lg"
               onClick={onContinue}
-              className="h-10 px-6 text-sm font-semibold bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 hover:border-slate-400 rounded-lg shadow-sm hover:shadow transition-all duration-150"
             >
               Continue Session →
-            </button>
+            </Button>
           )}
         </div>
 

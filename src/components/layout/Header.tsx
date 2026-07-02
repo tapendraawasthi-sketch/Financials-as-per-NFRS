@@ -44,13 +44,8 @@ export default function Header({
 }: HeaderProps) {
   return (
     <header
-      className="h-14 flex items-center justify-between px-6 flex-shrink-0 relative"
-      style={{
-        background: 'rgba(255,255,255,0.97)',
-        borderBottom: '1px solid rgba(226,232,240,0.8)',
-        backdropFilter: 'blur(12px)',
-        boxShadow: '0 1px 0 rgba(0,0,0,0.04), 0 2px 8px rgba(0,0,0,0.03)',
-      }}
+      className="h-14 flex items-center justify-between px-6 flex-shrink-0 relative bg-white/95 border-b border-slate-200/80"
+      style={{ backdropFilter: 'blur(12px)', boxShadow: '0 1px 0 rgba(0,0,0,0.04), 0 2px 8px rgba(0,0,0,0.03)' }}
     >
       {/* ── Left: Title ─────────────────────────────── */}
       <div className="min-w-0 flex-1">
@@ -78,12 +73,7 @@ export default function Header({
       {companyName && (
         <div className="hidden md:flex items-center gap-2 mx-4 flex-shrink-0">
           <span
-            className="inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium text-indigo-700 max-w-[260px] truncate"
-            style={{
-              background: 'linear-gradient(135deg, #eff6ff, #eef2ff)',
-              border: '1px solid #c7d2fe',
-              boxShadow: '0 1px 3px rgba(99,102,241,0.12)',
-            }}
+            className="inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium text-indigo-700 max-w-[260px] truncate bg-gradient-to-br from-blue-50 to-indigo-50 border border-indigo-200 shadow-sm"
           >
             <svg className="h-3 w-3 flex-shrink-0 text-indigo-400" fill="none" viewBox="0 0 24 24"
               stroke="currentColor" strokeWidth={2} aria-hidden="true">
@@ -109,8 +99,7 @@ export default function Header({
         {/* Session saved indicator */}
         {lastSavedAt !== undefined && (
           <span
-            className="hidden sm:inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] text-emerald-700 font-semibold"
-            style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.15)' }}
+            className="hidden sm:inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] text-emerald-700 font-semibold bg-emerald-50 border border-emerald-200"
           >
             <SavedIcon />
             <span>{formatLastSaved(lastSavedAt)}</span>
@@ -121,10 +110,7 @@ export default function Header({
         <button
           type="button"
           aria-label="Help and documentation"
-          className="h-8 w-8 flex items-center justify-center rounded-full text-slate-400 hover:text-indigo-600 transition-all"
-          style={{ background: 'transparent' }}
-          onMouseEnter={e => (e.currentTarget.style.background = 'rgba(99,102,241,0.08)')}
-          onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+          className="h-8 w-8 flex items-center justify-center rounded-full text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-all"
           title="Help"
         >
           <HelpIcon />

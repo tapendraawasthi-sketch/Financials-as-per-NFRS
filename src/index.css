@@ -1,11 +1,9 @@
-/* ─── Google Font Import (fallback if HTML link not available) ──── */
-/* item 177: font-display: swap prevents invisible-text flash during load */
+/* ─── NFRS Financial Reporter — Design System ───────────────── */
+/* All @import rules must come first before any other CSS statements */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-
 @import "tailwindcss";
 
-/* Fallback: if CSS @import does not support display parameter,
-   override via @font-face for locally loaded Inter */
+/* Fallback @font-face for locally loaded Inter (must come after @imports) */
 @font-face {
   font-family: 'Inter';
   font-display: swap;

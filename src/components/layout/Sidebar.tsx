@@ -133,9 +133,9 @@ export default function Sidebar({
   companyName,
   fiscalYear,
 }: SidebarProps) {
-  const totalSteps     = NAV_ITEMS.length;
-  const currentIdx     = STEP_ORDER.indexOf(currentStep);
-  const progressPct    = Math.round(((Math.max(completedSteps.length, currentIdx)) / (totalSteps - 1)) * 100);
+  const totalSteps  = NAV_ITEMS.length;
+  const currentIdx  = STEP_ORDER.indexOf(currentStep);
+  const progressPct = Math.round(((Math.max(completedSteps.length, currentIdx)) / (totalSteps - 1)) * 100);
 
   return (
     <aside
@@ -159,10 +159,10 @@ export default function Sidebar({
         <div className="flex items-center gap-3">
           {/* Logo mark with glow */}
           <div
-            className="h-9 w-9 rounded-xl flex items-center justify-center flex-shrink-0 relative"
+            className="h-9 w-9 rounded-xl flex items-center justify-center flex-shrink-0"
             style={{
-              background: 'linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)',
-              boxShadow: '0 0 20px rgba(59,130,246,0.5)',
+              background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
+              boxShadow: '0 0 20px rgba(99,102,241,0.5)',
             }}
           >
             <span className="text-white font-black text-base leading-none select-none tracking-tight">N</span>
@@ -171,40 +171,40 @@ export default function Sidebar({
             <p className="text-sm font-bold text-white tracking-[0.06em] uppercase leading-none">
               NFRS
             </p>
-            <p className="text-[11px] text-blue-300/80 mt-0.5 leading-none font-medium">
+            <p className="text-[11px] text-indigo-300/80 mt-0.5 leading-none font-medium">
               Reporter
             </p>
           </div>
         </div>
 
-        {/* Progress arc */}
+        {/* Progress bar */}
         <div className="mt-3.5 flex items-center gap-2">
           <div className="flex-1 h-1 rounded-full bg-white/10 overflow-hidden">
             <div
               className="h-full rounded-full transition-all duration-700"
               style={{
                 width: `${progressPct}%`,
-                background: 'linear-gradient(90deg, #3b82f6, #22d3ee)',
-                boxShadow: '0 0 8px rgba(59,130,246,0.8)',
+                background: 'linear-gradient(90deg, #6366f1, #22d3ee)',
+                boxShadow: '0 0 8px rgba(99,102,241,0.8)',
               }}
             />
           </div>
-          <span className="text-[10px] text-blue-300/70 font-mono flex-shrink-0">{progressPct}%</span>
+          <span className="text-[10px] text-indigo-300/70 font-mono flex-shrink-0">{progressPct}%</span>
         </div>
       </div>
 
       {/* ── Active company context ─────────────────────────────────── */}
       {companyName && (
-        <div className="relative mx-3 mt-3 mb-1 rounded-lg px-3 py-2.5 border border-blue-500/20 flex-shrink-0"
-          style={{ background: 'rgba(59,130,246,0.08)' }}>
-          <p className="text-[10px] text-blue-400/70 uppercase tracking-widest leading-none font-semibold">
+        <div className="relative mx-3 mt-3 mb-1 rounded-lg px-3 py-2.5 border border-indigo-500/20 flex-shrink-0"
+          style={{ background: 'rgba(99,102,241,0.08)' }}>
+          <p className="text-[10px] text-indigo-400/70 uppercase tracking-widest leading-none font-semibold">
             Active Client
           </p>
           <p className="text-xs text-white mt-1.5 font-semibold truncate" title={companyName}>
             {companyName}
           </p>
           {fiscalYear && (
-            <p className="text-[11px] text-blue-300/60 mt-1 flex items-center gap-1">
+            <p className="text-[11px] text-indigo-300/60 mt-1 flex items-center gap-1">
               {Icons.calendar}
               <span>FY {fiscalYear}</span>
             </p>
@@ -228,7 +228,7 @@ export default function Sidebar({
               aria-label={`Step ${idx + 1}: ${item.label}${isDone ? ' (completed)' : ''}${!accessible ? ' (not yet available)' : ''}`}
               className={[
                 'w-full flex items-center gap-3 px-3 py-2.5 text-xs text-left relative group',
-                'focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-400',
+                'focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-400',
                 isActive
                   ? 'text-white'
                   : isDone
@@ -238,14 +238,14 @@ export default function Sidebar({
                   : 'text-slate-700 cursor-not-allowed',
               ].filter(Boolean).join(' ')}
               style={isActive ? {
-                background: 'linear-gradient(90deg, rgba(59,130,246,0.25) 0%, rgba(59,130,246,0.05) 100%)',
+                background: 'linear-gradient(90deg, rgba(99,102,241,0.25) 0%, rgba(99,102,241,0.05) 100%)',
               } : undefined}
             >
               {/* Active indicator bar */}
               {isActive && (
                 <span
                   className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 rounded-r-full"
-                  style={{ background: 'linear-gradient(180deg, #60a5fa, #3b82f6)' }}
+                  style={{ background: 'linear-gradient(180deg, #a5b4fc, #6366f1)' }}
                 />
               )}
 
@@ -260,8 +260,8 @@ export default function Sidebar({
                     : 'text-slate-600',
                 ].join(' ')}
                 style={isActive ? {
-                  background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)',
-                  boxShadow: '0 0 10px rgba(59,130,246,0.6)',
+                  background: 'linear-gradient(135deg, #4f46e5, #6366f1)',
+                  boxShadow: '0 0 10px rgba(99,102,241,0.6)',
                 } : isDone ? {
                   background: 'rgba(16,185,129,0.15)',
                   border: '1px solid rgba(16,185,129,0.3)',
@@ -276,7 +276,7 @@ export default function Sidebar({
               {/* Icon */}
               <span className={[
                 'flex-shrink-0 transition-colors',
-                isActive ? 'text-blue-300' : isDone ? 'text-emerald-400/70' : 'text-slate-600',
+                isActive ? 'text-indigo-300' : isDone ? 'text-emerald-400/70' : 'text-slate-600',
               ].join(' ')}>
                 {item.icon}
               </span>
