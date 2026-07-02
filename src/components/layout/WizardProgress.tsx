@@ -21,13 +21,15 @@ const STEPS: StepDef[] = [
 interface WizardProgressProps {
   currentStep:    AppStep;
   completedSteps: AppStep[];
+  /** compact=true renders the slim 1-line header bar version */
+  compact?:       boolean;
   className?:     string;
 }
 
 function CheckIcon() {
   return (
     <svg
-      className="h-3 w-3"
+      className="h-3.5 w-3.5"
       fill="none"
       viewBox="0 0 24 24"
       stroke="currentColor"
@@ -39,9 +41,33 @@ function CheckIcon() {
   );
 }
 
+/** Slim progress bar for AppShell header embedding (item 34) */
+export function SlimWizardProgress({
+  currentStep,
+  completedSteps,
+}: Pick<WizardProgressProps, 'currentStep' | 'completedSteps'>) {
+  const currentIdx    = STEPS.findIndex(s => s.id === currentStep);
+  const totalSteps    = STEPS.length;
+  const completedCount = Math.max(completedSteps.length, currentIdx);
+  const pct           = Math.round((completedCount / (totalSteps - 1)) * 100);
+
+  return (
+    <div className="h-1 w-full bg-slate-200 overflow-hidden" role="progressbar"
+      aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}
+      aria-label={`Workflow progress: step ${currentIdx + 1} of ${totalSteps}`}>
+      <div
+        className="h-full bg-blue-500 transition-all duration-500 ease-in-out"
+        style={{ width: `${pct}%` }}
+      />
+    </div>
+  );
+}
+
+/** Full dot-with-label version for page-level use */
 export default function WizardProgress({
   currentStep,
   completedSteps,
+  compact = false,
   className = '',
 }: WizardProgressProps) {
   const currentIdx = STEPS.findIndex(s => s.id === currentStep);
@@ -49,7 +75,7 @@ export default function WizardProgress({
   return (
     <ol
       aria-label="Workflow progress"
-      className={`flex items-center gap-0 overflow-x-auto no-print ${className}`}
+      className={`flex items-center overflow-x-auto no-print ${className}`}
     >
       {STEPS.map((step, idx) => {
         const isDone   = completedSteps.includes(step.id);
@@ -57,9 +83,10 @@ export default function WizardProgress({
         const isPast   = idx < currentIdx;
 
         const dotCls = [
-          'h-6 w-6 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0',
+          'h-6 w-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0',
           isActive
-            ? 'bg-blue-700 text-white ring-2 ring-blue-200'
+            /* item 36: ring-offset-1 ring-offset-white for optical separation */
+            ? 'bg-blue-700 text-white ring-2 ring-blue-200 ring-offset-1 ring-offset-white'
             : isDone
             ? 'bg-blue-600 text-white'
             : isPast
@@ -69,8 +96,9 @@ export default function WizardProgress({
           .filter(Boolean)
           .join(' ');
 
+        /* item 35: flex-1 connectors that stretch proportionally */
         const connectorCls = [
-          'h-px w-6 flex-shrink-0',
+          'h-px flex-1 flex-shrink-0 min-w-[12px]',
           isPast || isDone ? 'bg-blue-500' : 'bg-slate-200',
         ].join(' ');
 
@@ -87,14 +115,23 @@ export default function WizardProgress({
               <div className={dotCls}>
                 {isDone && !isActive ? <CheckIcon /> : idx + 1}
               </div>
-              <span
-                className={[
-                  'text-[10px] mt-1 whitespace-nowrap',
-                  isActive ? 'text-blue-700 font-semibold' : 'text-slate-400',
-                ].join(' ')}
-              >
-                {step.short}
-              </span>
+              {/* item 37: show label on active + completed, title attr for all */}
+              {!compact && (
+                <span
+                  className={[
+                    'text-[11px] mt-1 whitespace-nowrap',
+                    isActive
+                      ? 'text-blue-700 font-semibold'
+                      : isDone
+                      ? 'text-slate-500'
+                      : 'text-slate-400',
+                  ].join(' ')}
+                  title={step.short}
+                >
+                  {/* Only show text label for active and completed steps to reduce clutter */}
+                  {isActive || isDone ? step.short : ''}
+                </span>
+              )}
             </li>
           </React.Fragment>
         );

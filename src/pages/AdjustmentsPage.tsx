@@ -1,41 +1,87 @@
 // src/pages/AdjustmentsPage.tsx
 import React, { useState } from 'react';
-import { useAppStore } from '../store/appStore';
-import AssetRegisterTable from '../components/adjustments/AssetRegisterTable';
-import ProvisionInputs from '../components/adjustments/ProvisionInputs';
-import AdjustmentJournalView from '../components/adjustments/AdjustmentJournalView';
-import Tabs from '../components/ui/Tabs';
-import Alert from '../components/ui/Alert';
-import LoadingSpinner from '../components/ui/LoadingSpinner';
-import { YearEndAdjustments } from '../types';
+import { useAppStore }          from '../store/appStore';
+import AssetRegisterTable       from '../components/adjustments/AssetRegisterTable';
+import ProvisionInputs          from '../components/adjustments/ProvisionInputs';
+import AdjustmentJournalView    from '../components/adjustments/AdjustmentJournalView';
+import Tabs                     from '../components/ui/Tabs';
+import Alert                    from '../components/ui/Alert';
+import LoadingSpinner            from '../components/ui/LoadingSpinner';
+import { YearEndAdjustments }   from '../types';
 
 type SubStep = 'assets' | 'provisions' | 'review';
 
+// item 83: depreciation KPI summary card
+interface DeprecSummary {
+  totalCost:        number;
+  totalDepreciation: number;
+  totalNBV:         number;
+}
+
+function DeprecSummaryCard({ summary }: { summary: DeprecSummary }) {
+  const fmt = (n: number) =>
+    n === 0 ? '—' : `NPR ${Math.abs(n).toLocaleString('en-IN')}`;
+
+  return (
+    <div className="grid grid-cols-3 gap-3 p-4 bg-white border border-emerald-200 rounded-xl">
+      <div className="text-center">
+        <p className="text-[11px] uppercase tracking-wide text-slate-400 font-semibold leading-none mb-1">
+          Total Asset Cost
+        </p>
+        <p className="text-sm font-bold text-slate-800 font-mono">{fmt(summary.totalCost)}</p>
+      </div>
+      <div className="text-center border-x border-slate-100">
+        <p className="text-[11px] uppercase tracking-wide text-slate-400 font-semibold leading-none mb-1">
+          Depreciation for Year
+        </p>
+        <p className="text-sm font-bold text-amber-700 font-mono">{fmt(summary.totalDepreciation)}</p>
+      </div>
+      <div className="text-center">
+        <p className="text-[11px] uppercase tracking-wide text-slate-400 font-semibold leading-none mb-1">
+          Net Book Value
+        </p>
+        <p className="text-sm font-bold text-blue-700 font-mono">{fmt(summary.totalNBV)}</p>
+      </div>
+    </div>
+  );
+}
+
 const AdjustmentsPage: React.FC = () => {
   const { state, dispatch } = useAppStore();
-  const [subStep, setSubStep] = useState<SubStep>('assets');
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [depreciationPreview, setDepreciationPreview] = useState<string | null>(null);
+  const [subStep,        setSubStep]        = useState<SubStep>('assets');
+  const [isLoading,      setIsLoading]      = useState(false);
+  const [error,          setError]          = useState<string | null>(null);
+  const [deprecSummary,  setDeprecSummary]  = useState<DeprecSummary | null>(null);
 
-  const companyId = state.company?.id ?? '';
+  // item 78: asset count + journal entry count for badges
+  const assetCount   = (state.adjustments?.assets?.length ?? 0);
+  const journalCount = (state.adjustments?.journalEntries?.length ?? 0);
+
+  const companyId       = state.company?.id ?? '';
   const assetCategories = state.company?.accountingPolicies?.assetCategories ?? [];
-  const fiscalYear = state.company?.fiscalYear.bsYear ?? '2081/82';
+  // item 77: inline fiscal year in the sub-description
+  const fiscalYear      = state.company?.fiscalYear?.bsYear ?? '—';
 
   const handleSaveAssets = async (assets: any[]) => {
     if (!companyId) return [];
     setIsLoading(true);
     setError(null);
     try {
-      // Calculate depreciation after saving assets
       const depResponse = await fetch(`/api/adjustments/${companyId}/calculate-depreciation`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ assets })
+        body: JSON.stringify({ assets }),
       });
       if (!depResponse.ok) throw new Error('Failed to calculate depreciation');
       const depData = await depResponse.json();
-      setDepreciationPreview(`Depreciation calculated: NPR ${depData.totalDepreciation?.toLocaleString() ?? 0}`);
+
+      // item 83: compute and store summary KPIs
+      const summary: DeprecSummary = {
+        totalCost:        (depData.summary ?? []).reduce((s: number, r: any) => s + (r.closingCost ?? 0), 0),
+        totalDepreciation: depData.totalDepreciation ?? depData.totalDepreciationExpense ?? 0,
+        totalNBV:          (depData.summary ?? []).reduce((s: number, r: any) => s + (r.netBookValueClosing ?? 0), 0),
+      };
+      setDeprecSummary(summary);
       setSubStep('provisions');
       return depData.summary || [];
     } catch (err: unknown) {
@@ -46,7 +92,7 @@ const AdjustmentsPage: React.FC = () => {
     }
   };
 
-  const handleSaveProvisions = async (rows: any[]) => {
+  const handleSaveProvisions = async (_rows: any[]) => {
     setSubStep('review');
   };
 
@@ -73,14 +119,22 @@ const AdjustmentsPage: React.FC = () => {
     }
   };
 
+  // item 78: tab badges with live counts
   const tabs = [
     {
-      id: 'assets',
+      id:    'assets',
       label: 'Asset Register',
-      badge: assetCategories.length > 0 ? String(assetCategories.length) : undefined,
+      count: assetCount > 0 ? assetCount : undefined,
     },
-    { id: 'provisions', label: 'Provisions' },
-    { id: 'review', label: 'Review Journals' },
+    {
+      id:    'provisions',
+      label: 'Provisions',
+    },
+    {
+      id:    'review',
+      label: 'Review Journals',
+      count: journalCount > 0 ? journalCount : undefined,
+    },
   ];
 
   if (isLoading) {
@@ -88,40 +142,38 @@ const AdjustmentsPage: React.FC = () => {
   }
 
   return (
-    <div className="max-w-5xl mx-auto px-4 py-6 space-y-6">
-      {/* Header */}
+    <div className="max-w-5xl mx-auto space-y-5">
+      {/* ── Header ─────────────────────────────────────────────── */}
       <div>
         <h2 className="text-xl font-bold text-slate-800">Year-End Adjustments</h2>
+        {/* item 77: fiscal year inline in sub-description */}
         <p className="text-sm text-slate-500 mt-1">
-          Enter your asset register for depreciation, provisions, and review the resulting journal entries.
+          Enter depreciation, provisions, and year-end journals for{' '}
+          <span className="font-semibold text-slate-700">FY {fiscalYear}</span>.
         </p>
       </div>
 
-      {/* Error */}
       {error && <Alert type="error" message={error} onDismiss={() => setError(null)} />}
 
-      {/* Depreciation Preview */}
-      {depreciationPreview && (
-        <Alert type="success" message={depreciationPreview} onDismiss={() => setDepreciationPreview(null)} />
-      )}
-
-      {/* Tabs */}
+      {/* item 78: tab badges */}
       <Tabs
         tabs={tabs}
         active={subStep}
-        onChange={(id) => setSubStep(id as SubStep)}
+        onChange={id => setSubStep(id as SubStep)}
         variant="line"
       />
 
-      {/* ── Assets Tab ── */}
+      {/* ── Assets Tab ──────────────────────────────────────────── */}
       {subStep === 'assets' && (
         <div className="space-y-4">
-          <div className="bg-blue-50 border border-blue-100 rounded-xl p-4">
-            <p className="text-xs text-blue-700">
-              <strong>Step 6:</strong> Enter all assets owned by the company as at the beginning of this fiscal year.
-              Depreciation will be calculated automatically based on your accounting policies.
-            </p>
-          </div>
+          {/* item 79: "How it works:" framing instead of "Step 6:" */}
+          <Alert
+            type="info"
+            title="How it works"
+            message={`Enter all fixed assets as at the start of FY ${fiscalYear}. The system calculates book depreciation (SLM or WDV per your accounting policies) and generates journal entries automatically. You can also record asset disposals and additions.`}
+          />
+          {/* item 83: depreciation KPI card persists after calculation */}
+          {deprecSummary && <DeprecSummaryCard summary={deprecSummary} />}
           <AssetRegisterTable
             fiscalYear={fiscalYear}
             onCalculate={handleSaveAssets}
@@ -129,22 +181,19 @@ const AdjustmentsPage: React.FC = () => {
         </div>
       )}
 
-      {/* ── Provisions Tab ── */}
+      {/* ── Provisions Tab ──────────────────────────────────────── */}
       {subStep === 'provisions' && (
         <div className="space-y-4">
-          <div className="bg-amber-50 border border-amber-100 rounded-xl p-4">
-            <p className="text-xs text-amber-700">
-              Review and enter year-end provisions. These will be included in your financial statements
-              and adjusting journal entries. Toggle only those provisions applicable to your company.
-            </p>
-          </div>
-          <ProvisionInputs
-            onSave={handleSaveProvisions}
+          <Alert
+            type="info"
+            title="Year-End Provisions"
+            message="Review and enter provisions required under Nepal labor law and accounting standards. Toggle only those provisions applicable to your company. Each provision increases expenses and creates a liability on the balance sheet."
           />
+          <ProvisionInputs onSave={handleSaveProvisions} />
         </div>
       )}
 
-      {/* ── Review Tab ── */}
+      {/* ── Review Tab ──────────────────────────────────────────── */}
       {subStep === 'review' && (
         <div className="space-y-4">
           <AdjustmentJournalView
@@ -154,10 +203,10 @@ const AdjustmentsPage: React.FC = () => {
 
           <div className="bg-green-50 border border-green-200 rounded-xl p-6 text-center">
             <p className="text-sm font-semibold text-green-800 mb-1">
-              ✅ Review all journal entries above before proceeding.
+              ✓ Review all journal entries above before proceeding
             </p>
             <p className="text-xs text-green-600 mb-4">
-              These entries will be used to compute your final financial statements.
+              These entries determine your final financial statements for FY {fiscalYear}.
             </p>
             <button
               onClick={handleGenerateStatements}

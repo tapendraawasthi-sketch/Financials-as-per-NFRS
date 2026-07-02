@@ -10,9 +10,8 @@ interface IncomeStatementViewProps {
   previousYear?: Partial<IncomeStatement>;
 }
 
-function fmt(n: number | undefined | null, rl: number): string {
+function fmt(n: number | undefined | null, rl: number, isExpected = false): string {
   if (n === undefined || n === null || n === 0) return '—';
-  // Expenses are passed as positive — display as-is; losses shown negative
   const r   = Math.round(n / rl) * rl;
   const abs = Math.abs(r).toLocaleString('en-IN');
   return r < 0 ? `(${abs})` : abs;
@@ -82,10 +81,10 @@ function TotalRow({
     <tr className={cls}>
       <td className="text-xs">{label}</td>
       <td />
-      <td className={`amount text-xs ${isLoss && cy && cy < 0 ? 'amount-negative' : ''}`}>
+      <td className={`amount text-xs ${isLoss && cy && cy < 0 ? 'amount-loss-subtle' : ''}`}>
         {fmt(cy, rl)}
       </td>
-      <td className={`amount text-xs ${isLoss && py && py < 0 ? 'amount-negative' : ''}`}>
+      <td className={`amount text-xs ${isLoss && py && py < 0 ? 'amount-loss-subtle' : ''}`}>
         {fmt(py, rl)}
       </td>
     </tr>
@@ -96,7 +95,7 @@ function BlankRow() {
   return <tr><td colSpan={4} className="py-1" /></tr>;
 }
 
-export default function IncomeStatementView({
+function IncomeStatementView({
   data,
   company,
   previousYear,
@@ -213,17 +212,25 @@ export default function IncomeStatementView({
         </tbody>
       </table>
 
-      {/* Integral part note */}
+      {/* item 116: italic integral part note */}
       <div className="border-t border-slate-200 mt-4 pt-3 text-center">
-        <p className="text-xs text-slate-400">
+        <p className="text-xs text-slate-500 italic">
           The notes referred to above form an integral part of these financial statements.
         </p>
       </div>
 
-      {/* Print button bottom */}
+      {/* item 113: prior year totals note */}
+      {(!previousYear?.totalExpenses) && (
+        <p className="text-[11px] text-slate-400 italic text-center mt-2">
+          Prior year comparative figures not provided — enter directly in the Excel workbook.
+        </p>
+      )}
+
       <div className="no-print flex justify-end mt-4">
-        <PrintButton label="Print Statement" />
+        <PrintButton label="Print / Export PDF" />
       </div>
     </div>
   );
 }
+
+export default React.memo(IncomeStatementView);

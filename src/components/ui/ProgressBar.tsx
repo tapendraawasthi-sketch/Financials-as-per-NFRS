@@ -5,15 +5,24 @@ interface ProgressBarProps {
   value:       number;
   label?:      string;
   showValue?:  boolean;
-  color?:      'blue' | 'green' | 'amber';
+  // item 160: extended color variants
+  color?:      'blue' | 'green' | 'amber' | 'red';
   size?:       'sm' | 'md';
   className?:  string;
 }
 
-const COLORS: Record<NonNullable<ProgressBarProps['color']>, string> = {
+const TRACK_COLORS: Record<NonNullable<ProgressBarProps['color']>, string> = {
+  blue:  'bg-slate-200',
+  green: 'bg-emerald-100',
+  amber: 'bg-amber-100',
+  red:   'bg-red-100',
+};
+
+const FILL_COLORS: Record<NonNullable<ProgressBarProps['color']>, string> = {
   blue:  'bg-blue-600',
   green: 'bg-emerald-500',
   amber: 'bg-amber-500',
+  red:   'bg-red-500',
 };
 
 const HEIGHTS: Record<NonNullable<ProgressBarProps['size']>, string> = {
@@ -47,15 +56,16 @@ export default function ProgressBar({
       )}
 
       <div
-        className={`w-full bg-slate-200 rounded-full overflow-hidden ${HEIGHTS[size]}`}
+        className={`w-full rounded-full overflow-hidden ${TRACK_COLORS[color]} ${HEIGHTS[size]}`}
         role="progressbar"
         aria-valuenow={pct}
         aria-valuemin={0}
         aria-valuemax={100}
-        aria-label={label}
+        aria-label={label ?? 'Progress'}
       >
+        {/* item 161: smooth width transition */}
         <div
-          className={`h-full rounded-full transition-all duration-500 ${COLORS[color]}`}
+          className={`h-full rounded-full ${FILL_COLORS[color]} transition-[width] duration-300 ease-out`}
           style={{ width: `${pct}%` }}
         />
       </div>

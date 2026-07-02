@@ -1,10 +1,11 @@
 // src/components/company/CompanyInfoForm.tsx
 import React, { useState } from 'react';
-import Card          from '../ui/Card';
-import InputField    from '../ui/InputField';
+import Card           from '../ui/Card';
+import InputField     from '../ui/InputField';
 import SelectDropdown from '../ui/SelectDropdown';
-import Textarea      from '../ui/Textarea';
-import Button        from '../ui/Button';
+import Textarea       from '../ui/Textarea';
+import Button         from '../ui/Button';
+import { useToast }   from '../ui/Toast';
 import { CompanyProfile } from '../../types/company';
 
 // ── Option lists ───────────────────────────────────────────────────────────
@@ -24,13 +25,13 @@ const FRAMEWORK_OPTIONS = [
 ];
 
 const PROVINCE_OPTIONS = [
-  { value: 'Koshi',        label: 'Koshi'        },
-  { value: 'Madhesh',      label: 'Madhesh'      },
-  { value: 'Bagmati',      label: 'Bagmati'      },
-  { value: 'Gandaki',      label: 'Gandaki'      },
-  { value: 'Lumbini',      label: 'Lumbini'      },
-  { value: 'Karnali',      label: 'Karnali'      },
-  { value: 'Sudurpashchim',label: 'Sudurpashchim'},
+  { value: 'Koshi',         label: 'Koshi'         },
+  { value: 'Madhesh',       label: 'Madhesh'        },
+  { value: 'Bagmati',       label: 'Bagmati'        },
+  { value: 'Gandaki',       label: 'Gandaki'        },
+  { value: 'Lumbini',       label: 'Lumbini'        },
+  { value: 'Karnali',       label: 'Karnali'        },
+  { value: 'Sudurpashchim', label: 'Sudurpashchim'  },
 ];
 
 const AUDITOR_POSITION_OPTIONS = [
@@ -68,28 +69,11 @@ interface FormValues {
 type FormErrors = Partial<Record<keyof FormValues, string>>;
 
 const EMPTY: FormValues = {
-  companyName:        '',
-  panVatNumber:       '',
-  registrationNumber: '',
-  companyType:        '',
-  entityType:         'NASForMEs',
-  province:           '',
-  district:           '',
-  municipality:       '',
-  wardNumber:         '',
-  tole:               '',
-  fullAddress:        '',
-  contactPerson:      '',
-  designation:        '',
-  phone:              '',
-  email:              '',
-  chairperson:        '',
-  director:           '',
-  accountsHead:       '',
-  auditorName:        '',
-  auditFirmName:      '',
-  icanRegNumber:      '',
-  auditorPosition:    '',
+  companyName: '', panVatNumber: '', registrationNumber: '', companyType: '',
+  entityType: 'NASForMEs', province: '', district: '', municipality: '',
+  wardNumber: '', tole: '', fullAddress: '', contactPerson: '', designation: '',
+  phone: '', email: '', chairperson: '', director: '', accountsHead: '',
+  auditorName: '', auditFirmName: '', icanRegNumber: '', auditorPosition: '',
 };
 
 interface CompanyInfoFormProps {
@@ -105,7 +89,7 @@ function validate(v: FormValues): FormErrors {
   if (!v.panVatNumber.trim())
     e.panVatNumber = 'PAN / VAT number is required';
   else if (!/^\d{9}$/.test(v.panVatNumber.trim()))
-    e.panVatNumber = 'Must be 9 digits';
+    e.panVatNumber = 'Must be exactly 9 digits';
   if (!v.registrationNumber.trim())
     e.registrationNumber = 'Registration number is required';
   if (!v.companyType)
@@ -113,6 +97,16 @@ function validate(v: FormValues): FormErrors {
   if (v.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.email))
     e.email = 'Enter a valid email address';
   return e;
+}
+
+// ── Required fields note component ────────────────────────────────────────
+// item 50: "Fields marked * are required" note at top of each section
+function RequiredNote() {
+  return (
+    <p className="text-xs text-slate-400 mb-4">
+      Fields marked <span className="text-red-500">*</span> are required
+    </p>
+  );
 }
 
 // ── Component ──────────────────────────────────────────────────────────────
@@ -124,10 +118,10 @@ export default function CompanyInfoForm({
   const [errors,  setErrors]  = useState<FormErrors>({});
   const [saving,  setSaving]  = useState(false);
   const [saveErr, setSaveErr] = useState<string | null>(null);
+  const { show } = useToast();   // item 52: toast hook
 
   const set = <K extends keyof FormValues>(key: K, val: FormValues[K]) => {
     setValues(prev => ({ ...prev, [key]: val }));
-    // Clear inline error as user types
     if (errors[key]) setErrors(prev => ({ ...prev, [key]: undefined }));
   };
 
@@ -136,19 +130,17 @@ export default function CompanyInfoForm({
     const errs = validate(values);
     if (Object.keys(errs).length > 0) {
       setErrors(errs);
-      // Scroll to first error
-      const firstErrKey = Object.keys(errs)[0];
-      document.getElementById(`field-${firstErrKey}`)?.scrollIntoView({
-        behavior: 'smooth',
-        block:    'center',
+      document.getElementById(`field-${Object.keys(errs)[0]}`)?.scrollIntoView({
+        behavior: 'smooth', block: 'center',
       });
       return;
     }
-
     setSaving(true);
     setSaveErr(null);
     try {
       await onSave(values);
+      // item 52: show "Changes saved" toast after successful save
+      show('Company details saved successfully.', 'success', 2500);
     } catch (err: any) {
       setSaveErr(err?.message ?? 'Failed to save. Please try again.');
     } finally {
@@ -160,13 +152,15 @@ export default function CompanyInfoForm({
     <form
       onSubmit={handleSubmit}
       noValidate
-      className="max-w-3xl space-y-4"
+      className="max-w-3xl space-y-5"
       aria-label="Company information"
     >
-      {/* ── Section 1: Registration Details ─────────────────────────── */}
+      {/* ── Section 1: Company Registration Details ──── */}
+      {/* item 47: each section in a Card component */}
       <Card title="Company Registration Details" padding="md">
-        <div className="form-grid-2">
-          {/* Company name — full width */}
+        <RequiredNote />
+        {/* item 50: gap-4 via inline style — form-grid uses gap-4 in updated CSS */}
+        <div className="grid grid-cols-2 gap-4">
           <div className="col-span-2" id="field-companyName">
             <InputField
               label="Company Name"
@@ -186,7 +180,7 @@ export default function CompanyInfoForm({
               error={errors.panVatNumber}
               required
               placeholder="123456789"
-              helperText="9-digit PAN"
+              helperText="9-digit PAN registered with IRD"
               inputMode="numeric"
               maxLength={9}
             />
@@ -211,7 +205,7 @@ export default function CompanyInfoForm({
               options={COMPANY_TYPE_OPTIONS}
               error={errors.companyType}
               required
-              placeholder="Select type..."
+              placeholder="Select type…"
             />
           </div>
 
@@ -226,56 +220,46 @@ export default function CompanyInfoForm({
         </div>
       </Card>
 
-      {/* ── Section 2: Registered Address ───────────────────────────── */}
+      {/* ── Section 2: Registered Address ─────────────── */}
       <Card title="Registered Address" padding="md">
-        <div className="form-grid-3">
-          <div>
-            <SelectDropdown
-              label="Province"
-              value={values.province}
-              onChange={e => set('province', e.target.value)}
-              options={PROVINCE_OPTIONS}
-              placeholder="Select province..."
-            />
-          </div>
+        <RequiredNote />
+        <div className="grid grid-cols-3 gap-4">
+          <SelectDropdown
+            label="Province"
+            value={values.province}
+            onChange={e => set('province', e.target.value)}
+            options={PROVINCE_OPTIONS}
+            placeholder="Select province…"
+          />
 
-          <div>
-            <InputField
-              label="District"
-              value={values.district}
-              onChange={e => set('district', e.target.value)}
-              placeholder="e.g. Kathmandu"
-            />
-          </div>
+          <InputField
+            label="District"
+            value={values.district}
+            onChange={e => set('district', e.target.value)}
+            placeholder="e.g. Kathmandu"
+          />
 
-          <div>
-            <InputField
-              label="Municipality"
-              value={values.municipality}
-              onChange={e => set('municipality', e.target.value)}
-              placeholder="e.g. Kathmandu Metropolitan"
-            />
-          </div>
+          <InputField
+            label="Municipality"
+            value={values.municipality}
+            onChange={e => set('municipality', e.target.value)}
+            placeholder="e.g. Kathmandu Metropolitan"
+          />
 
-          <div>
-            <InputField
-              label="Ward Number"
-              value={values.wardNumber}
-              onChange={e => set('wardNumber', e.target.value)}
-              placeholder="e.g. 10"
-            />
-          </div>
+          <InputField
+            label="Ward Number"
+            value={values.wardNumber}
+            onChange={e => set('wardNumber', e.target.value)}
+            placeholder="e.g. 10"
+          />
 
-          <div>
-            <InputField
-              label="Tole / Street"
-              value={values.tole}
-              onChange={e => set('tole', e.target.value)}
-              placeholder="e.g. New Baneshwor"
-            />
-          </div>
+          <InputField
+            label="Tole / Street"
+            value={values.tole}
+            onChange={e => set('tole', e.target.value)}
+            placeholder="e.g. New Baneshwor"
+          />
 
-          {/* Full address — col-span-3 */}
           <div className="col-span-3">
             <Textarea
               label="Full Address"
@@ -288,36 +272,31 @@ export default function CompanyInfoForm({
         </div>
       </Card>
 
-      {/* ── Section 3: Contact & Signatories ────────────────────────── */}
-      <Card title="Contact &amp; Signatories" padding="md">
-        <div className="form-grid-2">
-          <div>
-            <InputField
-              label="Contact Person Name"
-              value={values.contactPerson}
-              onChange={e => set('contactPerson', e.target.value)}
-              placeholder="e.g. Ram Bahadur Shrestha"
-            />
-          </div>
+      {/* ── Section 3: Management & Signatories ──────── */}
+      <Card title="Management & Signatories" padding="md">
+        <RequiredNote />
+        <div className="grid grid-cols-2 gap-4">
+          <InputField
+            label="Contact Person Name"
+            value={values.contactPerson}
+            onChange={e => set('contactPerson', e.target.value)}
+            placeholder="e.g. Ram Bahadur Shrestha"
+          />
 
-          <div>
-            <InputField
-              label="Designation"
-              value={values.designation}
-              onChange={e => set('designation', e.target.value)}
-              placeholder="e.g. Finance Manager"
-            />
-          </div>
+          <InputField
+            label="Designation"
+            value={values.designation}
+            onChange={e => set('designation', e.target.value)}
+            placeholder="e.g. Finance Manager"
+          />
 
-          <div>
-            <InputField
-              label="Phone"
-              value={values.phone}
-              onChange={e => set('phone', e.target.value)}
-              placeholder="e.g. 01-4567890"
-              type="tel"
-            />
-          </div>
+          <InputField
+            label="Phone"
+            value={values.phone}
+            onChange={e => set('phone', e.target.value)}
+            placeholder="e.g. 01-4567890"
+            type="tel"
+          />
 
           <div id="field-email">
             <InputField
@@ -330,24 +309,20 @@ export default function CompanyInfoForm({
             />
           </div>
 
-          <div>
-            <InputField
-              label="Chairperson"
-              value={values.chairperson}
-              onChange={e => set('chairperson', e.target.value)}
-              placeholder="Full name"
-              helperText="For signing authority on financial statements"
-            />
-          </div>
+          <InputField
+            label="Chairperson"
+            value={values.chairperson}
+            onChange={e => set('chairperson', e.target.value)}
+            placeholder="Full name"
+            helperText="For signing authority on financial statements"
+          />
 
-          <div>
-            <InputField
-              label="Director"
-              value={values.director}
-              onChange={e => set('director', e.target.value)}
-              placeholder="Full name"
-            />
-          </div>
+          <InputField
+            label="Director"
+            value={values.director}
+            onChange={e => set('director', e.target.value)}
+            placeholder="Full name"
+          />
 
           <div className="col-span-2">
             <InputField
@@ -360,75 +335,63 @@ export default function CompanyInfoForm({
         </div>
       </Card>
 
-      {/* ── Section 4: Audit Information ────────────────────────────── */}
+      {/* ── Section 4: Audit Information ─────────────── */}
       <Card title="Audit Information" padding="md">
-        <div className="form-grid-2">
-          <div>
-            <InputField
-              label="Auditor Name"
-              value={values.auditorName}
-              onChange={e => set('auditorName', e.target.value)}
-              placeholder="Full name of the engagement auditor"
-            />
-          </div>
+        <RequiredNote />
+        <div className="grid grid-cols-2 gap-4">
+          <InputField
+            label="Auditor Name"
+            value={values.auditorName}
+            onChange={e => set('auditorName', e.target.value)}
+            placeholder="Full name of the engagement auditor"
+          />
 
-          <div>
-            <InputField
-              label="Audit Firm Name"
-              value={values.auditFirmName}
-              onChange={e => set('auditFirmName', e.target.value)}
-              placeholder="e.g. ABC & Associates, Chartered Accountants"
-            />
-          </div>
+          <InputField
+            label="Audit Firm Name"
+            value={values.auditFirmName}
+            onChange={e => set('auditFirmName', e.target.value)}
+            placeholder="e.g. ABC & Associates, Chartered Accountants"
+          />
 
-          <div>
-            <InputField
-              label="ICAN Registration Number"
-              value={values.icanRegNumber}
-              onChange={e => set('icanRegNumber', e.target.value)}
-              placeholder="e.g. CA-3456"
-            />
-          </div>
+          <InputField
+            label="ICAN Registration Number"
+            value={values.icanRegNumber}
+            onChange={e => set('icanRegNumber', e.target.value)}
+            placeholder="e.g. CA-3456"
+          />
 
-          <div>
-            <SelectDropdown
-              label="Auditor Position"
-              value={values.auditorPosition}
-              onChange={e => set('auditorPosition', e.target.value)}
-              options={AUDITOR_POSITION_OPTIONS}
-              placeholder="Select position..."
-            />
-          </div>
+          <SelectDropdown
+            label="Auditor Position"
+            value={values.auditorPosition}
+            onChange={e => set('auditorPosition', e.target.value)}
+            options={AUDITOR_POSITION_OPTIONS}
+            placeholder="Select position…"
+          />
         </div>
       </Card>
 
-      {/* ── Server-level save error ──────────────────────────────────── */}
+      {/* ── Server error ──────────────────────────────── */}
       {saveErr && (
         <div
           role="alert"
-          className="flex items-center gap-2 rounded-md border border-red-200 bg-red-50 px-3.5 py-2.5 text-xs text-red-700"
+          className="flex items-center gap-2 rounded-md border border-red-200 bg-red-50 px-3.5 py-2.5 text-sm text-red-700"
         >
           <svg className="h-4 w-4 flex-shrink-0 text-red-500" fill="none"
             viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
             <circle cx="12" cy="12" r="10" />
             <line x1="15" y1="9" x2="9" y2="15" />
-            <line x1="9" y1="9" x2="15" y2="15" />
+            <line x1="9"  y1="9" x2="15" y2="15" />
           </svg>
           {saveErr}
         </div>
       )}
 
-      {/* ── Footer row ───────────────────────────────────────────────── */}
+      {/* ── Footer ────────────────────────────────────── */}
       <div className="flex items-center justify-between pt-1">
-        <p className="text-xs text-slate-500">
+        <p className="text-xs text-slate-400">
           All fields marked <span className="text-red-500">*</span> are required
         </p>
-        <Button
-          type="submit"
-          variant="primary"
-          size="md"
-          loading={saving}
-        >
+        <Button type="submit" variant="primary" size="md" loading={saving}>
           Save and Continue
         </Button>
       </div>

@@ -117,6 +117,14 @@ export default function TBUploadZone({
     };
 
     xhr.open('POST', `/api/trial-balance/${companyId}/upload`);
+    // item 180: 60-second timeout + handler
+    xhr.timeout = 60_000;
+    xhr.ontimeout = () => {
+      setUploadState('error');
+      onError(
+        'Upload timed out after 60 seconds. Please check your connection and try with a smaller file.'
+      );
+    };
     xhr.send(formData);
   }, [companyId, aiOn, onUploadComplete, onError]);
 

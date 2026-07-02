@@ -1,17 +1,54 @@
+/* ─── Google Font Import (fallback if HTML link not available) ──── */
+/* item 177: font-display: swap prevents invisible-text flash during load */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
 @import "tailwindcss";
 
-/* ─── Design Tokens ─────────────────────────────────── */
+/* Fallback: if CSS @import does not support display parameter,
+   override via @font-face for locally loaded Inter */
+@font-face {
+  font-family: 'Inter';
+  font-display: swap;
+}
+
+/* ─── Design Tokens ─────────────────────────────────────────────── */
 :root {
+  /* Typography */
   --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
   --font-mono: ui-monospace, 'Cascadia Code', 'Source Code Pro', monospace;
+
+  /* Border Radius */
   --radius-sm: 4px;
   --radius-md: 6px;
   --radius-lg: 8px;
+  --radius-xl: 12px;
+
+  /* Shadows — differentiated elevation system */
   --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
   --shadow-md: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+  --shadow-lg: 0 4px 16px -2px rgb(0 0 0 / 0.12), 0 2px 6px -2px rgb(0 0 0 / 0.08);
+  --shadow-xl: 0 8px 32px -4px rgb(0 0 0 / 0.16), 0 4px 12px -4px rgb(0 0 0 / 0.1);
+
+  /* Brand Color — dignified indigo/teal for NFRS Nepal identity */
+  --color-brand:         #1e40af;   /* primary brand — deep blue */
+  --color-brand-dark:    #1e3a8a;
+  --color-brand-light:   #dbeafe;
+  --color-brand-accent:  #0d6e6e;   /* teal accent — Nepal financial identity */
+
+  /* Semantic surface colors */
+  --color-surface:       #ffffff;
+  --color-surface-muted: #f8fafc;
+  --color-border:        #e2e8f0;
+  --color-border-strong: #cbd5e1;
+
+  /* Text hierarchy */
+  --color-text-primary:   #0f172a;
+  --color-text-secondary: #334155;
+  --color-text-muted:     #64748b;
+  --color-text-faint:     #94a3b8;
 }
 
-/* ─── Reset & Base ──────────────────────────────────── */
+/* ─── Reset & Base ──────────────────────────────────────────────── */
 *, *::before, *::after {
   box-sizing: border-box;
   margin: 0;
@@ -22,64 +59,129 @@ html {
   font-size: 14px;
   -webkit-text-size-adjust: 100%;
   tab-size: 4;
+  scroll-behavior: smooth;           /* smooth programmatic scrolling */
 }
 
 body {
   font-family: var(--font-sans);
   background-color: #f8fafc;
-  color: #1e293b;
+  color: var(--color-text-primary);
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  min-height: 100vh;
 }
 
-/* ─── Focus ─────────────────────────────────────────── */
+/* ─── Focus ─────────────────────────────────────────────────────── */
 :focus-visible {
   outline: 2px solid #1d4ed8;
   outline-offset: 2px;
 }
 
-/* ─── Typography ────────────────────────────────────── */
-h1, h2, h3, h4, h5, h6 {
+/* ─── Typography — differentiated heading weights ───────────────── */
+h1 {
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--color-text-primary);
+}
+h2 {
   font-weight: 600;
+  line-height: 1.25;
+  color: var(--color-text-primary);
+}
+h3, h4 {
+  font-weight: 500;
   line-height: 1.3;
-  color: #0f172a;
+  color: var(--color-text-primary);
+}
+h5, h6 {
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--color-text-secondary);
 }
 
-/* ─── Scrollbar ─────────────────────────────────────── */
-::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: #f1f5f9; }
-::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+/* ─── Global transition base ────────────────────────────────────── */
+/* Applied to all interactive elements for smooth hover/focus states */
+button,
+a,
+input,
+select,
+textarea,
+[role="button"],
+[role="tab"],
+[tabindex] {
+  transition: color 150ms ease-in-out,
+              background-color 150ms ease-in-out,
+              border-color 150ms ease-in-out,
+              box-shadow 150ms ease-in-out,
+              opacity 150ms ease-in-out;
+}
 
-/* ─── Financial Table System ────────────────────────── */
+/* ─── Page Enter Animation ──────────────────────────────────────── */
+@keyframes pageEnter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.page-enter {
+  animation: pageEnter 180ms ease-out forwards;
+}
+
+/* ─── Fade-in utility ────────────────────────────────────────────── */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.animate-fade-in {
+  animation: fadeIn 200ms ease-out forwards;
+}
+
+/* ─── Scrollbar ─────────────────────────────────────────────────── */
+::-webkit-scrollbar          { width: 6px; height: 6px; }
+::-webkit-scrollbar-track    { background: #f1f5f9; border-radius: 6px; }
+::-webkit-scrollbar-thumb    { background: #94a3b8; border-radius: 6px; }
+::-webkit-scrollbar-thumb:hover { background: #64748b; }
+
+/* ─── Financial Table System ────────────────────────────────────── */
 .fin-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.8125rem;
+  font-size: 0.8125rem;    /* 13px — minimum for financial data readability */
 }
 
 .fin-table th {
   background-color: #f1f5f9;
   color: #475569;
   font-weight: 600;
-  font-size: 0.6875rem;
+  font-size: 0.75rem;   /* raised from 0.6875rem */
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  padding: 6px 10px;
+  padding: 7px 10px;
   border-bottom: 1px solid #e2e8f0;
   white-space: nowrap;
 }
 
 .fin-table td {
-  padding: 6px 10px;
+  padding: 7px 10px;
   border-bottom: 1px solid #f1f5f9;
   color: #334155;
   vertical-align: middle;
+  font-size: 0.8125rem;
+}
+
+.fin-table tbody tr {
+  transition: background-color 120ms ease-in-out;
 }
 
 .fin-table tbody tr:hover td {
-  background-color: #f8fafc;
+  background-color: #eff6ff;
 }
 
 .fin-table .row-total td {
@@ -95,17 +197,21 @@ h1, h2, h3, h4, h5, h6 {
   font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
+  border-left: 3px solid #1d4ed8;
 }
 
 .fin-table .row-grand-total td {
   border-top: 2px solid #1e293b;
-  border-bottom: 2px solid #1e293b;
+  border-bottom: 3px double #1e293b;
   font-weight: 700;
   background-color: #f8fafc;
   color: #0f172a;
 }
 
-/* ─── Amount Cells ──────────────────────────────────── */
+/* item 108: spacer row slightly more breathing room */
+.fin-table tr.spacer-row td { padding-top: 4px; padding-bottom: 4px; }
+
+/* ─── Amount Cells ──────────────────────────────────────────────── */
 .amount {
   font-variant-numeric: tabular-nums;
   text-align: right;
@@ -113,32 +219,29 @@ h1, h2, h3, h4, h5, h6 {
   font-family: var(--font-mono);
 }
 
-.amount-zero {
-  color: #94a3b8;
-}
+.amount-zero    { color: #cbd5e1; }
+.amount-negative { color: #b91c1c; }
+.amount-loss-subtle { color: #dc2626; }
 
-.amount-negative {
-  color: #b91c1c;
-}
-
-/* ─── Statement Layout ──────────────────────────────── */
+/* ─── Statement Layout ──────────────────────────────────────────── */
 .statement-page {
   background: #fff;
   border: 1px solid #e2e8f0;
-  border-radius: 6px;
+  border-radius: 12px;
   padding: 2rem;
   max-width: 900px;
+  box-shadow: 0 4px 24px -4px rgb(0 0 0 / 0.10);
 }
 
 .statement-header {
   text-align: center;
   border-bottom: 1px solid #e2e8f0;
-  padding-bottom: 1rem;
-  margin-bottom: 1.25rem;
+  padding-bottom: 1.25rem;
+  margin-bottom: 1.5rem;
 }
 
 .statement-company-name {
-  font-size: 1rem;
+  font-size: 1.0625rem;   /* 17px — up from 16px */
   font-weight: 700;
   color: #0f172a;
   text-transform: uppercase;
@@ -155,31 +258,40 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .statement-date {
-  font-size: 0.75rem;
+  font-size: 0.8125rem;   /* raised from 0.75rem */
   color: #64748b;
   margin-top: 2px;
 }
 
-/* ─── Form Grid ─────────────────────────────────────── */
+/* ─── Major Container Cards ─────────────────────────────────────── */
+/* Use on Output page, Statements page, large section containers */
+.card-elevated {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lg);
+}
+
+/* ─── Form Grid ─────────────────────────────────────────────────── */
 .form-grid-2 {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 12px;
+  gap: 14px;   /* slightly more breathing room than 12px */
 }
 
 .form-grid-3 {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
+  gap: 14px;
 }
 
 .form-grid-4 {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 12px;
+  gap: 14px;
 }
 
-/* ─── Section Divider ───────────────────────────────── */
+/* ─── Section Divider / Label ───────────────────────────────────── */
 .section-label {
   font-size: 0.6875rem;
   font-weight: 600;
@@ -188,10 +300,22 @@ h1, h2, h3, h4, h5, h6 {
   color: #64748b;
   padding: 8px 0 6px;
   border-bottom: 1px solid #e2e8f0;
-  margin-bottom: 12px;
+  margin-bottom: 14px;
 }
 
-/* ─── Skip Link (Accessibility) ─────────────────────── */
+/* ─── Brand accent divider ──────────────────────────────────────── */
+.section-label-brand {
+  font-size: 0.75rem;       /* 12px — slightly bigger */
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-brand);
+  padding: 0 0 8px;
+  border-bottom: 2px solid var(--color-brand-light);
+  margin-bottom: 16px;
+}
+
+/* ─── Skip Link (Accessibility) ─────────────────────────────────── */
 .skip-link {
   position: absolute;
   top: -40px;
@@ -205,11 +329,9 @@ h1, h2, h3, h4, h5, h6 {
   transition: top 0.1s;
 }
 
-.skip-link:focus {
-  top: 0;
-}
+.skip-link:focus { top: 0; }
 
-/* ─── Utility ───────────────────────────────────────── */
+/* ─── Utility ───────────────────────────────────────────────────── */
 .sr-only {
   position: absolute;
   width: 1px;
@@ -222,52 +344,92 @@ h1, h2, h3, h4, h5, h6 {
   border-width: 0;
 }
 
-/* ─── Print ─────────────────────────────────────────── */
+/* ─── Compliance Badge ──────────────────────────────────────────── */
+.compliance-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: #f0f9ff;
+  border: 1px solid #bae6fd;
+  border-radius: 9999px;
+  padding: 3px 10px;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  color: #0369a1;
+  letter-spacing: 0.02em;
+}
+
+/* ─── Software badge pills ──────────────────────────────────────── */
+.software-badge {
+  display: inline-flex;
+  align-items: center;
+  background: #f1f5f9;
+  color: #475569;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  border-radius: 9999px;
+  padding: 2px 10px;
+  white-space: nowrap;
+}
+
+/* ─── Print ─────────────────────────────────────────────────────── */
 @media print {
   .no-print { display: none !important; }
   .sidebar  { display: none !important; }
+  /* item 171: hide balance validation banner in print */
+  [class*="border-l-4"][class*="bg-green"],
+  [class*="border-l-4"][class*="bg-red"]   { display: none !important; }
 
   body {
     background: white;
     font-size: 11pt;
+    /* item 167: force black text for B&W printing */
+    color: black !important;
   }
+
+  /* item 167: override colored text for print */
+  .text-blue-600, .text-blue-700, .text-blue-800 { color: black !important; }
+  .text-red-600,  .text-red-700  { color: black !important; }
+  .text-emerald-600, .text-emerald-700 { color: black !important; }
+  .text-amber-600, .text-amber-700 { color: black !important; }
+  .amount-zero { color: #888 !important; }
 
   .statement-page {
     border: none;
     padding: 0;
     max-width: 100%;
+    box-shadow: none;
+    border-radius: 0;
   }
 
-  @page {
-    margin: 18mm 15mm;
-    size: A4;
-  }
+  /* item 168: first page has larger top margin for header breathing room */
+  @page { margin: 18mm 15mm; size: A4; }
+  @page :first { margin-top: 25mm; }
 
-  table {
-    border-collapse: collapse;
-    width: 100%;
-  }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { border: 0.5pt solid #aaa !important; padding: 3pt 5pt !important; }
+  thead  { display: table-header-group; }
+  tr     { page-break-inside: avoid; }
 
-  th, td {
-    border: 0.5pt solid #aaa !important;
-    padding: 3pt 5pt !important;
-  }
+  /* item 169: zebra stripe preserved in print */
+  tbody tr:nth-child(even) { background-color: #f8f8f8 !important; }
 
-  thead {
-    display: table-header-group;
-  }
-
-  tr {
-    page-break-inside: avoid;
-  }
+  /* item 170: prevent signature block splitting across pages */
+  .signature-block { page-break-inside: avoid; }
 
   .row-grand-total td {
-    border-top: 1.5pt solid black !important;
-    border-bottom: 3pt double black !important;
+    border-top:    1.5pt solid black !important;
+    border-bottom: 3pt double black  !important;
+  }
+
+  /* item 168: section heads — remove blue accent for print */
+  .fin-table .row-section-head td {
+    border-left: none !important;
+    background-color: #f0f0f0 !important;
   }
 }
 
-/* ─── Reduced Motion ────────────────────────────────── */
+/* ─── Reduced Motion ────────────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
@@ -275,4 +437,15 @@ h1, h2, h3, h4, h5, h6 {
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+  .page-enter { animation: none; }
+}
+
+/* ── Hide native number input spinners globally ─────────────────── */
+input[type='number']::-webkit-inner-spin-button,
+input[type='number']::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type='number'] {
+  -moz-appearance: textfield;
 }

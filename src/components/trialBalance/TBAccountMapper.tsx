@@ -1,27 +1,116 @@
 // src/components/trialBalance/TBAccountMapper.tsx
 import React, { useState, useMemo, useCallback, useRef } from 'react';
-import Tabs   from '../ui/Tabs';
-import Button from '../ui/Button';
+import Tabs        from '../ui/Tabs';
+import Button      from '../ui/Button';
+import ProgressBar from '../ui/ProgressBar';
 import { MappedTBRow, NFRSCategory } from '../../types/trialBalance';
 import { NFRS_CATEGORY_INFO } from '../../data/nfrsCategories';
 
-const ALL_NFRS_CATEGORIES = NFRS_CATEGORY_INFO.map(c => c.value);
-const NFRS_CATEGORY_LABELS = NFRS_CATEGORY_INFO.reduce((acc, c) => {
-  acc[c.value] = c.label;
-  return acc;
-}, {} as Record<NFRSCategory, string>);
+// ── Category grouping for <optgroup> ─────────────────────────────────────────
+// item 72: grouped categories for fast scanning
+const CATEGORY_GROUPS: { label: string; categories: NFRSCategory[] }[] = [
+  {
+    label: 'Non-Current Assets',
+    categories: [
+      'ppe_land','ppe_buildings','ppe_plant_machinery','ppe_furniture',
+      'ppe_vehicles','ppe_computers','ppe_office_equipment','ppe_cwip',
+      'ppe_intangibles','accum_depreciation',
+      'investment_listed_trading','investment_unlisted','investment_fixed_deposit_noncurrent',
+      'nca_other','nca_loans_advances','nca_deposits',
+    ],
+  },
+  {
+    label: 'Current Assets',
+    categories: [
+      'trade_receivables','provision_impairment_debtors',
+      'cash_in_hand','bank_current_account','bank_savings_account','bank_fixed_deposit_current',
+      'inventory_raw_materials','inventory_wip','inventory_finished_goods',
+      'other_receivables_tds','other_receivables_advance_supplier','other_receivables_prepayments',
+      'other_receivables_staff_advance','other_receivables_loans','other_receivables_other',
+    ],
+  },
+  {
+    label: 'Equity',
+    categories: [
+      'share_capital','share_premium','general_reserve',
+      'retained_earnings','other_reserves',
+    ],
+  },
+  {
+    label: 'Non-Current Liabilities',
+    categories: [
+      'borrowings_noncurrent_bank','borrowings_noncurrent_other',
+      'deferred_tax_liability','employee_benefit_gratuity','provisions_noncurrent',
+    ],
+  },
+  {
+    label: 'Current Liabilities',
+    categories: [
+      'borrowings_current_od','borrowings_current_wc','borrowings_current_portion_lt',
+      'trade_payables_creditors','trade_payables_advance_customers',
+      'employee_payables_salary','employee_payables_bonus','employee_payables_pf',
+      'tds_payable','other_payables','income_tax_payable','audit_fee_payable',
+      'provisions_current',
+    ],
+  },
+  {
+    label: 'Income / Revenue',
+    categories: [
+      'revenue_sales','revenue_services','other_income_interest',
+      'other_income_dividend','other_income_rental','other_income_disposal_gain','other_income_misc',
+    ],
+  },
+  {
+    label: 'Cost of Goods Sold',
+    categories: [
+      'cogs_purchases','cogs_opening_stock','direct_wages','direct_expenses_other',
+    ],
+  },
+  {
+    label: 'Employee Expenses',
+    categories: [
+      'emp_expense_salaries','emp_expense_pf','emp_expense_gratuity',
+      'emp_expense_welfare','emp_expense_bonus','emp_expense_other',
+    ],
+  },
+  {
+    label: 'Operating Expenses',
+    categories: [
+      'admin_rent','admin_electricity','admin_communication','admin_printing',
+      'admin_repairs','admin_audit_fee','admin_legal_professional',
+      'admin_other','admin_traveling','admin_insurance','admin_rates_taxes',
+      'finance_cost_interest','finance_cost_bank_charges',
+      'depreciation_expense','impairment_expense',
+    ],
+  },
+  {
+    label: 'Tax',
+    categories: ['income_tax_expense','advance_tax_paid'],
+  },
+];
 
-interface TBAccountMapperProps {
-  rows:            MappedTBRow[];
-  companyId:       string;
-  onMappingChange: (rowIndex: string, category: NFRSCategory) => void;
-  onConfirm:       () => Promise<void> | void;
-  onRerunAI?:      () => void;
+// Build label lookup
+const NFRS_LABELS: Record<string, string> = {};
+NFRS_CATEGORY_INFO.forEach(c => { NFRS_LABELS[c.value] = c.label; });
+
+// ── Similarity helpers ───────────────────────────────────────────────────────
+function normalize(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim();
 }
 
-type FilterTab = 'all' | 'review' | 'unmatched' | 'mapped';
+function isSimilarLabel(a: string, b: string): boolean {
+  const na = normalize(a);
+  const nb = normalize(b);
+  if (na === nb) return false; // same account, skip self
+  // Tokenize and check if one starts with the same words as the other
+  const tA = na.split(' ');
+  const tB = nb.split(' ');
+  // Share at least 2 tokens OR one starts with the base of the other
+  const shared = tA.filter(t => tB.includes(t));
+  return shared.length >= 2 || na.startsWith(tB[0] + ' ' + tB[1]) || nb.startsWith(tA[0] + ' ' + tA[1]);
+}
 
-// Minimal debounce
+// ── Debounce ─────────────────────────────────────────────────────────────────
 function debounce<T extends (...args: any[]) => void>(fn: T, ms: number): T {
   let timer: ReturnType<typeof setTimeout>;
   return ((...args: Parameters<T>) => {
@@ -31,11 +120,9 @@ function debounce<T extends (...args: any[]) => void>(fn: T, ms: number): T {
 }
 
 function fmtBalance(row: MappedTBRow): string {
-  const cb = row.closingBalance ?? 0;
+  const cb = (row as any).closingBalance ?? 0;
   if (cb === 0) return '—';
-  const abs = Math.abs(cb)
-    .toFixed(0)
-    .replace(/(\d)(?=(\d{2})+(?!\d)(?=\d{3}))/g, '$1,');
+  const abs = Math.abs(cb).toFixed(0).replace(/(\d)(?=(\d{2})+(?!\d)(?=\d{3}))/g, '$1,');
   return cb > 0 ? `Dr ${abs}` : `Cr ${abs}`;
 }
 
@@ -46,16 +133,65 @@ function confidenceColor(n: number): string {
 }
 
 function methodLabel(m?: string): string {
-  switch (m) {
-    case 'exact':   return 'Exact';
-    case 'synonym': return 'Synonym';
-    case 'fuzzy':   return 'Fuzzy';
-    case 'ai':      return 'AI';
-    case 'manual':  return 'Manual';
-    default:        return '—';
-  }
+  const map: Record<string, string> = {
+    exact: 'Exact', synonym: 'Synonym', fuzzy: 'Fuzzy',
+    ai: 'AI', manual: 'Manual',
+  };
+  return map[m ?? ''] ?? '—';
 }
 
+// ── Suggestion Banner — item 74 ──────────────────────────────────────────────
+interface SimilarSuggestion {
+  sourceLabel:   string;
+  nfrsCategory:  NFRSCategory;
+  matchingRows:  MappedTBRow[];
+}
+
+function SimilarSuggestionBanner({
+  suggestion,
+  onApply,
+  onDismiss,
+}: {
+  suggestion: SimilarSuggestion;
+  onApply:    () => void;
+  onDismiss:  () => void;
+}) {
+  return (
+    <div className="flex items-center gap-3 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 animate-fade-in">
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium text-amber-800 leading-snug">
+          Apply "{NFRS_LABELS[suggestion.nfrsCategory] ?? suggestion.nfrsCategory}" to{' '}
+          <strong>{suggestion.matchingRows.length}</strong> similar account
+          {suggestion.matchingRows.length !== 1 ? 's' : ''}?
+        </p>
+        <p className="text-xs text-amber-600 mt-0.5 truncate">
+          {suggestion.matchingRows.map(r => r.rawLabel).join(', ')}
+        </p>
+      </div>
+      <div className="flex items-center gap-2 flex-shrink-0">
+        <Button variant="secondary" size="sm" onClick={onDismiss}>
+          Skip
+        </Button>
+        <Button variant="primary" size="sm" onClick={onApply}>
+          Apply to {suggestion.matchingRows.length}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// ── Props ────────────────────────────────────────────────────────────────────
+interface TBAccountMapperProps {
+  rows:            MappedTBRow[];
+  companyId:       string;
+  onMappingChange: (rowIndex: string, category: NFRSCategory) => void;
+  onConfirm:       () => Promise<void> | void;
+  onRerunAI?:      () => void;
+}
+
+type FilterTab = 'all' | 'review' | 'unmatched' | 'mapped';
+
+// ── Main Component ───────────────────────────────────────────────────────────
 export default function TBAccountMapper({
   rows,
   companyId,
@@ -63,50 +199,110 @@ export default function TBAccountMapper({
   onConfirm,
   onRerunAI,
 }: TBAccountMapperProps) {
-  const [activeTab,    setActiveTab]    = useState<FilterTab>('all');
-  const [search,       setSearch]       = useState('');
-  const [confirming,   setConfirming]   = useState(false);
-  const [confirmErr,   setConfirmErr]   = useState<string | null>(null);
+  const [activeTab,     setActiveTab]     = useState<FilterTab>('review');  // default to review
+  const [search,        setSearch]        = useState('');
+  const [confirming,    setConfirming]    = useState(false);
+  const [confirmErr,    setConfirmErr]    = useState<string | null>(null);
+  // item 74: suggestion state
+  const [suggestion,    setSuggestion]    = useState<SimilarSuggestion | null>(null);
 
-  // Counts
+  // ── Counts ─────────────────────────────────────────────────────────────────
   const autoMappedCount  = rows.filter(r => (r.confidence ?? 0) >= 80).length;
   const needsReviewCount = rows.filter(r => (r.confidence ?? 0) > 0 && (r.confidence ?? 0) < 80).length;
   const unmatchedCount   = rows.filter(r => (r.confidence ?? 0) === 0 || !r.nfrsCategory || r.nfrsCategory === 'unclassified').length;
   const mappedCount      = rows.length - unmatchedCount;
+  const completePct      = rows.length > 0 ? Math.round((mappedCount / rows.length) * 100) : 0;
 
-  // Filtered rows
+  // ── Filtered rows ───────────────────────────────────────────────────────────
   const filteredRows = useMemo(() => {
-    const base = rows.filter(r => {
-      switch (activeTab) {
-        case 'review':
-          return (r.confidence ?? 0) > 0 && (r.confidence ?? 0) < 80;
-        case 'unmatched':
-          return (r.confidence ?? 0) === 0 || !r.nfrsCategory || r.nfrsCategory === 'unclassified';
-        case 'mapped':
-          return (r.confidence ?? 0) >= 80;
-        default:
-          return true;
-      }
-    });
+    let base = rows;
 
-    if (!search.trim()) return base;
-    const q = search.toLowerCase();
-    return base.filter(r => r.rawLabel?.toLowerCase().includes(q));
+    // item 73: "Needs Review" tab surfaces unmapped + low-confidence rows first
+    switch (activeTab) {
+      case 'review':
+        base = rows.filter(r => (r.confidence ?? 0) > 0 && (r.confidence ?? 0) < 80);
+        break;
+      case 'unmatched':
+        base = rows.filter(r => (r.confidence ?? 0) === 0 || !r.nfrsCategory || r.nfrsCategory === 'unclassified');
+        break;
+      case 'mapped':
+        base = rows.filter(r => (r.confidence ?? 0) >= 80);
+        break;
+      default:
+        // Sort: unmapped first, then needs review, then mapped — item 73 triage
+        base = [
+          ...rows.filter(r => (r.confidence ?? 0) === 0 || r.nfrsCategory === 'unclassified'),
+          ...rows.filter(r => (r.confidence ?? 0) > 0 && (r.confidence ?? 0) < 80),
+          ...rows.filter(r => (r.confidence ?? 0) >= 80),
+        ];
+        break;
+    }
+
+    // item 73: search filter
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      base = base.filter(r => r.rawLabel?.toLowerCase().includes(q));
+    }
+
+    return base;
   }, [rows, activeTab, search]);
 
-  // Debounced mapping API call
-  const debouncedUpdate = useCallback(
+  // ── Handle category change + similar suggestion ──────────────────────────
+  // item 74: detect similar accounts and surface suggestion
+  const handleCategoryChange = useCallback((
+    row: MappedTBRow,
+    rowIndex: string,
+    category: NFRSCategory,
+  ) => {
+    // Apply this row
+    onMappingChange(rowIndex, category);
+
+    // Look for similar unmapped rows
+    const similarUnmapped = rows.filter(r => {
+      const isUnmapped = !r.nfrsCategory || r.nfrsCategory === 'unclassified' || (r.confidence ?? 0) < 60;
+      const isSelf     = String(r.rowIndex ?? '') === String(rowIndex);
+      return !isSelf && isUnmapped && isSimilarLabel(r.rawLabel, row.rawLabel);
+    });
+
+    if (similarUnmapped.length > 0) {
+      setSuggestion({
+        sourceLabel:  row.rawLabel,
+        nfrsCategory: category,
+        matchingRows: similarUnmapped.slice(0, 5),
+      });
+    } else {
+      setSuggestion(null);
+    }
+
+    // Also fire the debounced API call
+    debouncedApiUpdate(rowIndex, category);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, onMappingChange]);
+
+  // ── Debounced API call ────────────────────────────────────────────────────
+  const debouncedApiUpdate = useCallback(
     debounce((rowIndex: string, category: NFRSCategory) => {
       fetch(`/api/trial-balance/${companyId}/mapping/${rowIndex}`, {
         method:  'PUT',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ nfrsCategory: category }),
       }).catch(console.error);
-      onMappingChange(rowIndex, category);
     }, 300),
-    [companyId, onMappingChange]
+    [companyId]
   );
 
+  // ── Apply suggestion ──────────────────────────────────────────────────────
+  const applySuggestion = useCallback(() => {
+    if (!suggestion) return;
+    suggestion.matchingRows.forEach(r => {
+      const idx = String(r.rowIndex ?? rows.indexOf(r));
+      onMappingChange(idx, suggestion.nfrsCategory);
+      debouncedApiUpdate(idx, suggestion.nfrsCategory);
+    });
+    setSuggestion(null);
+  }, [suggestion, rows, onMappingChange, debouncedApiUpdate]);
+
+  // ── Confirm ───────────────────────────────────────────────────────────────
   const handleConfirm = async () => {
     setConfirming(true);
     setConfirmErr(null);
@@ -119,63 +315,131 @@ export default function TBAccountMapper({
     }
   };
 
+  // ── Tabs ──────────────────────────────────────────────────────────────────
   const tabs = [
-    { id: 'all',      label: 'All',           count: rows.length        },
-    { id: 'review',   label: 'Review Needed', count: needsReviewCount   },
-    { id: 'unmatched',label: 'Unmatched',     count: unmatchedCount     },
-    { id: 'mapped',   label: 'Mapped',        count: mappedCount        },
+    { id: 'all',       label: 'All',           count: rows.length       },
+    { id: 'review',    label: 'Needs Review',  count: needsReviewCount  },
+    { id: 'unmatched', label: 'Unmatched',     count: unmatchedCount    },
+    { id: 'mapped',    label: 'Mapped',        count: mappedCount       },
   ] as const;
 
-  const thCls = 'px-3 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wide text-left bg-slate-50 border-b border-slate-200 whitespace-nowrap';
+  const thCls = 'px-3 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wide text-left bg-white border-b-2 border-slate-300 whitespace-nowrap';
 
   return (
-    <div>
-      {/* ── Top bar ─────────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between mb-3 gap-4">
-        <Tabs
-          variant="pill"
-          active={activeTab}
-          onChange={id => setActiveTab(id as FilterTab)}
-          tabs={tabs.map(t => ({
-            id:    t.id,
-            label: t.label,
-            count: t.count,
-          }))}
-        />
+    <div className="space-y-3">
 
-        <input
-          type="search"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          placeholder="Search accounts..."
-          className="h-7 w-48 rounded border border-slate-300 bg-white px-2.5 text-xs text-slate-700 placeholder:text-slate-400 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-          aria-label="Search accounts"
+      {/* ── item 75: live completion counter ───────────────────────── */}
+      <div className="bg-white border border-slate-200 rounded-lg px-4 py-3">
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-sm font-medium text-slate-700">
+            <span className="text-blue-700 font-bold">{mappedCount}</span>
+            <span className="text-slate-400"> of </span>
+            <span className="font-bold text-slate-700">{rows.length}</span>
+            <span className="text-slate-500"> accounts mapped</span>
+          </p>
+          <span className="text-sm font-semibold text-slate-600">{completePct}%</span>
+        </div>
+        <ProgressBar
+          value={completePct}
+          color={completePct === 100 ? 'green' : 'blue'}
+          size="md"
         />
+        {needsReviewCount > 0 && (
+          <p className="text-xs text-amber-600 mt-1.5">
+            {needsReviewCount} account{needsReviewCount !== 1 ? 's' : ''} still need review
+          </p>
+        )}
       </div>
 
-      {/* ── Mapping table ────────────────────────────────────────────── */}
+      {/* ── Similar suggestion banner — item 74 ───────────────────── */}
+      {suggestion && (
+        <SimilarSuggestionBanner
+          suggestion={suggestion}
+          onApply={applySuggestion}
+          onDismiss={() => setSuggestion(null)}
+        />
+      )}
+
+      {/* ── Top bar: tabs + search ─────────────────────────────────── */}
+      <div className="flex items-center justify-between gap-4 flex-wrap">
+        {/* item 73: tabs with counts */}
+        <div className="flex items-center bg-slate-100 rounded-md p-0.5 gap-0.5">
+          {tabs.map(t => (
+            <button
+              key={t.id}
+              onClick={() => setActiveTab(t.id as FilterTab)}
+              aria-pressed={activeTab === t.id}
+              className={[
+                'h-7 px-3 rounded text-xs font-medium transition-colors flex items-center gap-1.5',
+                activeTab === t.id
+                  ? 'bg-white text-slate-800 shadow-sm'
+                  : 'text-slate-500 hover:text-slate-700',
+              ].join(' ')}
+            >
+              {t.label}
+              {t.count > 0 && (
+                <span className={`text-[10px] rounded-full px-1.5 py-0.5 font-semibold ${
+                  activeTab === t.id
+                    ? t.id === 'unmatched' ? 'bg-red-100 text-red-700'
+                      : t.id === 'review' ? 'bg-amber-100 text-amber-700'
+                      : 'bg-slate-100 text-slate-600'
+                    : 'bg-slate-200 text-slate-500'
+                }`}>
+                  {t.count}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+
+        {/* item 73: live search input */}
+        <div className="relative flex-1 max-w-[280px]">
+          <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400 pointer-events-none"
+            fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+            <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+          </svg>
+          <input
+            type="search"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search account name…"
+            className="h-8 w-full rounded border border-slate-300 bg-white pl-8 pr-3 text-xs text-slate-700 placeholder:text-slate-400 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+            aria-label="Search accounts"
+          />
+        </div>
+      </div>
+
+      {/* ── Mapping table ──────────────────────────────────────────── */}
       <div
         className="border border-slate-200 rounded-md overflow-auto"
-        style={{ maxHeight: 560 }}
+        style={{ maxHeight: 540 }}
         role="grid"
         aria-label="Account mapping table"
         aria-rowcount={filteredRows.length + 1}
       >
-        <table className="w-full border-collapse text-xs" style={{ minWidth: 740 }}>
+        <table className="w-full border-collapse text-xs" style={{ minWidth: 780 }}>
           <thead>
-            <tr>
-              <th className={`${thCls} w-1/3`}>Your Account Name</th>
-              <th className={`${thCls} w-1/3`}>NFRS Category</th>
+            <tr style={{ position: 'sticky', top: 0, zIndex: 10 }}>
+              <th className={`${thCls} w-8 text-center`}>#</th>
+              <th className={thCls} style={{ width: '28%' }}>Your Account Name</th>
+              <th className={thCls} style={{ width: '34%' }}>NFRS Category</th>
               <th className={`${thCls} w-16 text-center`}>Confidence</th>
               <th className={`${thCls} w-20`}>Method</th>
               <th className={`${thCls} w-24 text-right`}>Closing Balance</th>
             </tr>
           </thead>
+
           <tbody>
             {filteredRows.length === 0 ? (
               <tr>
-                <td colSpan={5} className="text-center py-8 text-slate-400 text-xs">
-                  {search ? 'No accounts match your search.' : 'No accounts in this category.'}
+                <td colSpan={6} className="text-center py-10 text-slate-400 text-xs">
+                  {search
+                    ? `No accounts match "${search}".`
+                    : activeTab === 'review'
+                    ? '✓ All accounts reviewed — no items need attention.'
+                    : activeTab === 'unmatched'
+                    ? '✓ All accounts are classified.'
+                    : 'No accounts in this category.'}
                 </td>
               </tr>
             ) : (
@@ -188,49 +452,56 @@ export default function TBAccountMapper({
                   (row.confidence ?? 0) > 0 && (row.confidence ?? 0) < 80;
 
                 const rowBg = isUnmatched
-                  ? 'bg-red-50/30'
+                  ? 'bg-red-50/40'
                   : needsReview
                   ? 'bg-amber-50/40'
                   : i % 2 === 0
                   ? 'bg-white'
-                  : 'bg-slate-50/40';
+                  : 'bg-slate-50';
 
                 return (
                   <tr
                     key={row.rowIndex ?? i}
-                    className={`${rowBg} border-b border-slate-100 last:border-0 hover:bg-slate-100/60 transition-colors`}
+                    className={`${rowBg} border-b border-slate-100 last:border-0 hover:bg-blue-50/30 transition-colors`}
                     aria-rowindex={i + 2}
                   >
-                    {/* Account name */}
-                    <td
-                      className="px-3 py-1.5 text-slate-700 max-w-[240px]"
-                      title={row.rawLabel}
-                    >
-                      <span className="block truncate">
-                        {row.rawLabel?.length > 40
-                          ? row.rawLabel.slice(0, 40) + '…'
-                          : row.rawLabel}
-                      </span>
+                    <td className="px-2.5 py-1.5 text-center text-[10px] text-slate-400">
+                      {i + 1}
                     </td>
 
-                    {/* NFRS category selector — raw select for compactness */}
+                    {/* Account name */}
+                    <td
+                      className="px-3 py-1.5 text-slate-700 max-w-[200px]"
+                      title={row.rawLabel}
+                    >
+                      <span className="block truncate font-medium">{row.rawLabel}</span>
+                    </td>
+
+                    {/* ── item 72: <optgroup>-based category selector ── */}
                     <td className="px-3 py-1.5">
                       <select
                         value={row.nfrsCategory ?? 'unclassified'}
                         onChange={e =>
-                          debouncedUpdate(
+                          handleCategoryChange(
+                            row,
                             String(row.rowIndex ?? i),
-                            e.target.value as NFRSCategory
+                            e.target.value as NFRSCategory,
                           )
                         }
-                        className="h-7 w-full text-xs px-2 border border-slate-200 rounded bg-white text-slate-700 outline-none focus:border-blue-500 transition-colors cursor-pointer"
+                        className={`h-7 w-full text-xs px-2 border rounded bg-white text-slate-700 outline-none focus:border-blue-500 transition-colors cursor-pointer ${
+                          isUnmatched ? 'border-red-300' : needsReview ? 'border-amber-300' : 'border-slate-200'
+                        }`}
                         aria-label={`NFRS category for ${row.rawLabel}`}
                       >
                         <option value="unclassified">— Select category —</option>
-                        {ALL_NFRS_CATEGORIES.map(cat => (
-                          <option key={cat} value={cat}>
-                            {NFRS_CATEGORY_LABELS[cat] ?? cat}
-                          </option>
+                        {CATEGORY_GROUPS.map(group => (
+                          <optgroup key={group.label} label={group.label}>
+                            {group.categories.map(cat => (
+                              <option key={cat} value={cat}>
+                                {NFRS_LABELS[cat] ?? cat}
+                              </option>
+                            ))}
+                          </optgroup>
                         ))}
                       </select>
                     </td>
@@ -264,22 +535,15 @@ export default function TBAccountMapper({
         </table>
       </div>
 
-      {/* ── Footer bar ───────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between mt-3 pt-3 border-t border-slate-200">
+      {/* ── Footer ─────────────────────────────────────────────────── */}
+      <div className="flex items-center justify-between pt-1">
         <div className="flex items-center gap-3">
           <p className="text-xs text-slate-500">
             {mappedCount} accounts mapped.{' '}
-            {needsReviewCount > 0
-              ? `${needsReviewCount} still need review.`
-              : 'All accounts reviewed.'}
+            {needsReviewCount > 0 ? `${needsReviewCount} still need review.` : 'All accounts reviewed.'}
           </p>
-
           {unmatchedCount > 0 && onRerunAI && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={onRerunAI}
-            >
+            <Button variant="ghost" size="sm" onClick={onRerunAI}>
               Re-match with AI
             </Button>
           )}
@@ -289,15 +553,20 @@ export default function TBAccountMapper({
           <Button
             variant="primary"
             size="md"
-            disabled={needsReviewCount > 0 || unmatchedCount > 0}
+            disabled={unmatchedCount > 0}
             loading={confirming}
             onClick={handleConfirm}
           >
-            Confirm Mappings and Continue
+            Confirm Mappings and Continue →
           </Button>
-          {(needsReviewCount > 0 || unmatchedCount > 0) && (
+          {unmatchedCount > 0 && (
+            <p className="text-xs text-red-600">
+              {unmatchedCount} account{unmatchedCount !== 1 ? 's' : ''} must be classified before continuing.
+            </p>
+          )}
+          {needsReviewCount > 0 && unmatchedCount === 0 && (
             <p className="text-xs text-amber-600">
-              Map all accounts before continuing.
+              {needsReviewCount} low-confidence mapping{needsReviewCount !== 1 ? 's' : ''} — verify before confirming.
             </p>
           )}
           {confirmErr && (

@@ -3,6 +3,7 @@ import React from 'react';
 import Sidebar from './Sidebar';
 import Header  from './Header';
 import { AppStep } from '../../types';
+import { SlimWizardProgress } from './WizardProgress';
 
 interface AppShellProps {
   currentStep:      AppStep;
@@ -34,7 +35,8 @@ export default function AppShell({
   children,
 }: AppShellProps) {
   return (
-    <div className="flex h-screen bg-slate-50 overflow-hidden">
+    /* item 33: min-h-screen alongside h-screen for short laptop screens */
+    <div className="flex h-screen min-h-screen bg-slate-50 overflow-hidden">
       {/* Skip link for keyboard users */}
       <a href="#main-content" className="skip-link">
         Skip to main content
@@ -49,18 +51,29 @@ export default function AppShell({
       />
 
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+        {/* item 27: pass company context down to Header */}
         <Header
           title={headerTitle}
           subtitle={headerSubtitle}
           actions={headerActions}
           breadcrumb={breadcrumb}
+          companyName={companyName}
+          fiscalYear={fiscalYear}
         />
 
-        {/* Global error banner */}
+        {/* item 34: slim progress bar beneath header, always visible on all steps */}
+        <div className="flex-shrink-0 no-print">
+          <SlimWizardProgress
+            currentStep={currentStep}
+            completedSteps={completedSteps}
+          />
+        </div>
+
+        {/* item 31: error text raised to text-sm for readability */}
         {error && (
           <div
             role="alert"
-            className="flex items-center gap-2.5 px-6 py-2.5 bg-red-50 border-b border-red-200 text-xs text-red-700 flex-shrink-0 no-print"
+            className="flex items-center gap-2.5 px-6 py-3 bg-red-50 border-b border-red-200 text-sm text-red-700 flex-shrink-0 no-print"
           >
             <svg
               className="h-4 w-4 flex-shrink-0 text-red-500"
@@ -79,16 +92,10 @@ export default function AppShell({
               <button
                 onClick={onDismissError}
                 aria-label="Dismiss error"
-                className="flex-shrink-0 text-red-400 hover:text-red-700 transition-colors rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-red-500"
+                className="flex-shrink-0 text-red-400 hover:text-red-700 rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-red-500"
               >
-                <svg
-                  className="h-3.5 w-3.5"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  strokeWidth={2}
-                  aria-hidden="true"
-                >
+                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24"
+                  stroke="currentColor" strokeWidth={2} aria-hidden="true">
                   <line x1="18" y1="6"  x2="6"  y2="18" />
                   <line x1="6"  y1="6"  x2="18" y2="18" />
                 </svg>
@@ -97,13 +104,20 @@ export default function AppShell({
           </div>
         )}
 
-        {/* Main content */}
+        {/* item 30: px-6 py-6 for consistent breathing room */}
+        {/* item 32: scroll-smooth via CSS html rule (already added in index.css) */}
+        {/* item 8: page-enter animation on every content change */}
+        {/* item 172: role="main" for ARIA landmark */}
         <main
           id="main-content"
-          className="flex-1 overflow-y-auto p-5"
+          role="main"
+          className="flex-1 overflow-y-auto px-6 py-6"
           tabIndex={-1}
         >
-          {children}
+          {/* page-enter class gives the 180ms fade+slide animation */}
+          <div className="page-enter">
+            {children}
+          </div>
         </main>
       </div>
     </div>

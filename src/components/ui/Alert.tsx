@@ -3,14 +3,26 @@ import React from 'react';
 
 type AlertType = 'info' | 'success' | 'warning' | 'error';
 
+// item 154: border-l-4 colored accent on all alerts
 const STYLES: Record<AlertType, { wrap: string; icon: string }> = {
-  info:    { wrap: 'bg-blue-50 border-blue-200 text-blue-800',         icon: 'text-blue-500'    },
-  success: { wrap: 'bg-emerald-50 border-emerald-200 text-emerald-800', icon: 'text-emerald-500' },
-  warning: { wrap: 'bg-amber-50 border-amber-200 text-amber-800',       icon: 'text-amber-500'   },
-  error:   { wrap: 'bg-red-50 border-red-200 text-red-800',             icon: 'text-red-500'     },
+  info:    {
+    wrap: 'bg-blue-50 border border-blue-200 border-l-4 border-l-blue-500 text-blue-800',
+    icon: 'text-blue-500',
+  },
+  success: {
+    wrap: 'bg-emerald-50 border border-emerald-200 border-l-4 border-l-emerald-500 text-emerald-800',
+    icon: 'text-emerald-500',
+  },
+  warning: {
+    wrap: 'bg-amber-50 border border-amber-200 border-l-4 border-l-amber-500 text-amber-800',
+    icon: 'text-amber-500',
+  },
+  error: {
+    wrap: 'bg-red-50 border border-red-200 border-l-4 border-l-red-600 text-red-800',
+    icon: 'text-red-500',
+  },
 };
 
-// Minimal inline SVG icons — no external icon library required
 const ICONS: Record<AlertType, React.ReactNode> = {
   info: (
     <svg className="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24"
@@ -65,9 +77,11 @@ export default function Alert({
     <div
       role={type === 'error' ? 'alert' : 'status'}
       aria-live={type === 'error' ? 'assertive' : 'polite'}
-      className={`flex items-start gap-2.5 rounded-md border px-3.5 py-2.5 text-sm ${s.wrap} ${className}`}
+      // item 154: rounded-lg (8px) + border-l-4 already in wrap classes
+      className={`flex items-start rounded-lg px-3.5 py-2.5 text-sm ${s.wrap} ${className}`}
     >
-      <span className={`mt-0.5 ${s.icon}`}>{ICONS[type]}</span>
+      {/* item 155: gap-3 for more icon-text breathing room */}
+      <span className={`mt-0.5 mr-3 flex-shrink-0 ${s.icon}`}>{ICONS[type]}</span>
 
       <div className="flex-1 min-w-0">
         {title && (
@@ -80,7 +94,8 @@ export default function Alert({
         <button
           onClick={onDismiss}
           aria-label="Dismiss"
-          className="ml-auto flex-shrink-0 opacity-60 hover:opacity-100 transition-opacity leading-none rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-current"
+          // item 156: permanent opacity-70 so dismiss button is always visible
+          className="ml-3 flex-shrink-0 opacity-70 hover:opacity-100 transition-opacity leading-none rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-current"
         >
           <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24"
             stroke="currentColor" strokeWidth={2} aria-hidden="true">

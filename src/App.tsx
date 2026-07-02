@@ -5,6 +5,7 @@ import { AppStep } from './types';
 import LoadingSpinner from './components/ui/LoadingSpinner';
 import Alert from './components/ui/Alert';
 import AppShell from './components/layout/AppShell';
+import { KeyboardShortcutsModal } from './components/ui/KeyboardShortcutsModal';
 
 // Pages
 import DashboardPage from './pages/DashboardPage';
@@ -124,6 +125,7 @@ const AppInner: React.FC = () => {
 const App: React.FC = () => (
   <AppProvider>
     <AppInner />
+    <KeyboardShortcutsModal />
   </AppProvider>
 );
 

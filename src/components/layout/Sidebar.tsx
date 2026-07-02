@@ -16,7 +16,7 @@ interface SidebarProps {
   fiscalYear?:    string;
 }
 
-// ── Minimal inline SVG icons (no external library) ─────────────────────────
+// ── Minimal inline SVG icons ────────────────────────────────────────
 const Icons = {
   building: (
     <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24"
@@ -99,9 +99,24 @@ const Icons = {
     </svg>
   ),
   check: (
-    <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24"
+    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24"
       stroke="currentColor" strokeWidth={2.5} aria-hidden="true">
       <polyline points="20 6 9 17 4 12" />
+    </svg>
+  ),
+  calendar: (
+    <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24"
+      stroke="currentColor" strokeWidth={2} aria-hidden="true">
+      <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+      <line x1="16" y1="2" x2="16" y2="6" />
+      <line x1="8"  y1="2" x2="8"  y2="6" />
+      <line x1="3"  y1="10" x2="21" y2="10" />
+    </svg>
+  ),
+  shield: (
+    <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24"
+      stroke="currentColor" strokeWidth={2} aria-hidden="true">
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
     </svg>
   ),
 };
@@ -138,40 +153,62 @@ export default function Sidebar({
 }: SidebarProps) {
   return (
     <aside
-      className="w-56 min-h-screen bg-slate-900 text-slate-300 flex flex-col flex-shrink-0 border-r border-slate-800"
+      /* item 10: widened to w-60 for label breathing room */
+      /* item 11: right-edge shadow for proper elevation separation */
+      className="w-60 min-h-screen min-w-[240px] bg-slate-900 text-slate-300 flex flex-col flex-shrink-0 shadow-[4px_0_16px_-4px_rgb(0_0_0/0.3)]"
       aria-label="Application navigation"
     >
-      {/* Brand */}
+      {/* ── Brand ─────────────────────────────────────────────────── */}
+      {/* item 12: larger brand text with better contrast */}
+      {/* item 13: brand identity block with logo mark */}
       <div className="px-4 py-4 border-b border-slate-800 flex-shrink-0">
-        <p className="text-xs font-semibold text-white tracking-wide uppercase leading-none">
-          NFRS Reporter
-        </p>
-        <p className="text-[11px] text-slate-500 mt-1">
-          Nepal Financial Reporting
-        </p>
+        <div className="flex items-center gap-2.5">
+          {/* Minimal logo mark */}
+          <div className="h-8 w-8 rounded bg-blue-600 flex items-center justify-center flex-shrink-0">
+            <span className="text-white font-bold text-sm leading-none select-none">N</span>
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm font-bold text-white tracking-[0.08em] uppercase leading-none">
+              NFRS Reporter
+            </p>
+            {/* item 12: raised sub-label */}
+            <p className="text-[12px] text-slate-400 mt-0.5 leading-none">
+              Nepal Financial Reporting
+            </p>
+          </div>
+        </div>
       </div>
 
-      {/* Active company context */}
+      {/* ── Active company context ─────────────────────────────────── */}
+      {/* item 14: left border accent for strong visual signal */}
+      {/* item 15: tooltip on company name via title attr */}
+      {/* item 16: fiscal year elevated with icon */}
       {companyName && (
-        <div className="px-4 py-2.5 border-b border-slate-800 bg-slate-800/50 flex-shrink-0">
+        <div className="px-4 py-3 border-b border-slate-800 bg-slate-800/50 border-l-[3px] border-l-blue-500 flex-shrink-0">
           <p className="text-[10px] text-slate-500 uppercase tracking-wide leading-none">
             Active Company
           </p>
-          <p className="text-xs text-slate-200 mt-1 font-medium truncate" title={companyName}>
+          <p
+            className="text-xs text-slate-200 mt-1 font-medium truncate"
+            title={companyName}
+          >
             {companyName}
           </p>
           {fiscalYear && (
-            <p className="text-[11px] text-slate-500 mt-0.5">FY {fiscalYear}</p>
+            <p className="text-xs text-slate-300 font-medium mt-1 flex items-center gap-1">
+              {Icons.calendar}
+              <span>FY {fiscalYear}</span>
+            </p>
           )}
         </div>
       )}
 
-      {/* Navigation */}
+      {/* ── Navigation ────────────────────────────────────────────── */}
       <nav className="flex-1 py-2 overflow-y-auto" aria-label="Workflow steps">
         {NAV_ITEMS.map((item, idx) => {
-          const isActive     = item.step === currentStep;
-          const isDone       = completedSteps.includes(item.step);
-          const accessible   = isAccessible(item.step, currentStep, completedSteps);
+          const isActive   = item.step === currentStep;
+          const isDone     = completedSteps.includes(item.step);
+          const accessible = isAccessible(item.step, currentStep, completedSteps);
 
           return (
             <button
@@ -180,52 +217,62 @@ export default function Sidebar({
               disabled={!accessible}
               aria-current={isActive ? 'step' : undefined}
               aria-label={`Step ${idx + 1}: ${item.label}${isDone ? ' (completed)' : ''}${!accessible ? ' (not yet available)' : ''}`}
+              /* item 18: full-opacity icons — removed opacity-70 */
+              /* item 19: stronger active bg + thicker right border */
+              /* item 20: disabled items at opacity-50 as a unit */
+              /* item 21: hover gets left border accent to echo active pattern */
+              title={item.label}
               className={[
-                'w-full flex items-center gap-2.5 px-4 py-2 text-xs text-left transition-colors relative',
+                'w-full flex items-center gap-2.5 px-4 py-2.5 text-xs text-left relative',
+                'focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-400',
                 isActive
-                  ? 'bg-blue-700/30 text-white border-r-2 border-blue-500'
+                  ? 'bg-blue-600/20 text-white border-r-[3px] border-r-blue-400'
                   : isDone
-                  ? 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                  ? 'text-slate-300 hover:bg-slate-800 hover:text-white hover:border-l-[3px] hover:border-l-slate-600'
                   : accessible
-                  ? 'text-slate-400 hover:bg-slate-800 hover:text-slate-300'
-                  : 'text-slate-600 cursor-not-allowed',
+                  ? 'text-slate-400 hover:bg-slate-800 hover:text-slate-300 hover:border-l-[3px] hover:border-l-slate-600'
+                  : 'text-slate-700 cursor-not-allowed opacity-50',
               ]
                 .filter(Boolean)
                 .join(' ')}
             >
-              {/* Step number or check badge */}
+              {/* item 17: larger step number badge h-6 w-6 rounded-full, text-xs */}
               <span
                 className={[
-                  'h-5 w-5 rounded flex items-center justify-center flex-shrink-0 text-[10px] font-bold',
+                  'h-6 w-6 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-bold',
                   isActive
                     ? 'bg-blue-600 text-white'
                     : isDone
-                    ? 'bg-emerald-700 text-white'
+                    /* item 22: lighter emerald for better visibility on dark bg */
+                    ? 'bg-emerald-500 text-white'
                     : 'bg-slate-700 text-slate-400',
                 ]
                   .filter(Boolean)
                   .join(' ')}
               >
+                {/* item 22: check icon h-3.5 w-3.5 */}
                 {isDone && !isActive ? Icons.check : idx + 1}
               </span>
 
-              {/* Icon */}
-              <span className="flex-shrink-0 opacity-70">{item.icon}</span>
+              {/* Icon — full opacity, no opacity-70 */}
+              <span className="flex-shrink-0">{item.icon}</span>
 
-              {/* Label */}
+              {/* Label — with tooltip via parent button's title attr */}
               <span className="truncate">{item.label}</span>
             </button>
           );
         })}
       </nav>
 
-      {/* Footer */}
+      {/* ── Footer ────────────────────────────────────────────────── */}
+      {/* item 23: raised to 11px with subtle compliance badge feel */}
       <div className="px-4 py-3 border-t border-slate-800 flex-shrink-0">
-        <p className="text-[10px] text-slate-600 leading-relaxed">
-          NAS for Micro Entities
-          <br />
-          ICAN Nepal Standards
-        </p>
+        <div className="inline-flex items-center gap-1.5 bg-slate-800/60 rounded-full px-2.5 py-1">
+          {Icons.shield}
+          <p className="text-[11px] text-slate-500 leading-snug">
+            NAS for MEs · ICAN Nepal
+          </p>
+        </div>
       </div>
     </aside>
   );
