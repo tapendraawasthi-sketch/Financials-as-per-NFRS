@@ -32,36 +32,31 @@ export default function SelectDropdown({
   const errorId     = `${selectId}-error`;
   const helpId      = `${selectId}-help`;
 
-  const selectCls = [
-    // item 49: h-9 (36px)
-    'h-9 w-full appearance-none rounded border px-2.5 pr-7',
-    'text-sm text-slate-800 bg-white outline-none transition-colors duration-150 cursor-pointer',
-    error
-      ? 'border-red-400 focus:border-red-500 focus:ring-1 focus:ring-red-400'
-      : 'border-slate-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500',
-    props.disabled ? 'bg-slate-50 text-slate-400 cursor-not-allowed' : '',
-    className,
-  ]
-    .filter(Boolean)
-    .join(' ');
-
   return (
     <div className="flex flex-col gap-1.5">
-      {/* item 48: text-[13px] text-slate-700 */}
       <label
         htmlFor={selectId}
-        className="text-[13px] font-medium text-slate-700 leading-none"
+        className="text-[12px] font-semibold text-slate-600 leading-none uppercase tracking-wide"
       >
         {label}
         {required && (
-          <span className="text-red-500 ml-0.5" aria-hidden="true">*</span>
+          <span className="text-indigo-500 ml-0.5" aria-hidden="true">*</span>
         )}
       </label>
 
       <div className="relative">
         <select
           id={selectId}
-          className={selectCls}
+          className={[
+            'h-10 w-full appearance-none rounded-lg px-3 pr-8',
+            'text-sm text-slate-800 bg-white outline-none transition-all duration-150 cursor-pointer',
+            error
+              ? 'border border-red-300 bg-red-50/50 focus:border-red-400 focus:ring-2 focus:ring-red-100'
+              : 'border border-slate-200 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-50 hover:border-slate-300',
+            props.disabled ? 'bg-slate-50 text-slate-400 cursor-not-allowed' : '',
+            className,
+          ].filter(Boolean).join(' ')}
+          style={{ boxShadow: '0 1px 2px rgba(0,0,0,0.04)' }}
           aria-invalid={error ? 'true' : undefined}
           aria-describedby={error ? errorId : helperText ? helpId : undefined}
           aria-required={required}
@@ -78,7 +73,7 @@ export default function SelectDropdown({
         </select>
 
         <svg
-          className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400"
+          className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400"
           fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
           aria-hidden="true"
         >
@@ -87,12 +82,12 @@ export default function SelectDropdown({
       </div>
 
       {error && (
-        <p id={errorId} className="text-xs text-red-600 leading-tight" role="alert">
+        <p id={errorId} className="text-[11px] text-red-500 leading-tight font-medium" role="alert">
           {error}
         </p>
       )}
       {!error && helperText && (
-        <p id={helpId} className="text-xs text-slate-400 leading-snug">
+        <p id={helpId} className="text-[11px] text-slate-400 leading-snug">
           {helperText}
         </p>
       )}

@@ -22,49 +22,46 @@ export default function InputField({
   const errorId     = `${inputId}-error`;
   const helpId      = `${inputId}-help`;
 
-  const inputCls = [
-    // item 49: h-9 (36px) — comfortable click target
-    'h-9 w-full rounded border px-2.5 text-sm text-slate-800',
-    'placeholder:text-slate-400 outline-none transition-colors duration-150',
-    error
-      ? 'border-red-400 bg-red-50 focus:border-red-500 focus:ring-1 focus:ring-red-400'
-      : 'border-slate-300 bg-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500',
-    props.disabled ? 'bg-slate-50 text-slate-400 cursor-not-allowed' : '',
-    className,
-  ]
-    .filter(Boolean)
-    .join(' ');
-
   return (
     <div className="flex flex-col gap-1.5">
-      {/* item 48: label raised to text-[13px] text-slate-700 */}
       <label
         htmlFor={inputId}
-        className="text-[13px] font-medium text-slate-700 leading-none"
+        className="text-[12px] font-semibold text-slate-600 leading-none uppercase tracking-wide"
       >
         {label}
         {required && (
-          <span className="text-red-500 ml-0.5" aria-hidden="true">*</span>
+          <span className="text-indigo-500 ml-0.5" aria-hidden="true">*</span>
         )}
       </label>
 
-      <input
-        id={inputId}
-        className={inputCls}
-        aria-invalid={error ? 'true' : undefined}
-        aria-describedby={error ? errorId : helperText ? helpId : undefined}
-        aria-required={required}
-        {...props}
-      />
+      <div className="relative">
+        <input
+          id={inputId}
+          className={[
+            'h-10 w-full rounded-lg px-3 text-sm text-slate-800',
+            'placeholder:text-slate-300 outline-none transition-all duration-150',
+            error
+              ? 'border border-red-300 bg-red-50/50 focus:border-red-400 focus:ring-2 focus:ring-red-100'
+              : 'border border-slate-200 bg-white focus:border-indigo-400 focus:ring-2 focus:ring-indigo-50 hover:border-slate-300',
+            props.disabled ? 'bg-slate-50 text-slate-400 cursor-not-allowed' : '',
+            className,
+          ].filter(Boolean).join(' ')}
+          style={{ boxShadow: error ? undefined : '0 1px 2px rgba(0,0,0,0.04)' }}
+          aria-invalid={error ? 'true' : undefined}
+          aria-describedby={error ? errorId : helperText ? helpId : undefined}
+          aria-required={required}
+          {...props}
+        />
+        {/* Focus glow ring is handled via focus:ring */}
+      </div>
 
-      {/* item 51: leading-tight instead of leading-none */}
       {error && (
-        <p id={errorId} className="text-xs text-red-600 leading-tight" role="alert">
+        <p id={errorId} className="text-[11px] text-red-500 leading-tight font-medium" role="alert">
           {error}
         </p>
       )}
       {!error && helperText && (
-        <p id={helpId} className="text-xs text-slate-400 leading-snug">
+        <p id={helpId} className="text-[11px] text-slate-400 leading-snug">
           {helperText}
         </p>
       )}

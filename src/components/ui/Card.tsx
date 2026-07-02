@@ -10,11 +10,12 @@ interface CardProps {
   className?:   string;
   children:     React.ReactNode;
   noBorder?:    boolean;
+  accent?:      boolean;   // show a left accent bar in brand indigo
 }
 
 const PAD: Record<NonNullable<CardProps['padding']>, string> = {
   none: '',
-  sm:   'p-3',
+  sm:   'p-4',
   md:   'p-5',
   lg:   'p-6',
 };
@@ -28,19 +29,39 @@ export default function Card({
   className = '',
   children,
   noBorder  = false,
+  accent    = false,
 }: CardProps) {
-  const borderClass = noBorder ? '' : 'border border-slate-200';
-
   return (
-    <div className={`bg-white rounded-md ${borderClass} ${className}`}>
+    <div
+      className={`bg-white relative overflow-hidden ${className}`}
+      style={{
+        borderRadius: '12px',
+        border: noBorder ? 'none' : '1px solid rgba(226,232,240,0.8)',
+        boxShadow: '0 1px 4px rgba(0,0,0,0.04), 0 4px 16px rgba(0,0,0,0.04)',
+      }}
+    >
+      {/* Optional left accent bar */}
+      {accent && (
+        <div
+          className="absolute left-0 top-0 bottom-0 w-1"
+          style={{ background: 'linear-gradient(180deg, #6366f1, #3b82f6)' }}
+        />
+      )}
+
       {title && (
-        <div className="flex items-center justify-between px-5 py-3 border-b border-slate-200">
+        <div
+          className={`flex items-center justify-between px-5 py-3.5 ${accent ? 'pl-6' : ''}`}
+          style={{
+            borderBottom: '1px solid rgba(241,245,249,1)',
+            background: 'linear-gradient(135deg, rgba(248,250,252,1), rgba(255,255,255,1))',
+          }}
+        >
           <div className="min-w-0">
-            <h3 className="text-sm font-semibold text-slate-800 leading-none truncate">
+            <h3 className="text-[13px] font-semibold text-slate-800 leading-none truncate">
               {title}
             </h3>
             {subtitle && (
-              <p className="text-xs text-slate-500 mt-0.5 leading-none">{subtitle}</p>
+              <p className="text-[11px] text-slate-400 mt-1 leading-none">{subtitle}</p>
             )}
           </div>
           {headerRight && (
@@ -51,10 +72,18 @@ export default function Card({
         </div>
       )}
 
-      <div className={PAD[padding]}>{children}</div>
+      <div className={`${PAD[padding]} ${accent ? 'pl-6' : ''}`}>
+        {children}
+      </div>
 
       {footer && (
-        <div className="px-5 py-3 border-t border-slate-100 bg-slate-50 rounded-b-md">
+        <div
+          className="px-5 py-3"
+          style={{
+            borderTop: '1px solid rgba(241,245,249,1)',
+            background: 'linear-gradient(135deg, rgba(248,250,252,1), rgba(255,255,255,1))',
+          }}
+        >
           {footer}
         </div>
       )}
