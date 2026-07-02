@@ -46,8 +46,7 @@ export default function Card({
           style={{
             background: 'linear-gradient(to right, #f8faff, #f5f7ff)',
             borderBottom: '1px solid #eef0f8',
-            borderLeft: '3px solid',
-            borderLeftColor: accent ? '#6366f1' : '#c7d2fe',
+            borderLeft: `3px solid ${accent ? '#6366f1' : '#c7d2fe'}`,
           }}
         >
           <div className="min-w-0">
