@@ -218,8 +218,8 @@ export default function TBDataGrid({
             {visibleRows.map((row, relIdx) => {
               const absIdx = startIdx + relIdx;
 
-              const closeDr = row.closingDr  ?? (row.closingBalance > 0 ? row.closingBalance : 0);
-              const closeCr = row.closingCr  ?? (row.closingBalance < 0 ? Math.abs(row.closingBalance) : 0);
+              const closeDr = row.closingDr  ?? ((row.closingBalance ?? 0) > 0 ? (row.closingBalance ?? 0) : 0);
+              const closeCr = row.closingCr  ?? ((row.closingBalance ?? 0) < 0 ? Math.abs(row.closingBalance ?? 0) : 0);
               const bothNonZero = closeDr > 0 && closeCr > 0;
 
               const net   = closeDr - closeCr;

@@ -67,6 +67,7 @@ type AppAction =
   | { type: 'SET_LOADING'; payload: boolean }
   | { type: 'SET_ERROR'; payload: string }
   | { type: 'CLEAR_ERROR' }
+  | { type: 'UPDATE_TB_ROW_MAPPING'; payload: { rowIndex: number; nfrsCategory: import('../types').NFRSCategory; matchedLabel: string } }
   | { type: 'RESET_ALL' };
 
 // ── Reducer ───────────────────────────────────────────────────────────────────
@@ -122,6 +123,17 @@ function appReducer(state: AppState, action: AppAction): AppState {
 
     case 'CLEAR_ERROR':
       return { ...state, error: null };
+
+    case 'UPDATE_TB_ROW_MAPPING': {
+      if (!state.trialBalance) return state;
+      const { rowIndex, nfrsCategory, matchedLabel } = action.payload;
+      const rows = state.trialBalance.rows.map((row, i) =>
+        i === rowIndex
+          ? { ...row, nfrsCategory, matchedLabel, confidence: 100, needsReview: false }
+          : row,
+      );
+      return { ...state, trialBalance: { ...state.trialBalance, rows } };
+    }
 
     case 'RESET_ALL':
       return { ...initialState };

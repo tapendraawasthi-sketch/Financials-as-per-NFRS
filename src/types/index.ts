@@ -5,9 +5,8 @@ import type { BalanceSheet as BalanceSheetBase, IncomeStatement as IncomeStateme
 import type { MappedTBRow as MappedTBRowBase, NFRSCategory, RawTBRow, RawTBParseResult, ParsedTrialBalance } from './trialBalance';
 import type { YearEndAdjustments as YearEndAdjustmentsBase, AssetRegisterEntry as AssetRegisterEntryBase, InvestmentAdjustment as InvestmentAdjustmentBase } from './adjustments';
 
-export type { NFRSCategory, RawTBRow, RawTBParseResult, ParsedTrialBalance, InventoryDetails };
+export type { NFRSCategory, RawTBRow, RawTBParseResult, ParsedTrialBalance, InventoryDetails, PreviousYearBalances } from './company';
 export type { FiscalYearEntry as FiscalYearInfo } from '../data/fiscalYears';
-export type { InventoryDetails, PreviousYearBalances } from './company';
 export type { CashFlowStatement, PPENote, InvestmentsNote } from './financials';
 export type { BankAccountDetail, CreditorEntry, DebtorEntry, RelatedPartyEntry } from './adjustments';
 

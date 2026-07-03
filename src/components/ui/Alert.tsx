@@ -75,7 +75,9 @@ export default function Alert({
         color,
       }}
     >
-      <IconCmp size={16} className="flex-shrink-0 mt-0.5 mr-3" style={{ color: s.iconColor }} />
+      <span className="flex-shrink-0 mt-0.5 mr-3" style={{ color: s.iconColor }}>
+        <IconCmp size={16} />
+      </span>
 
       <div className="flex-1 min-w-0">
         {title && (

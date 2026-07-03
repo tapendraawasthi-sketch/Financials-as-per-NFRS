@@ -73,3 +73,8 @@ export function safeRound(n: number, decimals: number = 2): number {
   const factor = Math.pow(10, decimals);
   return Math.round(n * factor) / factor;
 }
+
+/** Alias for formatNPR used in subledger views. */
+export function formatNPRSimple(n: number): string {
+  return formatNPR(n);
+}

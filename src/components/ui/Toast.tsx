@@ -67,7 +67,7 @@ const VARIANT_CONFIG: Record<ToastVariant, {
   borderColor: string;
   iconBg: string;
   iconColor: string;
-  Icon: React.ComponentType<{ size?: number }>;
+  Icon: React.ComponentType<{ size?: number; className?: string }>;
 }> = {
   success: { borderColor: '#14b8a6', iconBg: '#f0fdfa', iconColor: '#0d9488', Icon: CheckCircle2 },
   error:   { borderColor: '#ef4444', iconBg: '#fef2f2', iconColor: '#dc2626', Icon: XCircle     },
@@ -96,9 +96,9 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string)
     >
       <span
         className="h-7 w-7 rounded-full flex items-center justify-center flex-shrink-0"
-        style={{ background: cfg.iconBg }}
+        style={{ background: cfg.iconBg, color: cfg.iconColor }}
       >
-        <Icon size={15} style={{ color: cfg.iconColor }} />
+        <Icon size={15} className="text-current" />
       </span>
 
       <p className="flex-1 font-medium text-slate-800 leading-snug min-w-0" style={{ fontSize: '13px' }}>

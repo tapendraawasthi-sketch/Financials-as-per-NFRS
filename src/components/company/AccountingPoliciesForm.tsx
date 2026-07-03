@@ -228,7 +228,7 @@ export default function AccountingPoliciesForm({
         name: c.name,
         usefulLife: c.defaultUsefulLife,
         residualPct: c.defaultResidualPct,
-        method: c.defaultMethod === 'WDV' ? 'WDV' : 'SLM',
+        method: c.defaultMethod === 'WrittenDownValue' ? 'WDV' : 'SLM',
         wdvRate: c.defaultWDVRate,
         noDepn: c.defaultUsefulLife === 0,
       })),
