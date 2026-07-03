@@ -225,11 +225,11 @@ export function computeBalanceSheet(
     'provision_impairment_investment',
     'provision_impairment_investments',
   );
-  const investmentListed = sumDr(rows, 'investment_listed_trading') + listedFVAdj;
+  const investmentListedTrading = round2(Math.max(0, sumDr(rows, 'investment_listed_trading') + listedFVAdj));
   const investmentUnlisted = sumDr(rows, 'investment_unlisted') - unlistedImpair;
   const investmentFD_NC = sumDr(rows, 'investment_fixed_deposit_noncurrent');
   const nca_investments = round2(Math.max(0,
-    investmentListed + investmentUnlisted + investmentFD_NC - invImpairmentProvision,
+    investmentUnlisted + investmentFD_NC - invImpairmentProvision,
   ));
 
   const nca_receivables = round2(
@@ -241,7 +241,7 @@ export function computeBalanceSheet(
   );
   const totalNonCurrentAssets = round2(nca_ppe + nca_investments + nca_receivables + nca_other);
 
-  const ca_investments = 0;
+  const ca_investments = investmentListedTrading;
   const { closingCY } = inventoryFromAdj(adj, rows);
   const ca_inventories = round2(Math.max(0, closingCY - adj.totalInventoryImpairment));
 

@@ -2,6 +2,7 @@
 // Each note produces both a structured data object and enough information for
 // the Excel writer to render a fully formatted note sheet.
 
+import { PPE_CLASSES, normalizePPEClassId, ppeTbCategories } from './ppeCategoryMap.js';
 import type {
   ParsedTrialBalance,
   MappedTBRow,
@@ -115,6 +116,46 @@ const TAX_DEPN_RATES: Record<string, number> = {
 
 // ─── Main export ───────────────────────────────────────────────────────────────
 
+function sumTBForPPEClass(
+  rows: MappedTBRow[],
+  classId: string,
+  field: 'openingDr' | 'openingCr' | 'closingDr' | 'closingCr' | 'duringDr' | 'duringCr',
+): number {
+  return ppeTbCategories(classId).reduce((total, category) => total + sumTB(rows, category, field), 0);
+}
+
+function normalizeDepreciationSummary(adj: YearEndAdjustments): DepreciationSummary[] {
+  return (adj.depreciationSummary ?? []).map((raw) => {
+    const item = raw as DepreciationSummary & {
+      name?: string;
+      assetClass?: string;
+      costOpeningDr?: number;
+      costClosing?: number;
+      accumDepnOpening?: number;
+      depreciationCharged?: number;
+      disposalDepn?: number;
+      accumDepnClosing?: number;
+      carryingAmountClosing?: number;
+    };
+    const categoryId = normalizePPEClassId(item.categoryId ?? item.name ?? item.assetClass);
+    return {
+      categoryId,
+      categoryName: item.categoryName ?? item.name ?? categoryId,
+      openingCost: item.openingCost ?? item.costOpeningDr ?? 0,
+      additions: item.additions ?? 0,
+      disposals: item.disposals ?? 0,
+      closingCost: item.closingCost ?? item.costClosing ?? 0,
+      openingAccumDepn: item.openingAccumDepn ?? item.accumDepnOpening ?? 0,
+      depnForYear: item.depnForYear ?? item.depreciationCharged ?? 0,
+      depnOnDisposal: item.depnOnDisposal ?? item.disposalDepn ?? 0,
+      closingAccumDepn: item.closingAccumDepn ?? item.accumDepnClosing ?? 0,
+      netBookValueClosing: item.netBookValueClosing ?? item.carryingAmountClosing
+        ?? Math.max(0, (item.closingCost ?? item.costClosing ?? 0) - (item.closingAccumDepn ?? item.accumDepnClosing ?? 0)),
+      assets: item.assets ?? [],
+    };
+  });
+}
+
 export function buildNotesData(params: {
   tb: ParsedTrialBalance;
   adj: YearEndAdjustments;
@@ -133,24 +174,15 @@ export function buildNotesData(params: {
 
   // ─── Note 3.1 — PPE ────────────────────────────────────────────────────────
 
-  const PPE_CLASSES: Array<{ categoryId: string; label: string }> = [
-    { categoryId: 'Land',              label: 'Land' },
-    { categoryId: 'Building',          label: 'Buildings' },
-    { categoryId: 'OfficeEquipment',   label: 'Furniture, Computers & Office Equipment' },
-    { categoryId: 'Vehicle',           label: 'Vehicles' },
-    { categoryId: 'PlantMachinery',    label: 'Plant & Machinery' },
-    { categoryId: 'Intangible',        label: 'Intangibles / Software' },
-    { categoryId: 'UnderConstruction', label: 'Capital Work in Progress' },
-  ];
-
+  const normalizedDepSummary = normalizeDepreciationSummary(adj);
   const depnSummaryMap = new Map<string, DepreciationSummary>(
-    (adj.depreciationSummary ?? []).map((d) => [d.categoryId, d])
+    normalizedDepSummary.map((d) => [d.categoryId, d]),
   );
 
   const note31_ppe: NotesData['note31_ppe'] = PPE_CLASSES.map((cls) => {
     const d = depnSummaryMap.get(cls.categoryId);
-    const tbGross    = sumTB(rows, cls.categoryId as NFRSCategory, 'closingDr');
-    const tbOpenGross= sumTB(rows, cls.categoryId as NFRSCategory, 'openingDr');
+    const tbGross = sumTBForPPEClass(rows, cls.categoryId, 'closingDr');
+    const tbOpenGross = sumTBForPPEClass(rows, cls.categoryId, 'openingDr');
 
     const openingCost       = d?.openingCost       ?? tbOpenGross;
     const additions         = d?.additions          ?? 0;
@@ -165,7 +197,7 @@ export function buildNotesData(params: {
 
     // Assets pledged as security
     const assetsSecured = (adj.assets ?? [])
-      .filter((a) => a.categoryId === cls.categoryId && a.isMortgaged)
+      .filter((a) => normalizePPEClassId(a.categoryId) === cls.categoryId && a.isMortgaged)
       .reduce((s, a) => s + a.originalCost, 0);
 
     return {
@@ -190,7 +222,7 @@ export function buildNotesData(params: {
       securedAmount: assetsSecured,
       hasSecuredAssets: assetsSecured > 0,
       // Individual assets
-      assets: (adj.depreciationSummary?.find((ds) => ds.categoryId === cls.categoryId)?.assets) ?? [],
+      assets: normalizedDepSummary.find((ds) => ds.categoryId === cls.categoryId)?.assets ?? [],
     };
   }).filter((item) =>
     // Only include categories that have any balance or movement

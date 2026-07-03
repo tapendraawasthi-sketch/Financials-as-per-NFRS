@@ -4,6 +4,8 @@
 import type { AssetRegisterEntry } from '../../src/types/adjustments.js';
 import type { PPENote } from '../../src/types/financials.js';
 import type { AccountingPolicies } from '../../src/types/company.js';
+import type { DepreciationSummary } from '../../src/types/index.js';
+import { normalizePPEClassId, ppeClassLabel } from './ppeCategoryMap.js';
 
 const DEFAULT_RATES: Record<string, { rate: number; method: 'SLM' | 'WDV' }> = {
   Land: { rate: 0, method: 'SLM' },
@@ -287,9 +289,29 @@ export function calculateDepreciationSummary(
   _fiscalYear: string,
 ) {
   const result = computeDepreciation(assets);
+  const summary: DepreciationSummary[] = result.ppeTotals.classes.map((cls) => {
+    const categoryId = normalizePPEClassId(cls.name);
+    const classAssets = result.assetRegisterComputed.filter(
+      (asset) => normalizePPEClassId(asset.assetClass) === categoryId,
+    );
+    return {
+      categoryId,
+      categoryName: ppeClassLabel(categoryId),
+      openingCost: cls.costOpeningDr,
+      additions: cls.additions,
+      disposals: cls.disposals,
+      closingCost: cls.costClosing,
+      openingAccumDepn: cls.accumDepnOpening,
+      depnForYear: cls.depreciationCharged,
+      depnOnDisposal: cls.disposalDepn,
+      closingAccumDepn: cls.accumDepnClosing,
+      netBookValueClosing: cls.carryingAmountClosing,
+      assets: classAssets,
+    };
+  });
   return {
     results: result.assetRegisterComputed,
-    summary: result.ppeTotals.classes,
+    summary,
   };
 }
 

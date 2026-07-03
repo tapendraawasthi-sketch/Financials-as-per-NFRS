@@ -2452,6 +2452,127 @@ function writeDisclosureTextNote(ws: ExcelJS.Worksheet, title: string, body: str
   cell.font = { name: 'Arial', size: 10 };
 }
 
+type TradeReceivablesNoteData = NotesData['note33_tradeReceivables'] & {
+  grossReceivables_cy?: number;
+  grossReceivables_py?: number;
+  provisionMovement?: {
+    opening?: number;
+    additions?: number;
+    writeOffs?: number;
+    reversals?: number;
+    closing?: number;
+  };
+  provisionForImpairment_cy?: number;
+  provisionForImpairment_py?: number;
+  netReceivables_cy?: number;
+  netReceivables_py?: number;
+  relatedPartyReceivables?: number;
+  prepayments?: number;
+  tdsReceivable?: number;
+  staffAdvances?: number;
+  advanceToSuppliers?: number;
+  otherLoansAdvances?: number;
+  agingAnalysis?: Array<{ bucket: string; amount: number }>;
+};
+
+function writeNote33_Receivables(
+  ws: ExcelJS.Worksheet,
+  note?: TradeReceivablesNoteData | null,
+): NoteRowMap {
+  writeNoteSheetTitle(ws, '3.3  Trade and Other Receivables');
+  ws.getColumn(1).width = 42;
+  ws.getColumn(2).width = 16;
+  ws.getColumn(3).width = 16;
+
+  const writeHeader = (rowNum: number) => {
+    ['Particulars', 'Current Year', 'Previous Year'].forEach((label, idx) => {
+      const cell = ws.getRow(rowNum).getCell(idx + 1);
+      cell.value = label;
+      applySubHeaderStyle(cell);
+      applyAllBorders(cell);
+      cell.alignment = { horizontal: idx === 0 ? 'left' : 'right' };
+    });
+  };
+
+  const writeAmountLine = (rowNum: number, label: string, cy?: number, py?: number, bold = false) => {
+    const row = ws.getRow(rowNum);
+    row.getCell(1).value = label;
+    row.getCell(2).value = cy || null;
+    row.getCell(3).value = py || null;
+    [1, 2, 3].forEach((col) => {
+      const cell = row.getCell(col);
+      applyBodyStyle(cell);
+      applyAllBorders(cell);
+      if (col > 1) {
+        cell.numFmt = NUMBER_FORMAT;
+        cell.alignment = { horizontal: 'right' };
+      }
+      if (bold) applyTotalStyle(cell);
+    });
+  };
+
+  let row = 3;
+  writeHeader(row++);
+
+  const grossCy = note?.grossReceivables_cy ?? 0;
+  const grossPy = note?.grossReceivables_py ?? 0;
+  const provisionCy = note?.provisionForImpairment_cy ?? note?.provisionMovement?.closing ?? 0;
+  const provisionPy = note?.provisionForImpairment_py ?? note?.provisionMovement?.opening ?? 0;
+  const netCy = note?.netReceivables_cy ?? Math.max(0, grossCy - provisionCy);
+  const netPy = note?.netReceivables_py ?? Math.max(0, grossPy - provisionPy);
+
+  writeAmountLine(row++, 'Gross Trade Receivables', grossCy, grossPy);
+  writeAmountLine(row++, 'Less: Provision for Impairment', -provisionCy, -provisionPy);
+  const netRow = row;
+  writeAmountLine(row++, 'Net Trade Receivables', netCy, netPy, true);
+
+  const otherLines: Array<[string, number | undefined]> = [
+    ['Related Party Receivables', note?.relatedPartyReceivables],
+    ['Prepayments', note?.prepayments],
+    ['TDS Receivable', note?.tdsReceivable],
+    ['Staff Advances', note?.staffAdvances],
+    ['Advance to Suppliers', note?.advanceToSuppliers],
+    ['Other Loans & Advances', note?.otherLoansAdvances],
+  ];
+  const visibleOther = otherLines.filter(([, amount]) => (amount ?? 0) !== 0);
+  if (visibleOther.length > 0) {
+    row++;
+    ws.getRow(row).getCell(1).value = 'Other Receivable Components';
+    ws.getRow(row).getCell(1).font = FONTS.SUBHEADING;
+    row++;
+    for (const [label, amount] of visibleOther) {
+      writeAmountLine(row++, `  ${label}`, amount, 0);
+    }
+  }
+
+  const movement = note?.provisionMovement;
+  if (movement) {
+    row++;
+    ws.getRow(row).getCell(1).value = 'Movement in Provision for Doubtful Debts';
+    ws.getRow(row).getCell(1).font = FONTS.SUBHEADING;
+    row++;
+    writeAmountLine(row++, '  Opening Balance', movement.opening, undefined);
+    writeAmountLine(row++, '  Additions during the Year', movement.additions, undefined);
+    writeAmountLine(row++, '  Write-offs', -(movement.writeOffs ?? 0), undefined);
+    writeAmountLine(row++, '  Reversals', -(movement.reversals ?? 0), undefined);
+    writeAmountLine(row++, '  Closing Balance', movement.closing, undefined, true);
+  }
+
+  const aging = note?.agingAnalysis ?? [];
+  if (aging.length > 0) {
+    row++;
+    ws.getRow(row).getCell(1).value = 'Ageing Analysis of Trade Receivables';
+    ws.getRow(row).getCell(1).font = FONTS.SUBHEADING;
+    row++;
+    writeHeader(row++);
+    for (const bucket of aging) {
+      writeAmountLine(row++, `  ${bucket.bucket}`, bucket.amount, 0);
+    }
+  }
+
+  return { note33_receivablesRow: netRow, cyTotalRow: netRow };
+}
+
 function writeGenericNoteRecord(ws: ExcelJS.Worksheet, title: string, data?: CyPyRecord | null): NoteRowMap {
   const safeData = data ?? {};
   writeNoteSheetTitle(ws, title);
@@ -2578,13 +2699,11 @@ export async function generateNFRSWorkbook(params: {
     buildInvestmentsNoteData(notes.note32_investments),
   ));
   noteRowMap.note32_investmentsRow = noteRowMap.cyTotalRow;
-  const receivablesMap = writeGenericNoteRecord(addSheet('Note 3.3 - Receivables', '16A34A'), '3.3  Trade Receivables', {
-    'Net Trade Receivables': {
-      cy: notes.note33_tradeReceivables?.netReceivables_cy ?? 0,
-      py: notes.note33_tradeReceivables?.netReceivables_py ?? 0,
-    },
-  });
-  noteRowMap.note33_receivablesRow = receivablesMap.cyTotalRow;
+  const receivablesMap = writeNote33_Receivables(
+    addSheet('Note 3.3 - Receivables', '16A34A'),
+    notes.note33_tradeReceivables,
+  );
+  noteRowMap.note33_receivablesRow = receivablesMap.note33_receivablesRow ?? receivablesMap.cyTotalRow;
   SHEET_ROW_REGISTRY.receivablesNetRow = receivablesMap.cyTotalRow;
   const otherRecvMap = writeGenericNoteRecord(addSheet('Note 3.4 - Other Recv', '16A34A'), '3.4  Other Receivables', notes.note34_otherReceivables);
   noteRowMap.note34_otherRecvRow = otherRecvMap.cyTotalRow;
