@@ -25,7 +25,7 @@ export default function StatementsPage() {
     setGenerating(true);
     try {
       const result = await financialsApi.generate(state.company.id);
-      dispatch({ type: 'SET_FINANCIALS', payload: result });
+      dispatch({ type: 'SET_FINANCIALS', payload: result.data });
       dispatch({ type: 'COMPLETE_STEP', payload: 'review_statements' });
     } catch (err: any) {
       dispatch({ type: 'SET_ERROR', payload: err?.message ?? 'Failed to generate financials.' });
