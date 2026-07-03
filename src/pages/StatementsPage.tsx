@@ -1,5 +1,5 @@
 // src/pages/StatementsPage.tsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAppStore } from '../store/appStore';
 import Tabs from '../components/ui/Tabs';
 import Button from '../components/ui/Button';
@@ -10,6 +10,7 @@ import CashFlowView from '../components/statements/CashFlowView';
 import ChangesInEquityView from '../components/statements/ChangesInEquityView';
 import NotesViewer from '../components/statements/NotesViewer';
 import { financialsApi } from '../api/client';
+import { formatNPRSimple } from '../utils/numberFormat';
 
 type TabId = 'bs' | 'is' | 'equity' | 'cf' | 'notes';
 
@@ -20,26 +21,51 @@ export default function StatementsPage() {
 
   const hasFinancials = state.balanceSheet != null;
 
-  const handleGenerate = async () => {
+  const handleGenerate = useCallback(async () => {
     if (!state.company?.id) return;
     setGenerating(true);
     try {
-      const result = await financialsApi.generate(state.company.id);
-      dispatch({ type: 'SET_FINANCIALS', payload: result.data });
+      const response = await financialsApi.generate(state.company.id) as {
+        data?: {
+          balanceSheet: unknown;
+          incomeStatement: unknown;
+          changesInEquity: unknown;
+          cashFlow: unknown;
+          notes: unknown;
+        };
+        balanceSheet?: unknown;
+      };
+      const payload = response.data ?? response;
+      dispatch({ type: 'SET_FINANCIALS', payload: payload as NonNullable<typeof response.data> & typeof response });
       dispatch({ type: 'COMPLETE_STEP', payload: 'review_statements' });
-    } catch (err: any) {
-      dispatch({ type: 'SET_ERROR', payload: err?.message ?? 'Failed to generate financials.' });
+    } catch (err: unknown) {
+      dispatch({
+        type: 'SET_ERROR',
+        payload: err instanceof Error ? err.message : 'Failed to generate financials.',
+      });
     } finally {
       setGenerating(false);
     }
-  };
+  }, [state.company?.id, dispatch]);
+
+  const balanceDiff = useMemo(() => {
+    const bs = state.balanceSheet as Record<string, number> | null;
+    if (!bs) return 0;
+    const totalAssets = bs.totalAssets ?? 0;
+    const totalEquity = bs.totalEquity ?? 0;
+    const totalLiabilities = bs.totalLiabilities
+      ?? ((bs.totalEquityAndLiabilities ?? 0) - totalEquity);
+    return totalAssets - (totalEquity + totalLiabilities);
+  }, [state.balanceSheet]);
+
+  const isBalanceSheetBalanced = hasFinancials && Math.abs(balanceDiff) <= 1;
 
   // Auto-generate on mount if not yet done
   useEffect(() => {
     if (!hasFinancials && state.company?.id && state.trialBalance) {
       handleGenerate();
     }
-  }, []); // eslint-disable-line
+  }, [state.company?.id, hasFinancials, state.trialBalance, handleGenerate]);
 
   const tabs = [
     { id: 'bs', label: 'Balance Sheet' },
@@ -73,12 +99,30 @@ export default function StatementsPage() {
               dispatch({ type: 'COMPLETE_STEP', payload: 'review_statements' });
               dispatch({ type: 'SET_STEP', payload: 'generate_output' });
             }}
-            disabled={!hasFinancials}
+            disabled={!hasFinancials || !isBalanceSheetBalanced}
           >
             Proceed to Download →
           </Button>
         </div>
       </div>
+
+      {hasFinancials && (
+        <div className="mb-4">
+          {!isBalanceSheetBalanced ? (
+            <div
+              role="alert"
+              className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"
+            >
+              Balance Sheet does not balance. Difference: NPR {formatNPRSimple(Math.abs(balanceDiff))}.
+              Download is disabled until resolved.
+            </div>
+          ) : (
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800 font-medium">
+              Balance Sheet balanced ✓
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="page-enter">
         {activeTab === 'bs' && state.balanceSheet && state.company && (
