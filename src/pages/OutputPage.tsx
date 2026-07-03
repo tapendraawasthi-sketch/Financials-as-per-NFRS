@@ -1,118 +1,135 @@
 // src/pages/OutputPage.tsx
 import React, { useState } from 'react';
-import { CheckCircle2, ChevronDown, ChevronLeft } from 'lucide-react';
-import { useAppStore }   from '../store/appStore';
-import DownloadPanel     from '../components/output/DownloadPanel';
-import Button            from '../components/ui/Button';
+import { useAppStore } from '../store/appStore';
+import Card from '../components/ui/Card';
+import Button from '../components/ui/Button';
+import LoadingSpinner from '../components/ui/LoadingSpinner';
+import Alert from '../components/ui/Alert';
+import { outputApi } from '../api/client';
 
-interface FAQItem { question: string; answer: string; }
+export default function OutputPage() {
+  const { state } = useAppStore();
+  const [generating, setGenerating] = useState(false);
+  const [downloadComplete, setDownloadComplete] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-const faqs: FAQItem[] = [
-  {
-    question: 'Can I edit the Excel file after downloading?',
-    answer: 'Yes. Green-highlighted cells in the Excel workbook are editable — you can enter corrections or prior-year figures directly. All formulas are live, so changes automatically update linked cells and totals across all sheets.',
-  },
-  {
-    question: 'What if my balance sheet does not balance?',
-    answer: "Check your trial balance account mapping. Accounts mapped to 'Unclassified' cause the balance sheet to go out of balance. Return to Step 4 (Map Accounts) and ensure every account is correctly classified.",
-  },
-  {
-    question: 'Is this compliant with ICAN Nepal standards?',
-    answer: 'The format follows NAS for Micro Entities (NAS for MEs) as issued by ICAN. However this tool automates formatting and calculation only — it does not substitute professional judgment.',
-  },
-  {
-    question: 'Can I import previous year comparative figures?',
-    answer: 'Prior year (PY) columns in the Excel workbook are green-highlighted for manual entry. Enter your previous year audited figures directly.',
-  },
-];
+  const company = state.company;
+  const hasFinancials = state.balanceSheet != null;
 
-const OutputPage: React.FC = () => {
-  const { state, dispatch } = useAppStore();
-  const [openFaq, setOpenFaq] = useState<number | null>(null);
+  const handleDownload = async () => {
+    if (!company?.id) return;
+    setGenerating(true);
+    setError(null);
+    try {
+      const blob = await outputApi.generateExcel(
+        company.id,
+        company.companyName,
+        company.fiscalYear?.bsYear ?? 'FY',
+      );
+      const safeName = (company.companyName ?? 'Company').replace(/[^a-zA-Z0-9]/g, '_');
+      const fy = (company.fiscalYear?.bsYear ?? 'FY').replace(/\//g, '-');
+      const filename = `NFRS_Financials_${safeName}_${fy}.xlsx`;
+      outputApi.triggerDownload(blob, filename);
+      setDownloadComplete(true);
+    } catch (err: any) {
+      setError(err?.message ?? 'Excel generation failed.');
+    } finally {
+      setGenerating(false);
+    }
+  };
 
-  const companyId         = state.company?.id ?? '';
-  const isStatementsReady = state.completedSteps.includes('review_statements');
-  const toggleFaq         = (idx: number) => setOpenFaq(prev => (prev === idx ? null : idx));
+  const checklist = [
+    { label: 'Company details configured', done: company != null },
+    { label: 'Trial balance uploaded', done: state.trialBalance != null },
+    { label: 'Accounts mapped', done: (state.trialBalance?.rows ?? []).length > 0 },
+    { label: 'Financial statements generated', done: hasFinancials },
+  ];
+
+  const allDone = checklist.every(c => c.done);
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
-      {isStatementsReady && (
-        <div
-          className="rounded-2xl p-6 text-white shadow-lg"
-          style={{ background: 'linear-gradient(135deg, #0d9488 0%, #14b8a6 100%)' }}
-        >
-          <div className="flex items-center gap-4">
-            <div className="h-14 w-14 rounded-2xl flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(255,255,255,0.20)' }}>
-              <CheckCircle2 size={32} className="text-white" />
-            </div>
-            <div>
-              <p className="text-xl font-bold leading-tight">All Steps Completed</p>
-              <p className="text-teal-100 text-sm mt-0.5">Your financial statements are ready to generate.</p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {state.company && companyId ? (
-        <DownloadPanel />
-      ) : (
-        <div className="text-center py-12 text-slate-400">
-          <p className="text-sm">Company data not found. Please start from the beginning.</p>
-          <button onClick={() => dispatch({ type: 'SET_STEP', payload: 'company_setup' })}
-            className="mt-4 text-indigo-600 hover:text-indigo-800 text-sm underline">
-            Go to Company Setup
-          </button>
-        </div>
-      )}
-
-      {/* FAQ Section */}
-      <div className="bg-white rounded-2xl overflow-hidden" style={{ border: '1px solid #e2e8f0', boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
-        <div className="px-6 py-5" style={{ borderBottom: '1px solid #f1f5f9', background: 'linear-gradient(to right, #f8fafc, #ffffff)' }}>
-          <h3 className="font-semibold text-slate-900" style={{ fontSize: '15px' }}>Frequently Asked Questions</h3>
-          <p className="text-xs text-slate-500 mt-0.5">About the generated Excel workbook</p>
-        </div>
-        <div style={{ borderTop: '1px solid #f1f5f9' }}>
-          {faqs.map((faq, idx) => (
-            <div key={idx} style={{ borderBottom: idx < faqs.length - 1 ? '1px solid #f1f5f9' : 'none' }}>
-              <button
-                type="button"
-                onClick={() => toggleFaq(idx)}
-                className="w-full flex items-center justify-between px-6 py-4 text-left hover:bg-slate-50 transition-colors"
-                aria-expanded={openFaq === idx}
-              >
-                <span className="font-medium text-slate-800 pr-4" style={{ fontSize: '13.5px' }}>{faq.question}</span>
-                <ChevronDown
-                  size={16}
-                  className="flex-shrink-0 text-slate-400 transition-transform duration-200"
-                  style={{ transform: openFaq === idx ? 'rotate(180deg)' : 'rotate(0deg)' }}
-                />
-              </button>
-              <div
-                className="overflow-hidden transition-all duration-250"
-                style={{ maxHeight: openFaq === idx ? '400px' : '0px' }}
-                aria-hidden={openFaq !== idx}
-              >
-                <div className="px-6 pb-5">
-                  <p className="text-slate-500 leading-relaxed" style={{ fontSize: '13px' }}>{faq.answer}</p>
-                </div>
-              </div>
+    <div className="max-w-2xl mx-auto space-y-5">
+      <Card title="Pre-Generation Checklist" padding="md">
+        <div className="divide-y divide-slate-100">
+          {checklist.map((item, i) => (
+            <div key={i} className="flex items-center gap-2.5 py-2.5">
+              <span
+                className={`h-2 w-2 rounded-full flex-shrink-0 ${
+                  item.done ? 'bg-emerald-500' : 'bg-slate-300'
+                }`}
+              />
+              <span className={`text-sm ${item.done ? 'text-slate-700' : 'text-slate-400'}`}>
+                {item.label}
+              </span>
             </div>
           ))}
         </div>
-      </div>
+      </Card>
 
-      <div className="text-center">
-        <Button
-          variant="ghost"
-          size="sm"
-          icon={<ChevronLeft size={14} />}
-          onClick={() => dispatch({ type: 'SET_STEP', payload: 'review_statements' })}
-        >
-          Back to Review Statements
-        </Button>
-      </div>
+      <Card title="Generate Excel Workbook" padding="md">
+        {error && <Alert type="error" message={error} className="mb-4" />}
+
+        {downloadComplete ? (
+          <div className="text-center py-6">
+            <div className="h-12 w-12 rounded-full bg-emerald-100 flex items-center justify-center mx-auto mb-3">
+              <svg className="h-6 w-6 text-emerald-600" fill="none" viewBox="0 0 24 24"
+                stroke="currentColor" strokeWidth={2}>
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            </div>
+            <p className="text-sm font-semibold text-slate-700 mb-1">Download complete!</p>
+            <p className="text-xs text-slate-400 mb-4">
+              Review all figures with your CA before submission.
+            </p>
+            <Button variant="secondary" size="sm" onClick={handleDownload}>
+              Download Again
+            </Button>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <p className="text-sm text-slate-600 leading-relaxed">
+              The Excel workbook will contain complete financial statements formatted per
+              NAS for Micro Entities (ICAN Nepal standards), including all notes, depreciation
+              schedules, and tax computations.
+            </p>
+
+            <div className="divide-y divide-slate-100 text-xs text-slate-500">
+              {[
+                'Statement of Financial Position (Balance Sheet)',
+                'Statement of Income',
+                'Statement of Cash Flows (Indirect Method)',
+                'Statement of Changes in Equity',
+                'Notes 3.1 through 3.26',
+                'Depreciation Schedule (Book & Tax)',
+                'Income Tax Computation (IT Act 2058)',
+                'Trial Balance with NFRS Mapping',
+              ].map(item => (
+                <p key={item} className="py-1.5">{item}</p>
+              ))}
+            </div>
+
+            {generating ? (
+              <LoadingSpinner message="Generating Excel workbook..." />
+            ) : (
+              <Button
+                variant="primary"
+                size="lg"
+                onClick={handleDownload}
+                disabled={!allDone}
+                className="w-full"
+              >
+                Generate and Download Excel
+              </Button>
+            )}
+
+            {!allDone && (
+              <p className="text-xs text-amber-600 text-center">
+                Complete all checklist items before generating.
+              </p>
+            )}
+          </div>
+        )}
+      </Card>
     </div>
   );
-};
-
-export default OutputPage;
+}

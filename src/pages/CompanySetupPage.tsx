@@ -1,230 +1,203 @@
 // src/pages/CompanySetupPage.tsx
 import React, { useState } from 'react';
 import { useAppStore } from '../store/appStore';
-import { CompanyProfile, AccountingPolicies } from '../types';
+import Tabs from '../components/ui/Tabs';
 import CompanyInfoForm from '../components/company/CompanyInfoForm';
 import AccountingPoliciesForm from '../components/company/AccountingPoliciesForm';
-import LoadingSpinner from '../components/ui/LoadingSpinner';
-import Alert from '../components/ui/Alert';
-
 import PreviousYearData from '../components/company/PreviousYearData';
+import { companyApi } from '../api/client';
+import { getFiscalYear } from '../data/fiscalYears';
+import type { CompanyProfile, PreviousYearBalances } from '../types';
 
-type SubStep = 'company_info' | 'accounting_policies' | 'previous_year_data';
+type TabId = 'info' | 'policies' | 'previous';
 
-const wizardSteps = [
-  { id: 'company_setup' as const, label: 'Company Info', description: 'Basic company details' },
-  { id: 'accounting_policies' as const, label: 'Policies', description: 'Depreciation & accounting choices' },
-  { id: 'trial_balance_upload' as const, label: 'Upload TB', description: 'Trial balance file' },
-  { id: 'trial_balance_mapping' as const, label: 'Map Accounts', description: 'NFRS account mapping' },
-  { id: 'subledger_details' as const, label: 'Subledgers', description: 'Debtors & creditors' },
-  { id: 'year_end_adjustments' as const, label: 'Adjustments', description: 'Depreciation & provisions' },
-  { id: 'review_statements' as const, label: 'Statements', description: 'Review financials' },
-  { id: 'generate_output' as const, label: 'Download', description: 'Generate Excel' },
+const TABS = [
+  { id: 'info', label: 'Company Information' },
+  { id: 'policies', label: 'Accounting Policies' },
+  { id: 'previous', label: 'Previous Year Data' },
 ];
 
-const CompanySetupPage: React.FC = () => {
+export default function CompanySetupPage() {
   const { state, dispatch } = useAppStore();
-  const [subStep, setSubStep] = useState<SubStep>('company_info');
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<TabId>(
+    state.currentStep === 'accounting_policies' ? 'policies' : 'info'
+  );
 
-  const handleCompanySubmit = async (data: any) => {
-    setIsLoading(true);
-    setError(null);
+  const handleSaveCompanyInfo = async (formData: any) => {
     try {
-      const method = state.company?.id ? 'PUT' : 'POST';
-      const url = state.company?.id
-        ? `/api/company/${state.company.id}`
-        : '/api/company';
+      dispatch({ type: 'SET_LOADING', payload: true });
 
-      const response = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-      });
+      const fiscalYear = getFiscalYear(formData.fiscalYear || '2081/82') ?? {
+        bsYear: '2081/82',
+        startDateBS: '1 Shrawan 2081',
+        endDateBS: '31 Ashadh 2082',
+        startDateAD: 'July 16, 2024',
+        endDateAD: 'July 15, 2025',
+        startYear: 2024,
+        endYear: 2025,
+        isLeapYear: false,
+      };
 
-      if (!response.ok) {
-        const errData = await response.json().catch(() => ({ error: 'Server error' }));
-        throw new Error(errData.error || `Server error: ${response.status}`);
+      const profileData: Partial<CompanyProfile> = {
+        companyName: formData.companyName,
+        panVatNumber: formData.panVatNumber,
+        registrationNumber: formData.registrationNumber,
+        companyType: formData.companyType || 'PrivateLimited',
+        entityType: formData.entityType || 'NASForMEs',
+        province: formData.province,
+        district: formData.district,
+        municipality: formData.municipality,
+        fullAddress: formData.fullAddress,
+        chairperson: formData.chairperson,
+        director: formData.director,
+        accountsHead: formData.accountsHead,
+        fiscalYear,
+        auditorInfo: {
+          auditorName: formData.auditorName || '',
+          auditorFirmName: formData.auditFirmName || '',
+          position: formData.auditorPosition || '',
+          icanRegNumber: formData.icanRegNumber || '',
+        },
+        accountingPolicies: state.company?.accountingPolicies ?? {
+          depreciationMethod: 'StraightLine',
+          inventoryCostMethod: 'WeightedAverage',
+          incomeTaxRatePercent: 25,
+          roundingLevel: 100,
+          bonusRatePercent: 10,
+          gratuityDaysPerYear: 15,
+          assetCategories: [],
+        },
+      };
+
+      let company: CompanyProfile;
+      if (state.company?.id) {
+        company = await companyApi.update(state.company.id, profileData);
+      } else {
+        company = await companyApi.create(profileData);
       }
 
-      const company: CompanyProfile = await response.json();
       dispatch({ type: 'SET_COMPANY', payload: company });
-      setSubStep('accounting_policies');
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to save company details.');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handlePoliciesSubmit = async (policies: any) => {
-    if (!state.company?.id) {
-      setError('Company ID not found. Please save company details first.');
-      return;
-    }
-    setIsLoading(true);
-    setError(null);
-    try {
-      const response = await fetch(`/api/company/${state.company.id}/policies`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(policies),
-      });
-
-      if (!response.ok) {
-        const errData = await response.json().catch(() => ({ error: 'Server error' }));
-        throw new Error(errData.error || `Server error: ${response.status}`);
-      }
-
-      const updatedCompany: CompanyProfile = await response.json();
-      dispatch({ type: 'SET_COMPANY', payload: updatedCompany });
-      setSubStep('previous_year_data');
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to save accounting policies.');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handlePreviousYearSubmit = async (prevData: any) => {
-    if (!state.company?.id) return;
-    setIsLoading(true);
-    setError(null);
-    try {
-      const response = await fetch(`/api/company/${state.company.id}/previous-year`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(prevData),
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to save previous year data');
-      }
-
-      const updatedCompany: CompanyProfile = await response.json();
-      dispatch({ type: 'SET_COMPANY', payload: updatedCompany });
       dispatch({ type: 'COMPLETE_STEP', payload: 'company_setup' });
+      setActiveTab('policies');
+      dispatch({ type: 'SET_STEP', payload: 'accounting_policies' });
+    } catch (err: any) {
+      dispatch({ type: 'SET_ERROR', payload: err?.message ?? 'Failed to save company details.' });
+    } finally {
+      dispatch({ type: 'SET_LOADING', payload: false });
+    }
+  };
+
+  const handleSavePolicies = async (formData: any) => {
+    try {
+      dispatch({ type: 'SET_LOADING', payload: true });
+
+      const policies = {
+        depreciationMethod: formData.defaultDepnMethod || 'StraightLine',
+        inventoryCostMethod: formData.inventoryMethod || 'WeightedAverage',
+        incomeTaxRatePercent: typeof formData.taxRate === 'number' ? formData.taxRate : 25,
+        roundingLevel: parseInt(formData.roundingLevel) || 100,
+        bonusRatePercent: typeof formData.bonusRate === 'number' ? formData.bonusRate : 10,
+        gratuityDaysPerYear: formData.gratuityDays || 15,
+        recognizeGratuity: formData.recognizeGratuity ?? true,
+        recognizeLeaveEncashment: formData.recognizeLeave ?? true,
+        hasGratuityLiability: formData.recognizeGratuity ?? true,
+        hasLeaveEncashment: formData.recognizeLeave ?? true,
+        assetCategories: formData.categories?.map((c: any) => ({
+          id: c.id,
+          name: c.name,
+          defaultMethod: c.method === 'WDV' ? 'WrittenDownValue' : 'StraightLine',
+          defaultUsefulLife: c.usefulLife,
+          defaultWDVRate: c.wdvRate,
+          defaultResidualPct: c.residualPct,
+        })) ?? [],
+      };
+
+      const updatedCompany: CompanyProfile = {
+        ...state.company!,
+        accountingPolicies: policies,
+      };
+
+      if (state.company?.id) {
+        await companyApi.update(state.company.id, { accountingPolicies: policies } as any);
+      }
+
+      dispatch({ type: 'SET_COMPANY', payload: updatedCompany });
       dispatch({ type: 'COMPLETE_STEP', payload: 'accounting_policies' });
       dispatch({ type: 'SET_STEP', payload: 'trial_balance_upload' });
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to save previous year data.');
+    } catch (err: any) {
+      dispatch({ type: 'SET_ERROR', payload: err?.message ?? 'Failed to save accounting policies.' });
     } finally {
-      setIsLoading(false);
+      dispatch({ type: 'SET_LOADING', payload: false });
     }
   };
 
-  if (isLoading) {
-    return (
-      <LoadingSpinner
-        message={subStep === 'company_info' ? 'Saving company details…' : 'Saving accounting policies…'}
-        fullPage
-      />
-    );
-  }
+  const handleSavePreviousYear = async (data: PreviousYearBalances) => {
+    try {
+      const updatedCompany: CompanyProfile = {
+        ...state.company!,
+        previousYearData: data,
+      };
+      dispatch({ type: 'SET_COMPANY', payload: updatedCompany });
+    } catch (err: any) {
+      dispatch({ type: 'SET_ERROR', payload: err?.message ?? 'Failed to save previous year data.' });
+    }
+  };
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-6 space-y-6">
-      {/* Sub-step stepper */}
-      <div className="flex items-center gap-0">
-        {[
-          { key: 'company_info',        label: 'Company Information', num: 1 },
-          { key: 'accounting_policies', label: 'Accounting Policies', num: 2 },
-          { key: 'previous_year_data',  label: 'Previous Year Data',  num: 3 },
-        ].map((s, i, arr) => {
-          const isActive = subStep === s.key;
-          const isDone   = (s.key === 'company_info' && (subStep === 'accounting_policies' || subStep === 'previous_year_data'))
-                        || (s.key === 'accounting_policies' && subStep === 'previous_year_data');
-          const canClick = s.key === 'company_info' || !!state.company?.id;
-          return (
-            <div key={s.key} className="flex items-center">
-              <button
-                onClick={() => canClick && setSubStep(s.key as SubStep)}
-                disabled={!canClick}
-                className={[
-                  'flex items-center gap-2 px-4 py-2.5 rounded-lg text-xs font-semibold transition-all',
-                  isActive ? 'bg-indigo-600 text-white shadow-md shadow-indigo-200'
-                    : isDone ? 'text-emerald-700 bg-emerald-50 hover:bg-emerald-100'
-                    : canClick ? 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'
-                    : 'text-slate-300 cursor-not-allowed',
-                ].join(' ')}
-              >
-                <span className={[
-                  'h-5 w-5 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0',
-                  isActive ? 'bg-white/25 text-white'
-                    : isDone ? 'bg-emerald-200 text-emerald-700'
-                    : 'bg-slate-200 text-slate-500',
-                ].join(' ')}>
-                  {isDone ? '✓' : s.num}
-                </span>
-                {s.label}
-              </button>
-              {i < arr.length - 1 && (
-                <div className={`h-px w-6 flex-shrink-0 mx-1 ${isDone ? 'bg-emerald-300' : 'bg-slate-200'}`} />
-              )}
-            </div>
-          );
-        })}
-      </div>
+    <div className="max-w-4xl">
+      <Tabs
+        tabs={TABS}
+        active={activeTab}
+        onChange={(id) => setActiveTab(id as TabId)}
+        variant="line"
+        className="mb-6"
+      />
 
-      {/* Error Alert */}
-      {error && (
-        <Alert
-          type="error"
-          message={error}
-          onDismiss={() => setError(null)}
-        />
-      )}
-
-      {/* Step Content */}
-      {subStep === 'company_info' && (
-        <div>
-          <div className="mb-6">
-            <h2 className="text-xl font-bold text-slate-800">Step 1: Company Information</h2>
-            <p className="text-sm text-slate-500 mt-1">
-              Enter your company's basic details. This information will appear on all financial statement headers.
-            </p>
-          </div>
+      <div className="page-enter">
+        {activeTab === 'info' && (
           <CompanyInfoForm
-            initialData={state.company ?? undefined}
-            onSave={handleCompanySubmit}
+            initialData={state.company ? {
+              companyName: state.company.companyName,
+              panVatNumber: state.company.panVatNumber || '',
+              registrationNumber: state.company.registrationNumber || '',
+              companyType: state.company.companyType || '',
+              entityType: state.company.entityType || 'NASForMEs',
+              province: state.company.province || '',
+              district: state.company.district || '',
+              municipality: state.company.municipality || '',
+              fullAddress: state.company.fullAddress || '',
+              chairperson: state.company.chairperson || '',
+              director: state.company.director || '',
+              accountsHead: state.company.accountsHead || '',
+              auditorName: state.company.auditorInfo?.auditorName || '',
+              auditFirmName: state.company.auditorInfo?.auditorFirmName || '',
+              auditorPosition: state.company.auditorInfo?.position || '',
+              icanRegNumber: state.company.auditorInfo?.icanRegNumber || '',
+              contactPerson: state.company.contactPerson || '',
+              designation: state.company.designation || '',
+              phone: state.company.phone || '',
+              email: state.company.email || '',
+              wardNumber: state.company.wardNumber || '',
+              tole: state.company.tole || '',
+            } : undefined}
+            onSave={handleSaveCompanyInfo}
           />
-        </div>
-      )}
+        )}
 
-      {subStep === 'accounting_policies' && (
-        <div>
-          <div className="mb-6">
-            <h2 className="text-xl font-bold text-slate-800">Step 2: Accounting Policies</h2>
-            <p className="text-sm text-slate-500 mt-1">
-              Configure depreciation methods, inventory costing, employee benefits, and other
-              accounting policies. These settings affect your financial statement computations.
-            </p>
-          </div>
+        {activeTab === 'policies' && (
           <AccountingPoliciesForm
             initialData={state.company?.accountingPolicies}
-            onSave={handlePoliciesSubmit}
+            onSave={handleSavePolicies}
           />
-        </div>
-      )}
+        )}
 
-      {subStep === 'previous_year_data' && (
-        <div>
-          <div className="mb-6">
-            <h2 className="text-xl font-bold text-slate-800">Step 3: Previous Year Data</h2>
-            <p className="text-sm text-slate-500 mt-1">
-              Enter the audited balances from the previous year. These are used as comparative figures in the financial statements.
-            </p>
-          </div>
+        {activeTab === 'previous' && (
           <PreviousYearData
             initialData={state.company?.previousYearData}
-            onSave={handlePreviousYearSubmit}
-            isLoading={isLoading}
+            onSave={handleSavePreviousYear}
           />
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
-};
-
-export default CompanySetupPage;
+}

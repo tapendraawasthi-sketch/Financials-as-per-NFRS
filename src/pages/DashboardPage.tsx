@@ -1,219 +1,112 @@
 // src/pages/DashboardPage.tsx
 import React from 'react';
-import { ShieldCheck } from 'lucide-react';
 import Button from '../components/ui/Button';
-import { useAppStore } from '../store/appStore';
-
-const PROCESS_STEPS = [
-  {
-    number: 1,
-    name:   'Upload Trial Balance',
-    desc:   'Export your trial balance from Tally, Busy, Marg, or any accounting software as Excel or CSV and upload it here.',
-  },
-  {
-    number: 2,
-    name:   'Review Account Mapping',
-    desc:   'The system automatically maps account names to NAS for Micro Entities categories. Review and correct any that need adjustment.',
-  },
-  {
-    number: 3,
-    name:   'Enter Adjustments',
-    desc:   'Add asset register entries, provisions for gratuity and leave, staff bonus computation, and other year-end journals.',
-  },
-  {
-    number: 4,
-    name:   'Download Excel',
-    desc:   'Generate the complete workbook containing all four financial statements, all notes (3.1–3.23), and the tax computation sheet.',
-  },
-] as const;
-
-const SUPPORTED_SOFTWARE = [
-  'Tally ERP 9',
-  'Tally Prime',
-  'Busy',
-  'Marg',
-  'Zoho Books',
-  'Any CSV / Excel TB',
-];
 
 interface DashboardPageProps {
-  onStart:     () => void;
-  onContinue?: () => void;
-  hasSession?: boolean;
+  onStart: () => void;
+  onContinue: () => void;
+  hasSession: boolean;
 }
 
-export default function DashboardPage({
-  onStart,
-  onContinue,
-  hasSession = false,
-}: DashboardPageProps) {
-  const { state } = useAppStore();
-
-  const sessionExists =
-    hasSession ||
-    Boolean(state.company?.companyName) ||
-    Boolean(state.trialBalance?.rows?.length);
-
+export default function DashboardPage({ onStart, onContinue, hasSession }: DashboardPageProps) {
   return (
-    <div className="min-h-full flex items-start justify-center pt-12 pb-16 px-4">
-      <div className="w-full" style={{ maxWidth: '750px' }}>
+    <div className="min-h-screen bg-slate-50 flex flex-col">
+      {/* Hero */}
+      <div
+        className="relative flex flex-col items-center justify-center text-center px-6 py-20"
+        style={{
+          background: 'linear-gradient(135deg, #0a0f1e 0%, #1e293b 50%, #0f172a 100%)',
+          minHeight: '70vh',
+        }}
+      >
+        {/* Grid overlay */}
+        <div
+          className="absolute inset-0 pointer-events-none"
+          style={{
+            opacity: 0.03,
+            backgroundImage:
+              'repeating-linear-gradient(0deg,transparent,transparent 40px,#fff 40px,#fff 41px),' +
+              'repeating-linear-gradient(90deg,transparent,transparent 40px,#fff 40px,#fff 41px)',
+          }}
+        />
 
-        {/* ── Hero ─────────────────────────────────────────── */}
-        <div className="flex items-start gap-4 mb-8">
-          <div
-            className="h-12 w-12 rounded-xl flex items-center justify-center flex-shrink-0"
-            style={{
-              background: 'linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)',
-              boxShadow: '0 0 32px rgba(99,102,241,0.40)',
-            }}
-          >
-            <span className="text-white font-black text-xl leading-none select-none">N</span>
-          </div>
-          <div>
-            <h1 className="font-extrabold text-slate-900 leading-tight tracking-tight" style={{ fontSize: '26px' }}>
-              NFRS Financial Reporter
-            </h1>
-            <p className="text-slate-500 leading-relaxed mt-1.5" style={{ fontSize: '14px' }}>
-              Nepal Accounting Standards for Micro Entities — Automated Financial Statement Preparation
-            </p>
-          </div>
+        {/* Logo */}
+        <div
+          className="h-16 w-16 rounded-2xl flex items-center justify-center mb-6"
+          style={{
+            background: 'linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)',
+            boxShadow: '0 0 40px rgba(99,102,241,0.5)',
+          }}
+        >
+          <span className="text-white font-black text-3xl leading-none select-none">N</span>
         </div>
 
-        {/* ── Session restore notice ─────────────────────── */}
-        {sessionExists && (
-          <div
-            className="mb-6 flex items-start gap-3 rounded-xl px-4 py-3.5"
-            style={{
-              background: 'linear-gradient(135deg, #eef2ff 0%, #ffffff 100%)',
-              border: '1px solid #c7d2fe',
-              borderLeft: '4px solid #4f46e5',
-            }}
-          >
-            <div className="min-w-0 flex-1">
-              <p className="font-semibold leading-none" style={{ fontSize: '15px', color: '#3730a3' }}>
-                Previous session found
-              </p>
-              {state.company?.companyName && (
-                <p className="text-indigo-600 mt-1.5" style={{ fontSize: '13.5px' }}>
-                  {state.company.companyName}
-                  {state.company.fiscalYear?.bsYear
-                    ? ` · FY ${state.company.fiscalYear.bsYear}`
-                    : ''}
-                </p>
-              )}
-            </div>
-            <div className="flex items-center gap-2 flex-shrink-0 mt-0.5">
-              <Button variant="secondary" size="sm" onClick={onStart}>
-                Discard
-              </Button>
-              {onContinue && (
-                <Button variant="primary" size="sm" onClick={onContinue}>
-                  Continue →
-                </Button>
-              )}
-            </div>
-          </div>
-        )}
+        <h1
+          className="text-white font-black tracking-tight leading-none mb-3"
+          style={{ fontSize: '42px' }}
+        >
+          NFRS Financial Reporter
+        </h1>
 
-        {/* ── CTA buttons ─────────────────────────────────── */}
-        <div className="flex items-center gap-3 mb-8">
+        <p
+          className="max-w-xl leading-relaxed mb-2"
+          style={{ color: '#94a3b8', fontSize: '16px' }}
+        >
+          Convert your trial balance to ICAN-compliant financial statements in minutes.
+        </p>
+        <p style={{ color: '#64748b', fontSize: '13px' }} className="mb-8">
+          Supporting NAS for Micro Entities 2018 &middot; Nepal Income Tax Act 2058
+        </p>
+
+        <div className="flex flex-col sm:flex-row items-center gap-3">
           <Button variant="primary" size="lg" onClick={onStart}>
             Start New Report
           </Button>
-          {sessionExists && onContinue && (
+          {hasSession && (
             <Button variant="secondary" size="lg" onClick={onContinue}>
-              Continue Session →
+              Continue Previous Session
             </Button>
           )}
         </div>
 
-        {/* Divider */}
-        <div
-          className="mb-8"
-          style={{
-            height: '1px',
-            background: 'linear-gradient(to right, transparent, #e2e8f0, transparent)',
-          }}
-        />
+        {/* Feature pills */}
+        <div className="flex flex-wrap justify-center gap-2.5 mt-10 max-w-2xl">
+          {[
+            'Auto-parse any trial balance format',
+            'AI-powered account mapping',
+            'All 4 NFRS statements',
+            '26 mandatory notes',
+            'Nepal IT Act 2058 tax computation',
+            'ICAN Excel format output',
+          ].map((f) => (
+            <span
+              key={f}
+              className="inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 font-medium"
+              style={{
+                fontSize: '12px',
+                color: '#a5b4fc',
+                background: 'rgba(99,102,241,0.12)',
+                border: '1px solid rgba(99,102,241,0.25)',
+              }}
+            >
+              <span className="h-1.5 w-1.5 rounded-full bg-indigo-400" />
+              {f}
+            </span>
+          ))}
+        </div>
+      </div>
 
-        {/* ── About section ───────────────────────────────── */}
-        <div className="mb-8">
-          <p className="section-label-brand">About This Tool</p>
-          <p className="text-slate-600 leading-relaxed" style={{ fontSize: '13.5px' }}>
-            Upload your trial balance exported from Tally, Busy, Marg, or any
-            accounting software. The system maps accounts to NAS for Micro Entities
-            categories, calculates depreciation and provisions, and generates a
-            complete Excel workbook with all required financial statements and notes
-            per ICAN Nepal standards.
+      {/* Footer */}
+      <div className="flex-1 flex items-end justify-center pb-8">
+        <div className="text-center">
+          <div className="flex items-center justify-center gap-2 mb-2">
+            <span className="compliance-badge">NAS for MEs 2018</span>
+            <span className="compliance-badge">ICAN Nepal</span>
+          </div>
+          <p className="text-xs text-slate-400">
+            Accounting Standards Board, Nepal &middot; ICAN Building, Satdobato, Lalitpur
           </p>
         </div>
-
-        {/* ── Process steps ─────────────────────────────── */}
-        <div className="mb-8">
-          <p className="section-label">How It Works</p>
-          <div className="flex flex-col gap-3">
-            {PROCESS_STEPS.map((step, i) => (
-              <div
-                key={step.number}
-                className="flex gap-4 p-4 rounded-xl transition-all duration-150"
-                style={{
-                  background: '#ffffff',
-                  border: '1px solid #f1f5f9',
-                  boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
-                }}
-                onMouseEnter={e => {
-                  (e.currentTarget as HTMLDivElement).style.borderColor = '#c7d2fe';
-                  (e.currentTarget as HTMLDivElement).style.boxShadow = '0 2px 8px rgba(99,102,241,0.08)';
-                }}
-                onMouseLeave={e => {
-                  (e.currentTarget as HTMLDivElement).style.borderColor = '#f1f5f9';
-                  (e.currentTarget as HTMLDivElement).style.boxShadow = '0 1px 3px rgba(0,0,0,0.04)';
-                }}
-              >
-                <div
-                  className="h-10 w-10 rounded-full flex items-center justify-center flex-shrink-0 font-bold text-white text-sm"
-                  style={{
-                    background: 'linear-gradient(135deg, #4f46e5, #6366f1)',
-                    boxShadow: '0 2px 8px rgba(99,102,241,0.35)',
-                    minWidth: '40px',
-                  }}
-                >
-                  {step.number}
-                </div>
-                <div>
-                  <p className="font-semibold text-slate-800" style={{ fontSize: '13.5px' }}>
-                    {step.name}
-                  </p>
-                  <p className="text-slate-500 mt-1 leading-relaxed" style={{ fontSize: '13px' }}>
-                    {step.desc}
-                  </p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* ── Supported software ─────────────────────────── */}
-        <div className="mb-6">
-          <p className="section-label">Compatible with</p>
-          <div className="flex flex-wrap gap-2">
-            {SUPPORTED_SOFTWARE.map(sw => (
-              <span key={sw} className="software-badge">{sw}</span>
-            ))}
-          </div>
-        </div>
-
-        {/* ── Compliance note ─────────────────────────────── */}
-        <div className="flex items-start gap-2 pt-4" style={{ borderTop: '1px solid #e2e8f0' }}>
-          <ShieldCheck size={14} className="flex-shrink-0 mt-0.5 text-blue-500" />
-          <p className="text-slate-500 leading-relaxed" style={{ fontSize: '12.5px' }}>
-            Output complies with NAS for Micro Entities issued by the Institute of
-            Chartered Accountants of Nepal (ICAN). Review all generated statements
-            with your Chartered Accountant before submission to tax authorities or
-            regulatory bodies.
-          </p>
-        </div>
-
       </div>
     </div>
   );

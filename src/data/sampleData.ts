@@ -1,252 +1,156 @@
 // src/data/sampleData.ts
-import { CompanyProfile, CompanyType, EntityType, DepreciationMethod, InventoryCostMethod } from '../types';
-
-// ── SAMPLE_COMPANY ────────────────────────────────────────────────────────────
+import type { CompanyProfile } from '../types';
 
 export const SAMPLE_COMPANY: CompanyProfile = {
-  id: 'sample-himalayan-trading-001',
-  companyName: 'Himalayan Trading Pvt. Ltd.',
-  panVatNumber: '301234567',
-  registrationNumber: '158/070/071',
-  companyType: CompanyType.PrivateLimited,
-  entityType: EntityType.NASForMEs,
-
-  address: {
-    province: 'Bagmati',
-    district: 'Kathmandu',
-    municipality: 'Kathmandu Metropolitan City',
-    ward: '10',
-    tole: 'New Baneshwor',
-    fullAddress: 'New Baneshwor, Ward No. 10, Kathmandu Metropolitan City, Kathmandu, Bagmati Province',
-  },
-
-  contactPerson: 'Ramesh Shrestha',
-  designation: 'Managing Director',
-  phone: '9841234567',
-  email: 'ramesh@himalayantrading.com.np',
-
+  id: 'sample-001',
+  companyName: 'ABC PRIVATE LIMITED',
+  panVatNumber: '123456789',
+  registrationNumber: '12345/074/075',
+  companyType: 'PrivateLimited',
+  entityType: 'NASForMEs',
+  fullAddress: 'Kathmandu, Nepal',
+  chairperson: 'Mr. A',
+  director: 'Mr. B',
+  accountsHead: 'Mr. C',
   auditorInfo: {
-    auditorFirmName: 'B.K. Acharya & Associates',
-    auditorName: 'Bikash Kumar Acharya',
-    icaRegistrationNumber: 'CA 2134',
-    position: 'Partner',
+    auditorName: 'CA. A',
+    auditorFirmName: 'A & Associates',
+    position: 'Proprietor',
   },
-
   fiscalYear: {
     bsYear: '2081/82',
-    startDateBS: '2081-04-01',
-    endDateBS: '2082-03-31',
-    startDateAD: '2024-07-17',
-    endDateAD: '2025-07-16',
+    startDateBS: '1 Shrawan 2081',
+    endDateBS: '31 Ashadh 2082',
+    startDateAD: 'July 16, 2024',
+    endDateAD: 'July 15, 2025',
+    startYear: 2024,
+    endYear: 2025,
+    isLeapYear: false,
   },
-
-  createdAt: new Date().toISOString(),
-  updatedAt: new Date().toISOString(),
-
   accountingPolicies: {
-    depreciationMethod: DepreciationMethod.WrittenDownValue,
-    inventoryCostMethod: InventoryCostMethod.WeightedAverage,
-    assetCategories: [
-      {
-        id: 'buildings',
-        name: 'Building',
-        depreciationMethod: DepreciationMethod.StraightLine,
-        residualValuePercent: 5,
-        usefulLifeYears: 20,
-        taxDepreciationRate: 5,
-        taxPool: 'A',
-      },
-      {
-        id: 'vehicles',
-        name: 'Vehicle',
-        depreciationMethod: DepreciationMethod.WrittenDownValue,
-        residualValuePercent: 10,
-        usefulLifeYears: 5,
-        taxDepreciationRate: 20,
-        taxPool: 'C',
-      },
-      {
-        id: 'furniture',
-        name: 'Furniture & Fixtures',
-        depreciationMethod: DepreciationMethod.StraightLine,
-        residualValuePercent: 10,
-        usefulLifeYears: 10,
-        taxDepreciationRate: 10,
-        taxPool: 'B',
-      },
-      {
-        id: 'computers',
-        name: 'Computers & IT Equipment',
-        depreciationMethod: DepreciationMethod.WrittenDownValue,
-        residualValuePercent: 0,
-        usefulLifeYears: 4,
-        taxDepreciationRate: 25,
-        taxPool: 'B',
-      },
-    ],
-    recognizeGratuity: true,
-    gratuityDaysPerYear: 15,
-    recognizeLeaveEncashment: true,
-    bonusRatePercent: 10,
+    depreciationMethod: 'StraightLine',
+    inventoryCostMethod: 'WeightedAverage',
     incomeTaxRatePercent: 25,
-    roundingLevel: 1,
-    currency: 'NPR',
-    investmentValuationMethod: 'CostOrMarket',
+    roundingLevel: 100,
+    bonusRatePercent: 10,
+    gratuityDaysPerYear: 15,
+    recognizeGratuity: true,
+    recognizeLeaveEncashment: true,
+    assetCategories: [
+      { id: 'buildings', name: 'Buildings', defaultMethod: 'StraightLine', defaultUsefulLife: 25, defaultWDVRate: 5, defaultResidualPct: 0 },
+      { id 'furniture', name: 'Furniture & Office Equipment', defaultMethod: 'StraightLine', defaultUsefulLife: 5, defaultWDVRate: 25, defaultResidualPct: 0 },
+      { id: 'vehicles', name: 'Vehicles', defaultMethod: 'StraightLine', defaultUsefulLife: 10, defaultWDVRate: 20, defaultResidualPct: 0 },
+      { id: 'plant', name: 'Plant & Machinery', defaultMethod: 'StraightLine', defaultUsefulLife: 15, defaultWDVRate: 15, defaultResidualPct: 0 },
+      { id: 'intangibles', name: 'Intangible Assets', defaultMethod: 'StraightLine', defaultUsefulLife: 10, defaultWDVRate: 0, defaultResidualPct: 0 },
+    ],
   },
+  numberOfEmployees: 12,
 };
 
-// ── SAMPLE_TRIAL_BALANCE_CSV ──────────────────────────────────────────────────
-// Format: Account Name,Closing Dr,Closing Cr
-// All amounts in NPR. Total Dr must equal Total Cr.
-//
-// Balance verification:
-//   Total Dr = 50,000 + 250,000 + 500,000 + 180,000 + 95,000 + 45,000 + 320,000
-//            + 2,500,000 + 1,200,000 + 15,000 + 2,100,000 + 280,000 + 25,200
-//            + 120,000 + 18,000 + 72,000 + 35,000 + 409,300
-//            = 82,14,500
-//   Total Cr = 500,000 + 140,000 + 75,000 + 35,000 + 8,500 + 800,000 + 2,000,000
-//            + 500,000 + 200,000 + 3,500,000 + 136,000 + 320,000
-//            = 82,14,500  ✓
-//
-// Note: Adjusted to reflect unadjusted TB for depreciation and correct closing stock double-entry.
-
-export const SAMPLE_TRIAL_BALANCE_CSV = `Account Name,Closing Dr,Closing Cr
-Cash in Hand,50000,
-NIC Asia Bank Current Account,250000,
-Himalayan Bank FD,500000,
-Debtor - ABC Traders,180000,
-Debtor - XYZ Enterprises,95000,
-Advance to Suppliers,45000,
-Closing Stock,320000,
-Building,2500000,
-Vehicle,1200000,
-Accumulated Depreciation,,500000
-TDS Receivable,15000,
-Creditor - Supplier A,,140000
-Creditor - Supplier B,,75000
-Audit Fee Payable,,35000
-TDS Payable,,8500
-Term Loan - Nabil Bank,,800000
-Paid-up Capital,,2000000
-General Reserve,,500000
-Retained Earnings,,200000
-Sales Revenue,,3500000
-Changes in Inventory,,320000
-Purchase,2100000,
-Salary,280000,
-Provident Fund,25200,
-Rent,120000,
-Electricity,18000,
-Interest on Loan,72000,
-Audit Fee,35000,
-Other Admin Expenses,409300,
-VAT Payable,,136000
-`;
-
-// ── SAMPLE_PARSED_TB_ROWS ─────────────────────────────────────────────────────
-// Pre-parsed TB rows for testing the account mapper without the parser.
-
-export const SAMPLE_TB_ROW_MAPPINGS: Array<{
-  rawLabel: string;
-  expectedNfrsCategory: string;
-  expectedConfidence: number;
-}> = [
-  { rawLabel: 'Cash in Hand', expectedNfrsCategory: 'cash_in_hand', expectedConfidence: 95 },
-  { rawLabel: 'NIC Asia Bank Current Account', expectedNfrsCategory: 'bank_current_account', expectedConfidence: 90 },
-  { rawLabel: 'Himalayan Bank FD', expectedNfrsCategory: 'bank_fixed_deposit_current', expectedConfidence: 85 },
-  { rawLabel: 'Debtor - ABC Traders', expectedNfrsCategory: 'trade_receivables', expectedConfidence: 90 },
-  { rawLabel: 'Debtor - XYZ Enterprises', expectedNfrsCategory: 'trade_receivables', expectedConfidence: 90 },
-  { rawLabel: 'Advance to Suppliers', expectedNfrsCategory: 'other_receivables_advance_supplier', expectedConfidence: 82 },
-  { rawLabel: 'Closing Stock', expectedNfrsCategory: 'inventory_finished_goods', expectedConfidence: 88 },
-  { rawLabel: 'Building', expectedNfrsCategory: 'ppe_buildings', expectedConfidence: 98 },
-  { rawLabel: 'Vehicle', expectedNfrsCategory: 'ppe_vehicles', expectedConfidence: 98 },
-  { rawLabel: 'Accumulated Depreciation', expectedNfrsCategory: 'accum_depreciation', expectedConfidence: 98 },
-  { rawLabel: 'TDS Receivable', expectedNfrsCategory: 'other_receivables_tds', expectedConfidence: 88 },
-  { rawLabel: 'Creditor - Supplier A', expectedNfrsCategory: 'trade_payables_creditors', expectedConfidence: 90 },
-  { rawLabel: 'Creditor - Supplier B', expectedNfrsCategory: 'trade_payables_creditors', expectedConfidence: 90 },
-  { rawLabel: 'Audit Fee Payable', expectedNfrsCategory: 'audit_fee_payable', expectedConfidence: 95 },
-  { rawLabel: 'TDS Payable', expectedNfrsCategory: 'tds_payable', expectedConfidence: 92 },
-  { rawLabel: 'Term Loan - Nabil Bank', expectedNfrsCategory: 'borrowings_noncurrent_bank', expectedConfidence: 88 },
-  { rawLabel: 'Paid-up Capital', expectedNfrsCategory: 'share_capital', expectedConfidence: 95 },
-  { rawLabel: 'General Reserve', expectedNfrsCategory: 'general_reserve', expectedConfidence: 98 },
-  { rawLabel: 'Retained Earnings', expectedNfrsCategory: 'retained_earnings', expectedConfidence: 98 },
-  { rawLabel: 'Sales Revenue', expectedNfrsCategory: 'revenue_sales', expectedConfidence: 95 },
-  { rawLabel: 'Purchase', expectedNfrsCategory: 'cogs_purchases', expectedConfidence: 95 },
-  { rawLabel: 'Salary', expectedNfrsCategory: 'emp_expense_salaries', expectedConfidence: 95 },
-  { rawLabel: 'Provident Fund', expectedNfrsCategory: 'emp_expense_pf', expectedConfidence: 90 },
-  { rawLabel: 'Rent', expectedNfrsCategory: 'admin_rent', expectedConfidence: 95 },
-  { rawLabel: 'Electricity', expectedNfrsCategory: 'admin_electricity', expectedConfidence: 90 },
-  { rawLabel: 'Interest on Loan', expectedNfrsCategory: 'finance_cost_interest', expectedConfidence: 90 },
-  { rawLabel: 'Audit Fee', expectedNfrsCategory: 'admin_audit_fee', expectedConfidence: 95 },
-  { rawLabel: 'Depreciation', expectedNfrsCategory: 'depreciation_expense', expectedConfidence: 98 },
-  { rawLabel: 'Other Admin Expenses', expectedNfrsCategory: 'admin_other', expectedConfidence: 85 },
-  { rawLabel: 'VAT Payable', expectedNfrsCategory: 'other_payables', expectedConfidence: 92 },
-];
-
-// ── SAMPLE_ASSET_REGISTER ─────────────────────────────────────────────────────
-// Sample assets for testing depreciation engine.
-
-export const SAMPLE_ASSETS = [
-  {
-    id: 'asset-001',
-    assetName: 'Office Building — New Baneshwor',
-    categoryId: 'ppe_buildings',
-    purchaseDateBS: '2073-01-15',  // BS date
-    purchaseDateAD: '2016-04-27',
-    originalCost: 2500000,
-    additionalCost: 0,
-    openingNBV: 1875000,        // After prior years SLM 5%
-    accumDepreciationOpening: 625000,
-    depreciationMethod: 'slm' as const,
-    usefulLifeYears: 20,
-    ratePercent: 5,
-    residualValue: 250000,
-    isFullYear: true,
-    isFullyDepreciated: false,
-    isMortgaged: false,
-  },
-  {
-    id: 'asset-002',
-    assetName: 'Delivery Vehicle — Ba 1 Ja 2345',
-    categoryId: 'ppe_vehicles',
-    purchaseDateBS: '2078-08-20',
-    purchaseDateAD: '2021-12-05',
-    originalCost: 1200000,
-    additionalCost: 0,
-    openingNBV: 614400,         // After 3 years WDV 20%
-    accumDepreciationOpening: 585600,
-    depreciationMethod: 'wdv' as const,
-    wdvRate: 20,
-    usefulLifeYears: 5,
-    residualValue: 0,
-    isFullYear: true,
-    isFullyDepreciated: false,
-    isMortgaged: false,
-  },
-];
-
-// ── SAMPLE_EXPECTED_FINANCIALS ────────────────────────────────────────────────
-// Pre-calculated expected values for validation in tests.
-// Based on the sample trial balance data.
+export const SAMPLE_TRIAL_BALANCE_CSV = \`Account Name,Opening Dr,Opening Cr,During Dr,During Cr,Closing Dr,Closing Cr
+Paid-up Capital,0,50000000,0,1000000,0,51000000
+Reserves & Surplus,0,2532000,0,0,938901,0
+Bank A,0,2500000,1000000,0,0,1500000
+Bank B,0,1200000,200000,0,0,1000000
+Creditor A,0,125000,50000,400000,0,475000
+Creditor B,0,55000,5000,50000,0,100000
+Creditor C,0,0,100000,0,100000,0
+Audit Fee Payable,0,115000,115000,150000,0,150000
+Staff Bonus Payable,0,115000,0,132349,0,247349
+Provision for CSR,0,25000,0,0,0,25000
+Director A,0,75000,30000,0,0,45000
+Director B,0,115000,20000,0,0,95000
+Employee A,0,10000,10000,20000,0,20000
+Employee B,0,15000,15000,30000,0,30000
+Provident Fund Payable,0,0,0,10000,0,10000
+TDS - Audit Fee,0,10000,5000,20000,0,25000
+TDS - Ltd. Company,0,25000,0,0,0,25000
+TDS- Proprietorship,0,5000,0,0,0,5000
+TDS - Pvt. Ltd,0,10000,0,0,0,10000
+TDS- Salary,0,15000,0,15000,0,30000
+TDS - SST,0,5000,0,0,0,5000
+TDS - Rental,0,10000,0,0,0,10000
+VAT,0,15000,15000,30000,0,30000
+Income Tax Payable,0,55000,55000,252243,0,252243
+Land,37190767,0,0,0,37190767,0
+Building,5500000,0,0,0,5500000,0
+Furniture & Office Equipment,1900000,0,0,0,1900000,0
+Vehicle,1700000,0,0,0,1700000,0
+Plant & Machinery,2200000,0,0,0,2200000,0
+Tally Software,165000,0,0,0,165000,0
+Leasehold,6000000,0,0,0,6000000,0
+Work In Progress,2800000,0,0,0,2800000,0
+Biological Assets,0,0,1010000,0,1010000,0
+Accumulated Depreciation,0,2380767,0,907506,0,3288274
+Shares of XYZ Ltd.,0,0,500000,0,500000,0
+Shares of PQR Ltd.,0,0,1200000,0,1200000,0
+Provision for Impairment on Investment,0,0,0,200000,0,200000
+Deposits,225000,0,200000,150000,275000,0
+Loans & Advances (Asset),20000,0,50000,20000,50000,0
+Staff Advance,75000,0,0,50000,25000,0
+Debtor A,1302000,0,1100000,1200000,1202000,0
+Debtor B,75000,0,200000,50000,225000,0
+Debtor C,0,0,0,100000,0,100000
+Provision for Impairment on debtors,0,0,0,100000,0,100000
+Director C,0,0,50000,0,50000,0
+Director D,0,0,50000,0,50000,0
+Petty Cash,10000,0,20000,8000,22000,0
+Bank C,85000,0,100000,70000,115000,0
+Bank D,115000,0,74000,115000,74000,0
+Inventory,25000,0,0,0,25000,0
+Advance Tax,25000,0,0,0,25000,0
+Non Current Assets held for Sale,0,0,10000,0,10000,0
+Sales Revenue,0,0,0,9000000,0,9000000
+Service Income,0,0,0,1500000,0,1500000
+Purchase,0,0,6000000,0,6000000,0
+Wages,0,0,500000,0,500000,0
+Other Direct Expenses,0,0,100000,0,100000,0
+Interest Income,0,0,0,2000,0,2000
+Commission Income,0,0,0,50000,0,50000
+Other Indirect Income,0,0,0,5000,0,5000
+Rental Income,0,0,0,5000,0,5000
+Dividend Income,0,0,0,10000,0,10000
+Salaries & Wages,0,0,500000,0,500000,0
+Allowances,0,0,100000,0,100000,0
+PF / SSF / CIT,0,0,100000,0,100000,0
+Staff Bonus,0,0,0,0,132349,0
+Leave Encashment,0,0,20000,0,20000,0
+Other employee related expenses,0,0,50000,0,50000,0
+Interest expense,0,0,250000,0,250000,0
+Bank Charges,0,0,10000,0,10000,0
+Depreciation,0,0,0,0,907506,0
+Impairment on Receivables,0,0,100000,0,100000,0
+Impairment on Unlisted Shares,0,0,200000,0,200000,0
+Pool A,0,0,10000,0,10000,0
+Pool B,0,0,5000,0,5000,0
+Pool C,0,0,25000,0,25000,0
+Pool D,0,0,10000,0,10000,0
+Pool E,0,0,1000,0,1000,0
+Income Tax Expense,0,0,0,0,252243,0
+Audit Fee,0,0,25000,0,25000,0
+Advertisement & Business Promotion,0,0,20000,0,20000,0
+Fuel Expenses,0,0,50000,0,50000,0
+House Rent,0,0,50000,0,50000,0
+Insurance Premium,0,0,20000,0,20000,0
+Miscellaneous expenses,0,0,25000,0,25000,0
+Printing & Stationery,0,0,10000,0,10000,0
+Refreshment Expenses,0,0,100000,0,100000,0
+Travelling,0,0,20000,0,20000,0
+Water & Electricity Charges,0,0,25000,0,25000,0
+Cash Credit,0,0,0,100000,0,100000
+Working Capital Loan,0,0,0,50000,0,50000\`;
 
 export const SAMPLE_EXPECTED = {
-  totalRevenue: 3500000,
-  totalPurchases: 2100000,
-  grossProfit: 1400000,       // Revenue - Purchases - Stock change
-  totalEmployeeCosts: 305200, // Salary 280,000 + PF 25,200
-  totalFinanceCosts: 72000,
-  totalAdminExpenses: 252300, // Rent + Electricity + Audit Fee + Depreciation + Other Admin
-  profitBeforeTax: 770500,    // Approximate — before bonus and tax
-  staffBonus: 70045,          // 10% of PBT/(1+0.1) approx
-  incomeTax: 175114,          // 25% of taxable profit approx
-
-  // Balance Sheet
-  totalCurrentAssets: 1455000, // Cash + Banks + Debtors + Advance + Stock + TDS
-  totalNCA: 3050000,           // Building + Vehicle net of depreciation
-  totalAssets: 4505000,
-
-  totalCurrentLiabilities: 394500, // Creditors + Audit Fee Payable + TDS + VAT
-  totalNCL: 800000,            // Term Loan
-  totalEquity: 3310500,        // Capital + Reserves + Retained + CY Profit (approx)
-  totalLiabilitiesAndEquity: 4505000,
+  totalAssets: 58785494,
+  totalCurrentAssets: 2008000,
+  totalNCA: 56777494,
+  totalLiabilitiesAndEquity: 58785494,
+  totalCurrentLiabilities: 5145494,
+  totalNCL: 2640000,
+  totalEquity: 51000000,
+  totalRevenue: 10500000,
+  totalPurchases: 6000000,
+  profitBeforeTax: 1191144,
+  incomeTax: 252243,
+  netProfit: 938901,
 };

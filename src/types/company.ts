@@ -1,81 +1,49 @@
-// ─── Enums ────────────────────────────────────────────────────────────────────
+// src/types/company.ts
 
-export enum CompanyType {
-  PrivateLimited   = 'PrivateLimited',
-  PublicLimited    = 'PublicLimited',
-  Partnership      = 'Partnership',
-  Proprietorship   = 'Proprietorship',
-  NGO              = 'NGO',
-  Cooperative      = 'Cooperative',
-  Other            = 'Other',
+export interface FiscalYearInfo {
+  bsYear: string;          // "2081/82"
+  startDateBS: string;     // "1 Shrawan 2081"
+  endDateBS: string;       // "31 Ashadh 2082"
+  startDateAD: string;     // "July 16, 2024"
+  endDateAD: string;       // "July 15, 2025"
+  startYear: number;       // 2024
+  endYear: number;         // 2025
+  isLeapYear: boolean;
 }
-
-export enum EntityType {
-  NASForMEs = 'NASForMEs',   // Default — Micro Entities
-  FullNFRS  = 'FullNFRS',    // Larger companies
-}
-
-export enum DepreciationMethod {
-  StraightLine      = 'StraightLine',
-  WrittenDownValue  = 'WrittenDownValue',
-  UnitsOfProduction = 'UnitsOfProduction',
-}
-
-export enum InventoryCostMethod {
-  FIFO            = 'FIFO',
-  WeightedAverage = 'WeightedAverage',
-}
-
-// ─── Fiscal Year ──────────────────────────────────────────────────────────────
-
-export interface FiscalYear {
-  bsYear: string;       // e.g. "2081/82"
-  startDateBS: string;  // e.g. "1 Shrawan 2081"
-  endDateBS: string;    // e.g. "31 Ashadh 2082"
-  startDateAD: string;  // e.g. "July 16, 2024"
-  endDateAD: string;    // e.g. "July 15, 2025"
-}
-
-// ─── Asset Category ───────────────────────────────────────────────────────────
-
-export interface AssetCategory {
-  id: string;
-  name: string;                          // e.g. "Buildings"
-  usefulLifeYears: number;
-  residualValuePercent: number;          // 0–100
-  depreciationMethod: DepreciationMethod;
-  taxDepreciationRate: number;           // e.g. 5 for 5% (Nepal Income Tax Act pools)
-  taxPool: 'A' | 'B' | 'C' | 'D';
-}
-
-// ─── Accounting Policies ──────────────────────────────────────────────────────
-
-export interface AccountingPolicies {
-  depreciationMethod: DepreciationMethod;
-  inventoryCostMethod: InventoryCostMethod;
-  assetCategories: AssetCategory[];
-  recognizeGratuity: boolean;
-  gratuityDaysPerYear: number;           // default 15
-  recognizeLeaveEncashment: boolean;
-  bonusRatePercent: number;              // default 0
-  incomeTaxRatePercent: number;          // e.g. 25
-  roundingLevel: 1 | 10 | 100 | 1000 | 10000;
-  currency: 'NPR';
-  investmentValuationMethod: 'CostOrMarket' | 'FairValue';
-}
-
-// ─── Auditor Info ─────────────────────────────────────────────────────────────
 
 export interface AuditorInfo {
   auditorName: string;
   auditorFirmName: string;
-  icaRegistrationNumber: string;
-  position: 'Partner' | 'Proprietor' | 'Qualified';
+  position: string;
+  icanRegNumber?: string;
 }
 
-// ─── Previous Year Balances ───────────────────────────────────────────────────
+export interface AssetCategory {
+  id: string;
+  name: string;
+  defaultMethod: 'StraightLine' | 'WrittenDownValue';
+  defaultUsefulLife: number;
+  defaultWDVRate: number;
+  defaultResidualPct: number;
+}
+
+export interface AccountingPolicies {
+  depreciationMethod: 'StraightLine' | 'WrittenDownValue';
+  inventoryCostMethod: 'FIFO' | 'WeightedAverage' | 'SpecificIdentification';
+  incomeTaxRatePercent: number;
+  roundingLevel: number;
+  bonusRatePercent: number;
+  gratuityDaysPerYear: number;
+  recognizeGratuity?: boolean;
+  recognizeLeaveEncashment?: boolean;
+  hasGratuityLiability?: boolean;
+  hasLeaveEncashment?: boolean;
+  dateOfAuthorizationForIssue?: string;
+  assetCategories: AssetCategory[];
+}
 
 export interface PreviousYearBalances {
+  // Income Statement
   revenue: number;
   costOfSales: number;
   otherIncome: number;
@@ -83,12 +51,11 @@ export interface PreviousYearBalances {
   financeCosts: number;
   depreciation: number;
   incomeTaxExpense: number;
-
+  // Balance Sheet
   ppe: number;
   investments: number;
   currentAssets: number;
   cashAndEquivalents: number;
-
   shareCapital: number;
   reserves: number;
   borrowingsNonCurrent: number;
@@ -97,128 +64,32 @@ export interface PreviousYearBalances {
   provisions: number;
 }
 
-// ─── Company Profile ──────────────────────────────────────────────────────────
-
 export interface CompanyProfile {
-  id: string;                  // UUID
-  companyName: string;         // Exact as per registration certificate
-  panVatNumber: string;
-  registrationNumber: string;
-  companyType: CompanyType;
-  entityType: EntityType;
-  address: {
-    province: string;
-    district: string;
-    municipality: string;
-    ward: string;
-    tole: string;
-    fullAddress: string;
-  };
-  contactPerson: string;
-  designation: string;
-  phone: string;
-  email: string;
+  id: string;
+  companyName: string;
+  panVatNumber?: string;
+  registrationNumber?: string;
+  companyType: string;
+  entityType?: string;
+  province?: string;
+  district?: string;
+  municipality?: string;
+  wardNumber?: string;
+  tole?: string;
+  fullAddress?: string;
+  contactPerson?: string;
+  designation?: string;
+  phone?: string;
+  email?: string;
   chairperson?: string;
   director?: string;
   accountsHead?: string;
   auditorInfo?: AuditorInfo;
-  fiscalYear: FiscalYear;
+  fiscalYear: FiscalYearInfo;
+  previousFiscalYear?: FiscalYearInfo;
   accountingPolicies: AccountingPolicies;
   previousYearData?: PreviousYearBalances;
-  createdAt: string;           // ISO date string
-  updatedAt: string;
+  numberOfEmployees?: number;
+  createdAt?: string;
+  updatedAt?: string;
 }
-
-// ─── Default Asset Categories ─────────────────────────────────────────────────
-// Based on Nepal standard useful lives and Income Tax Act depreciation pools
-
-export const DEFAULT_ASSET_CATEGORIES: AssetCategory[] = [
-  {
-    id: 'land',
-    name: 'Land',
-    usefulLifeYears: 0,
-    residualValuePercent: 0,
-    depreciationMethod: DepreciationMethod.StraightLine,
-    taxDepreciationRate: 0,
-    taxPool: 'A',
-  },
-  {
-    id: 'buildings',
-    name: 'Buildings',
-    usefulLifeYears: 40,
-    residualValuePercent: 5,
-    depreciationMethod: DepreciationMethod.StraightLine,
-    taxDepreciationRate: 5,
-    taxPool: 'A',
-  },
-  {
-    id: 'office_equipment',
-    name: 'Office Equipment',
-    usefulLifeYears: 5,
-    residualValuePercent: 10,
-    depreciationMethod: DepreciationMethod.WrittenDownValue,
-    taxDepreciationRate: 25,
-    taxPool: 'B',
-  },
-  {
-    id: 'computers',
-    name: 'Computers',
-    usefulLifeYears: 5,
-    residualValuePercent: 10,
-    depreciationMethod: DepreciationMethod.WrittenDownValue,
-    taxDepreciationRate: 25,
-    taxPool: 'B',
-  },
-  {
-    id: 'vehicles',
-    name: 'Vehicles',
-    usefulLifeYears: 5,
-    residualValuePercent: 10,
-    depreciationMethod: DepreciationMethod.WrittenDownValue,
-    taxDepreciationRate: 25,
-    taxPool: 'B',
-  },
-  {
-    id: 'furniture',
-    name: 'Furniture & Fixtures',
-    usefulLifeYears: 10,
-    residualValuePercent: 10,
-    depreciationMethod: DepreciationMethod.StraightLine,
-    taxDepreciationRate: 20,
-    taxPool: 'C',
-  },
-  {
-    id: 'plant_machinery',
-    name: 'Plant & Machinery',
-    usefulLifeYears: 15,
-    residualValuePercent: 10,
-    depreciationMethod: DepreciationMethod.WrittenDownValue,
-    taxDepreciationRate: 20,
-    taxPool: 'C',
-  },
-  {
-    id: 'intangibles',
-    name: 'Intangible Assets',
-    usefulLifeYears: 5,
-    residualValuePercent: 0,
-    depreciationMethod: DepreciationMethod.StraightLine,
-    taxDepreciationRate: 15,
-    taxPool: 'D',
-  },
-];
-
-// ─── Default Accounting Policies ─────────────────────────────────────────────
-
-export const DEFAULT_ACCOUNTING_POLICIES: AccountingPolicies = {
-  depreciationMethod: DepreciationMethod.WrittenDownValue,
-  inventoryCostMethod: InventoryCostMethod.WeightedAverage,
-  assetCategories: DEFAULT_ASSET_CATEGORIES,
-  recognizeGratuity: true,
-  gratuityDaysPerYear: 15,
-  recognizeLeaveEncashment: true,
-  bonusRatePercent: 0,
-  incomeTaxRatePercent: 25,
-  roundingLevel: 100,
-  currency: 'NPR',
-  investmentValuationMethod: 'CostOrMarket',
-};

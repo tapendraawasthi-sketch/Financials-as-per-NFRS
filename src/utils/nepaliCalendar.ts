@@ -1,345 +1,284 @@
-// ===== src/utils/nepaliCalendar.ts =====
-// Utility functions for Nepal Bikram Sambat (BS) calendar operations.
-// Used throughout the NFRS system for partial-year depreciation calculations,
-// tax depreciation time-apportionment, and BS date display.
-//
-// Nepal fiscal year: 1 Shrawan (month 1) to 31/32 Ashadh (month 12).
-// All months are numbered relative to the fiscal year start:
-//   1=Shrawan, 2=Bhadra, 3=Aswin, 4=Kartik, 5=Mangsir, 6=Poush,
-//   7=Magh, 8=Falgun, 9=Chaitra, 10=Baisakh, 11=Jestha, 12=Ashadh
+// src/utils/nepaliCalendar.ts
+// Bikram Sambat ↔ Gregorian conversion utilities for Nepal fiscal year handling.
 
-import { getFiscalYear } from '../data/fiscalYears';
-
-// ---------------------------------------------------------------------------
-// Internal constants
-// ---------------------------------------------------------------------------
-
-/** English month name → 0-based index (for JS Date parsing) */
-const AD_MONTH_MAP: Record<string, number> = {
-  january: 0, february: 1, march: 2, april: 3, may: 4, june: 5,
-  july: 6, august: 7, september: 8, october: 9, november: 10, december: 11,
+// BS month days for years 2070–2090 (official government data)
+// Each entry: [Baishakh, Jestha, Ashadh, Shrawan, Bhadra, Aswin, Kartik, Mangsir, Poush, Magh, Falgun, Chaitra]
+const BS_CALENDAR_DATA: Record<number, number[]> = {
+  2070: [31, 31, 32, 31, 31, 31, 30, 29, 30, 29, 30, 30],
+  2071: [31, 31, 32, 31, 32, 30, 30, 29, 30, 29, 30, 30],
+  2072: [31, 32, 31, 32, 31, 30, 30, 30, 29, 29, 30, 31],
+  2073: [31, 31, 32, 31, 31, 31, 30, 29, 30, 29, 30, 30],
+  2074: [31, 31, 32, 32, 31, 30, 30, 29, 30, 29, 30, 30],
+  2075: [31, 32, 31, 32, 31, 30, 30, 30, 29, 29, 30, 31],
+  2076: [31, 32, 31, 32, 31, 30, 30, 30, 29, 30, 29, 31],
+  2077: [31, 31, 32, 31, 31, 31, 30, 29, 30, 29, 30, 30],
+  2078: [31, 31, 32, 31, 32, 30, 30, 29, 30, 29, 30, 30],
+  2079: [31, 32, 31, 32, 31, 30, 30, 30, 29, 29, 30, 31],
+  2080: [31, 31, 32, 32, 31, 30, 30, 29, 30, 29, 30, 30],
+  2081: [31, 32, 31, 32, 31, 30, 30, 30, 29, 29, 30, 31],
+  2082: [31, 32, 31, 32, 31, 30, 30, 30, 29, 30, 29, 31],
+  2083: [31, 31, 32, 31, 31, 31, 30, 29, 30, 29, 30, 30],
+  2084: [31, 31, 32, 31, 32, 30, 30, 29, 30, 29, 30, 30],
+  2085: [31, 32, 31, 32, 31, 30, 30, 30, 29, 29, 30, 31],
+  2086: [31, 31, 32, 32, 31, 30, 30, 29, 30, 29, 30, 30],
+  2087: [31, 32, 31, 32, 31, 30, 30, 30, 29, 29, 30, 31],
+  2088: [31, 32, 31, 32, 31, 30, 30, 30, 29, 30, 29, 31],
+  2089: [31, 31, 32, 31, 31, 31, 30, 29, 30, 29, 30, 30],
+  2090: [31, 31, 32, 32, 31, 30, 30, 29, 30, 29, 30, 30],
 };
 
-/** BS month name (lower-case) → BS month number (1–12, fiscal order) */
-const BS_MONTH_NUMBER: Record<string, number> = {
-  shrawan: 1,
-  bhadra: 2,
-  aswin: 3,
-  kartik: 4,
-  mangsir: 5,
-  poush: 6,
-  magh: 7,
-  falgun: 8,
-  chaitra: 9,
-  baisakh: 10,
-  jestha: 11,
-  ashadh: 12,
-};
+// Nepali months in calendar order (Baishakh = month 1 in civil calendar)
+const NEPALI_MONTHS = [
+  'Baishakh', 'Jestha', 'Ashadh', 'Shrawan', 'Bhadra', 'Aswin',
+  'Kartik', 'Mangsir', 'Poush', 'Magh', 'Falgun', 'Chaitra',
+];
 
-/** BS month number → canonical English name */
-const BS_MONTH_NAMES: Record<number, string> = {
-  1: 'Shrawan',
-  2: 'Bhadra',
-  3: 'Aswin',
-  4: 'Kartik',
-  5: 'Mangsir',
-  6: 'Poush',
-  7: 'Magh',
-  8: 'Falgun',
-  9: 'Chaitra',
-  10: 'Baisakh',
-  11: 'Jestha',
-  12: 'Ashadh',
-};
+// Fiscal year months (Shrawan = month 1 of fiscal year = month 4 of civil year)
+const FISCAL_MONTHS = [
+  'Shrawan', 'Bhadra', 'Aswin', 'Kartik', 'Mangsir', 'Poush',
+  'Magh', 'Falgun', 'Chaitra', 'Baishakh', 'Jestha', 'Ashadh',
+];
+
+// Reference point: 1 Baishakh 2070 BS = April 14, 2013 AD
+const BS_REF_YEAR = 2070;
+const AD_REF_DATE = new Date(2013, 3, 14); // April 14, 2013
 
 /**
- * Approximate day counts for each BS month.
- * Chaitra is 30 days in a normal year, 31 in a leap year.
- * Ashadh is 31 days normally, 32 in a leap year.
- * These are used only to compute cumulative day offsets within a year —
- * the AD anchor dates from the fiscal year table are the authoritative boundaries.
+ * Get BS month name from 1-based month index (civil calendar).
+ * Month 1 = Baishakh, Month 12 = Chaitra
  */
-const BS_MONTH_DAYS_NORMAL: Record<number, number> = {
-  1: 31,  // Shrawan
-  2: 32,  // Bhadra
-  3: 31,  // Aswin
-  4: 30,  // Kartik
-  5: 30,  // Mangsir
-  6: 30,  // Poush
-  7: 30,  // Magh
-  8: 30,  // Falgun
-  9: 30,  // Chaitra (31 in leap year)
-  10: 31, // Baisakh
-  11: 32, // Jestha
-  12: 31, // Ashadh (32 in leap year)
-};
-
-// ---------------------------------------------------------------------------
-// Private helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Parses an AD date string in the format "Month DD, YYYY" or "Month D, YYYY"
- * (as stored in FISCAL_YEARS) into a JS Date (local midnight).
- */
-function parseAdDateString(adDateStr: string): Date | null {
-  // Expected format: "July 16, 2024"
-  const parts = adDateStr.trim().split(/[\s,]+/).filter(Boolean);
-  if (parts.length < 3) return null;
-  const month = AD_MONTH_MAP[parts[0].toLowerCase()];
-  const day = parseInt(parts[1], 10);
-  const year = parseInt(parts[2], 10);
-  if (isNaN(month) || isNaN(day) || isNaN(year)) return null;
-  return new Date(year, month, day);
+export function getBSMonthName(month: number): string {
+  if (month < 1 || month > 12) return '';
+  return NEPALI_MONTHS[month - 1];
 }
 
 /**
- * Returns the cumulative day offset (0-based) of the START of a given
- * BS month within the fiscal year, using approximate month lengths.
- * Month 1 (Shrawan) starts at offset 0.
- * isLeapYear affects Chaitra (month 9) and Ashadh (month 12).
+ * Get fiscal month name from 1-based fiscal month index.
+ * Fiscal month 1 = Shrawan, Fiscal month 12 = Ashadh
  */
-function cumulativeDaysBefore(bsMonth: number, isLeapYear: boolean): number {
-  let total = 0;
-  for (let m = 1; m < bsMonth; m++) {
-    let days = BS_MONTH_DAYS_NORMAL[m] ?? 30;
-    if (m === 9 && isLeapYear) days = 31;  // Chaitra in leap year
-    if (m === 12 && isLeapYear) days = 32; // Ashadh in leap year
-    total += days;
+export function getFiscalMonthName(fiscalMonth: number): string {
+  if (fiscalMonth < 1 || fiscalMonth > 12) return '';
+  return FISCAL_MONTHS[fiscalMonth - 1];
+}
+
+/**
+ * Get total days in a BS year.
+ */
+export function getTotalDaysInBSYear(bsYear: number): number {
+  const months = BS_CALENDAR_DATA[bsYear];
+  if (!months) return 365;
+  return months.reduce((sum, d) => sum + d, 0);
+}
+
+/**
+ * Get days in a specific BS month (1-based, civil calendar order).
+ */
+export function getDaysInBSMonth(bsYear: number, bsMonth: number): number {
+  const months = BS_CALENDAR_DATA[bsYear];
+  if (!months || bsMonth < 1 || bsMonth > 12) return 30;
+  return months[bsMonth - 1];
+}
+
+/**
+ * Convert BS date to AD date.
+ */
+export function bsToAd(bsYear: number, bsMonth: number, bsDay: number): Date {
+  if (!BS_CALENDAR_DATA[bsYear]) {
+    // Approximate conversion: BS year ≈ AD year - 56.7
+    const approxYear = bsYear - 57;
+    return new Date(approxYear, bsMonth + 2, bsDay); // rough
   }
-  return total;
-}
 
-/**
- * Converts a BS date (month number 1–12, day, year BS) to an approximate
- * AD Date by computing the day offset from the fiscal year start AD date.
- *
- * This is an approximation valid for depreciation purposes (±1 day
- * acceptable for rounding to days-held calculations).
- */
-function bsDateToApproxAD(
-  bsDay: number,
-  bsMonth: number,
-  bsYearOfFY: string,
-  fyStartAD: Date,
-  isLeapYear: boolean,
-): Date {
-  // Day offset from 1 Shrawan = first day of the fiscal year
-  const offsetDays = cumulativeDaysBefore(bsMonth, isLeapYear) + (bsDay - 1);
-  const result = new Date(fyStartAD.getTime());
-  result.setDate(result.getDate() + offsetDays);
+  // Count total days from reference point
+  let totalDays = 0;
+
+  // Add days for complete years between ref and target
+  if (bsYear > BS_REF_YEAR) {
+    for (let y = BS_REF_YEAR; y < bsYear; y++) {
+      totalDays += getTotalDaysInBSYear(y);
+    }
+  } else if (bsYear < BS_REF_YEAR) {
+    for (let y = bsYear; y < BS_REF_YEAR; y++) {
+      totalDays -= getTotalDaysInBSYear(y);
+    }
+  }
+
+  // Add days for complete months in target year
+  const months = BS_CALENDAR_DATA[bsYear];
+  if (months) {
+    for (let m = 0; m < bsMonth - 1; m++) {
+      totalDays += months[m];
+    }
+  }
+
+  // Add remaining days
+  totalDays += bsDay - 1;
+
+  const result = new Date(AD_REF_DATE);
+  result.setDate(result.getDate() + totalDays);
   return result;
 }
 
-/** Returns the number of whole days between two JS Dates (end - start). */
-function daysBetween(start: Date, end: Date): number {
-  const MS_PER_DAY = 86_400_000;
-  return Math.round((end.getTime() - start.getTime()) / MS_PER_DAY);
+/**
+ * Convert AD date to BS date.
+ */
+export function adToBS(adDate: Date): { year: number; month: number; day: number } {
+  // Calculate total days from reference
+  const diffTime = adDate.getTime() - AD_REF_DATE.getTime();
+  let remainingDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+
+  let bsYear = BS_REF_YEAR;
+  let bsMonth = 1;
+  let bsDay = 1;
+
+  if (remainingDays >= 0) {
+    // Forward from reference
+    while (remainingDays > 0) {
+      const yearDays = getTotalDaysInBSYear(bsYear);
+      if (remainingDays >= yearDays) {
+        remainingDays -= yearDays;
+        bsYear++;
+      } else {
+        break;
+      }
+    }
+
+    const months = BS_CALENDAR_DATA[bsYear];
+    if (months) {
+      for (let m = 0; m < 12; m++) {
+        if (remainingDays >= months[m]) {
+          remainingDays -= months[m];
+          bsMonth++;
+        } else {
+          break;
+        }
+      }
+    }
+    bsDay = remainingDays + 1;
+  } else {
+    // Backward from reference (rare case)
+    remainingDays = Math.abs(remainingDays);
+    bsYear--;
+    while (remainingDays > 0) {
+      const yearDays = getTotalDaysInBSYear(bsYear);
+      if (remainingDays > yearDays) {
+        remainingDays -= yearDays;
+        bsYear--;
+      } else {
+        break;
+      }
+    }
+    const months = BS_CALENDAR_DATA[bsYear];
+    if (months) {
+      bsMonth = 12;
+      for (let m = 11; m >= 0; m--) {
+        if (remainingDays >= months[m]) {
+          remainingDays -= months[m];
+          bsMonth--;
+        } else {
+          break;
+        }
+      }
+      bsDay = months[bsMonth - 1] - remainingDays;
+    }
+  }
+
+  return { year: bsYear, month: bsMonth, day: bsDay };
 }
 
-// ---------------------------------------------------------------------------
-// 1. parseBSDateString
-// ---------------------------------------------------------------------------
+/**
+ * Format a BS date to human-readable string: "15 Shrawan 2081"
+ */
+export function formatBSDate(year: number, month: number, day: number): string {
+  return `${day} ${getBSMonthName(month)} ${year}`;
+}
 
 /**
- * Parses a BS date string such as "15 Poush 2079" into its numeric parts.
- * Month is returned as 1–12 in fiscal order (1 = Shrawan).
- * Returns null if the string cannot be parsed.
- *
- * @example parseBSDateString("15 Poush 2079")  // → { day: 15, month: 6, year: 2079 }
- * @example parseBSDateString("1 Shrawan 2081") // → { day: 1,  month: 1, year: 2081 }
+ * Format an AD date to long format: "July 15, 2025"
  */
-export function parseBSDateString(
-  dateStr: string,
-): { day: number; month: number; year: number } | null {
-  if (!dateStr || typeof dateStr !== 'string') return null;
+export function formatADDate(date: Date): string {
+  const months = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December',
+  ];
+  return `${months[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
+}
 
-  const trimmed = dateStr.trim();
-  // Accept formats: "15 Poush 2079", "15-Poush-2079", "15/Poush/2079"
-  const parts = trimmed.split(/[\s\-\/]+/).filter(Boolean);
+/**
+ * Parse a BS date string like "15 Shrawan 2081" or "1 Shrawan 2081"
+ */
+export function parseBSDateString(dateStr: string): { year: number; month: number; day: number } | null {
+  if (!dateStr) return null;
+  const parts = dateStr.trim().split(/[\s\-\/]+/);
   if (parts.length < 3) return null;
 
   const day = parseInt(parts[0], 10);
-  const monthName = parts[1].toLowerCase();
+  const monthName = parts[1].toLowerCase().trim();
   const year = parseInt(parts[2], 10);
 
-  if (isNaN(day) || isNaN(year) || day < 1 || day > 32) return null;
+  const monthIndex = NEPALI_MONTHS.findIndex(m => m.toLowerCase() === monthName);
+  if (monthIndex === -1 || isNaN(day) || isNaN(year)) return null;
 
-  const month = BS_MONTH_NUMBER[monthName];
-  if (month === undefined) return null;
-
-  return { day, month, year };
+  return { year, month: monthIndex + 1, day };
 }
 
-// ---------------------------------------------------------------------------
-// 2. formatBSDate
-// ---------------------------------------------------------------------------
-
 /**
- * Returns a formatted BS date string.
- * @example formatBSDate(1, 1, 2081) → "1 Shrawan 2081"
- * @example formatBSDate(15, 6, 2079) → "15 Poush 2079"
+ * Get the AD start date of a Nepal fiscal year.
+ * "2081/82" → the AD date of 1 Shrawan 2081
  */
-export function formatBSDate(day: number, month: number, year: number): string {
-  const monthName = BS_MONTH_NAMES[month];
-  if (!monthName) {
-    throw new RangeError(`formatBSDate: month must be 1–12, got ${month}`);
-  }
-  return `${day} ${monthName} ${year}`;
+export function getFYStartAD(bsYear: string): Date {
+  const startYear = parseInt(bsYear.split('/')[0], 10);
+  // Shrawan = civil month 4
+  return bsToAd(startYear, 4, 1);
 }
 
-// ---------------------------------------------------------------------------
-// 3. getDaysInFiscalYear
-// ---------------------------------------------------------------------------
-
 /**
- * Returns the total number of days in the given fiscal year (365 or 366).
- * Determined from the AD start and end dates in the fiscal year lookup table.
- * Falls back to 365 if the fiscal year is not found.
- *
- * @example getDaysInFiscalYear('2082/83') // → 366 (leap year)
- * @example getDaysInFiscalYear('2081/82') // → 365
+ * Get the AD end date of a Nepal fiscal year.
+ * "2081/82" → the AD date of last day of Ashadh 2082
  */
-export function getDaysInFiscalYear(fiscalYear: string): number {
-  const fy = getFiscalYear(fiscalYear);
-  if (!fy) return 365;
-
-  const startAD = parseAdDateString(fy.startDateAD);
-  const endAD = parseAdDateString(fy.endDateAD);
-  if (!startAD || !endAD) return fy.isLeapYear ? 366 : 365;
-
-  // +1 because both start and end are inclusive in the fiscal year
-  const diff = daysBetween(startAD, endAD) + 1;
-  // Sanity clamp: should be 365 or 366
-  return diff === 366 ? 366 : 365;
+export function getFYEndAD(bsYear: string): Date {
+  const endYear = parseInt(bsYear.split('/')[0], 10) + 1;
+  // Ashadh = civil month 3
+  const ashadhDays = getDaysInBSMonth(endYear, 3);
+  return bsToAd(endYear, 3, ashadhDays);
 }
 
-// ---------------------------------------------------------------------------
-// 4. bsToAdDays
-// ---------------------------------------------------------------------------
-
 /**
- * Converts a BS date string (e.g. "15 Poush 2079") to the number of days
- * REMAINING in the fiscal year from (and including) that date.
- *
- * This is used for SLM partial-year depreciation:
- *   depreciationForYear = (cost − residual) / usefulLife × (daysRemaining / daysInYear)
- *
- * Returns 0 if the date is before the fiscal year start.
- * Returns the total days in the fiscal year if the date is at or before 1 Shrawan.
- * Returns 1 if the date falls on the last day of the fiscal year.
- *
- * @param bsDateStr   BS date string, e.g. "15 Poush 2079"
- * @param fiscalYear  Fiscal year string, e.g. "2079/80"
+ * Get BS format start date: "1 Shrawan 2081"
  */
-export function bsToAdDays(bsDateStr: string, fiscalYear: string): number {
-  const fy = getFiscalYear(fiscalYear);
-  if (!fy) return 0;
-
-  const parsed = parseBSDateString(bsDateStr);
-  if (!parsed) return 0;
-
-  const fyStartAD = parseAdDateString(fy.startDateAD);
-  const fyEndAD = parseAdDateString(fy.endDateAD);
-  if (!fyStartAD || !fyEndAD) return 0;
-
-  const totalDays = daysBetween(fyStartAD, fyEndAD) + 1; // inclusive
-
-  // Convert the BS date to an approximate AD date using the FY start as anchor
-  // The BS year of the purchase might span two AD years; we determine which
-  // half of the BS year we are in by the month number:
-  //   Months 1-9 (Shrawan–Chaitra): same BS year as the FY start BS year
-  //   Months 10-12 (Baisakh–Ashadh): next BS year (but same AD year end)
-  // The fiscal year lookup already gives us the AD anchor, so we compute
-  // cumulative offsets from 1 Shrawan of the FY start BS year.
-
-  // Determine fiscal year's BS start year from the startDateBS
-  const fyBSYearMatch = fy.startDateBS.match(/(\d{4})$/);
-  const fyBSYear = fyBSYearMatch ? parseInt(fyBSYearMatch[1], 10) : 0;
-
-  // If purchase BS year does not fall in the fiscal year's span, clamp.
-  // FY spans from BS year X (Shrawan) to BS year X+1 (Ashadh).
-  const purchaseBSYear = parsed.year;
-  const isInFiscalYear =
-    (purchaseBSYear === fyBSYear && parsed.month >= 1 && parsed.month <= 12) ||
-    (purchaseBSYear === fyBSYear + 1 && parsed.month >= 10 && parsed.month <= 12);
-
-  if (!isInFiscalYear) {
-    // Before fiscal year start
-    if (purchaseBSYear < fyBSYear) return totalDays;
-    // After fiscal year end
-    if (purchaseBSYear > fyBSYear + 1) return 0;
-    // Same BS start year but month < 1 is impossible; same end year but month > 12 impossible
-    return totalDays;
-  }
-
-  // Compute approximate AD purchase date
-  const purchaseAD = bsDateToApproxAD(
-    parsed.day,
-    parsed.month,
-    fiscalYear,
-    fyStartAD,
-    fy.isLeapYear,
-  );
-
-  // Days remaining = from purchase date to fiscal year end (inclusive of purchase day)
-  if (purchaseAD < fyStartAD) return totalDays;
-  if (purchaseAD > fyEndAD) return 0;
-
-  return daysBetween(purchaseAD, fyEndAD) + 1;
+export function getFYStartBS(bsYear: string): string {
+  const startYear = parseInt(bsYear.split('/')[0], 10);
+  return `1 Shrawan ${startYear}`;
 }
 
-// ---------------------------------------------------------------------------
-// 5. getDepreciationFraction
-// ---------------------------------------------------------------------------
+/**
+ * Get BS format end date: "31 Ashadh 2082"
+ */
+export function getFYEndBS(bsYear: string): string {
+  const endYear = parseInt(bsYear.split('/')[0], 10) + 1;
+  const ashadhDays = getDaysInBSMonth(endYear, 3);
+  return `${ashadhDays} Ashadh ${endYear}`;
+}
 
 /**
- * Returns the fraction of the fiscal year for which an asset purchased on
- * `purchaseDateBS` was held, as a number between 0.0 and 1.0.
- *
- * Used for pro-rata SLM depreciation:
- *   depn = (cost − residual) / usefulLife × getDepreciationFraction(...)
- *
- * @example getDepreciationFraction('1 Shrawan 2081', '2081/82')  // → 1.0
- * @example getDepreciationFraction('1 Magh 2081', '2081/82')     // → ~0.5
+ * Get the fiscal month number (1-based) from a civil BS month.
+ * Shrawan (civil 4) = fiscal 1, Ashadh (civil 3) = fiscal 12
  */
-export function getDepreciationFraction(
-  purchaseDateBS: string,
-  fiscalYear: string,
+export function civilToFiscalMonth(civilMonth: number): number {
+  // Civil: Baishakh=1 ... Chaitra=12
+  // Fiscal: Shrawan=1 (civil 4) ... Ashadh=12 (civil 3)
+  if (civilMonth >= 4) return civilMonth - 3;
+  return civilMonth + 9;
+}
+
+/**
+ * Count days between two BS dates within the same fiscal year.
+ */
+export function daysBetweenBS(
+  y1: number, m1: number, d1: number,
+  y2: number, m2: number, d2: number,
 ): number {
-  const totalDays = getDaysInFiscalYear(fiscalYear);
-  if (totalDays === 0) return 0;
-
-  const daysHeld = bsToAdDays(purchaseDateBS, fiscalYear);
-  const fraction = daysHeld / totalDays;
-  // Clamp to [0, 1]
-  return Math.min(1, Math.max(0, fraction));
-}
-
-// ---------------------------------------------------------------------------
-// 6. getTaxDepreciationProportion
-// ---------------------------------------------------------------------------
-
-/**
- * Returns the Nepal Income Tax Act 2058 (Schedule 2, Section 19)
- * time-apportionment factor for tax depreciation based on the BS month
- * of purchase:
- *
- *   Shrawan–Poush  (months 1–6): 100 % → return 1.0
- *   Magh–Chaitra   (months 7–9): 2/3  → return 0.667
- *   Baisakh–Ashadh (months 10–12): 1/3 → return 0.333
- *
- * Returns 1.0 if the date cannot be parsed (conservative / safe default).
- */
-export function getTaxDepreciationProportion(
-  purchaseDateBS: string,
-): 1.0 | 0.667 | 0.333 {
-  const parsed = parseBSDateString(purchaseDateBS);
-  if (!parsed) return 1.0;
-
-  const { month } = parsed;
-
-  if (month >= 1 && month <= 6) return 1.0;
-  if (month >= 7 && month <= 9) return 0.667;
-  return 0.333; // months 10–12
+  const ad1 = bsToAd(y1, m1, d1);
+  const ad2 = bsToAd(y2, m2, d2);
+  return Math.floor((ad2.getTime() - ad1.getTime()) / (1000 * 60 * 60 * 24));
 }
