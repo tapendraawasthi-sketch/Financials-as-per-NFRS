@@ -22,9 +22,10 @@ export default function TrialBalancePage() {
   const rows = tb?.rows ?? [];
   const validation = tb ? validateTrialBalanceTotals(rows) : null;
 
-  const autoMapped = rows.filter(r => (r.confidence ?? 0) >= 80).length;
-  const needsReview = rows.filter(r => (r.confidence ?? 0) > 0 && (r.confidence ?? 0) < 80).length;
-  const unmatched = rows.filter(r => (r.confidence ?? 0) === 0 || !r.nfrsCategory || r.nfrsCategory === 'unclassified').length;
+  const leafRows = rows.filter((r) => !r.isGroupRow);
+  const autoMapped = leafRows.filter(r => (r.confidence ?? 0) >= 80).length;
+  const needsReview = leafRows.filter(r => (r.confidence ?? 0) > 0 && (r.confidence ?? 0) < 80).length;
+  const unmatched = leafRows.filter(r => (r.confidence ?? 0) === 0 || !r.nfrsCategory || r.nfrsCategory === 'unclassified').length;
 
   const handleUploadComplete = (data: any) => {
     dispatch({ type: 'SET_TRIAL_BALANCE', payload: data });

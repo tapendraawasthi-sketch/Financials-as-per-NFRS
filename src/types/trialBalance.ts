@@ -53,4 +53,15 @@ export interface ParsedTrialBalance {
   totalLiabilities: number;
   totalEquity: number;
   warnings: string[];
+  detectedFormat?: RawTBParseResult['detectedFormat'];
+  detectedColumns?: Record<string, number>;
+  headerRowIndex?: number;
+  previousYearData?: RawTBRow[] | null;
+  leafAccountCount?: number;
+  groupRowCount?: number;
+  totalClosingDr?: number;
+  totalClosingCr?: number;
+  difference?: number;
+  uploadedAt?: string;
+  uploadedFileName?: string;
 }

@@ -6,9 +6,13 @@ import Button      from '../ui/Button';
 import { SAMPLE_TRIAL_BALANCE_CSV } from '../../data/sampleData';
 
 interface UploadResult {
-  filename:     string;
-  accountCount: number;
-  rowCount:     number;
+  filename:       string;
+  accountCount:   number;
+  leafCount:      number;
+  groupCount:     number;
+  detectedFormat: string;
+  isBalanced:     boolean;
+  warnings:       string[];
 }
 
 interface TBUploadZoneProps {
@@ -76,7 +80,8 @@ export default function TBUploadZone({
 
     const formData = new FormData();
     formData.append('trialbalance', file);
-    if (aiOn) formData.append('useAI', 'true');
+
+    const uploadUrl = `/api/trial-balance/${companyId}/upload${aiOn ? '?useAI=true' : ''}`;
 
     const xhr = new XMLHttpRequest();
 
@@ -84,31 +89,43 @@ export default function TBUploadZone({
       if (e.lengthComputable) setProgress(Math.round((e.loaded / e.total) * 90));
     };
 
+    const handleSuccessPayload = (payload: any, imbalanceWarning?: string) => {
+      const r: UploadResult = {
+        filename:       file.name,
+        accountCount:   payload?.rows?.length ?? 0,
+        leafCount:      payload?.leafAccountCount ?? payload?.rows?.filter((row: any) => !row.isGroupRow).length ?? 0,
+        groupCount:     payload?.groupRowCount ?? payload?.rows?.filter((row: any) => row.isGroupRow).length ?? 0,
+        detectedFormat: payload?.detectedFormat ?? 'unknown',
+        isBalanced:     payload?.isBalanced ?? true,
+        warnings:       [
+          ...(payload?.warnings ?? []),
+          ...(imbalanceWarning ? [imbalanceWarning] : []),
+        ],
+      };
+      setResult(r);
+      setUploadState('success');
+      onUploadComplete(payload);
+    };
+
     xhr.onload = () => {
       setProgress(100);
-      if (xhr.status >= 200 && xhr.status < 300) {
-        try {
-          const data = JSON.parse(xhr.responseText);
-          const r: UploadResult = {
-            filename:     file.name,
-            accountCount: data.data?.rows?.length ?? 0,
-            rowCount:     data.data?.rows?.length ?? 0,
-          };
-          setResult(r);
-          setUploadState('success');
-          onUploadComplete(data.data);
-        } catch {
+      try {
+        const data = JSON.parse(xhr.responseText);
+        if (xhr.status >= 200 && xhr.status < 300) {
+          handleSuccessPayload(data.data);
+        } else if (xhr.status === 422 && data.data) {
+          // Significant imbalance — still allow review with parsed data
+          handleSuccessPayload(
+            data.data,
+            data.error ?? 'Trial balance has a significant imbalance. Review before proceeding.',
+          );
+        } else {
           setUploadState('error');
-          onError('Server returned an unexpected response.');
+          onError(data.error ?? 'Upload failed.');
         }
-      } else {
+      } catch {
         setUploadState('error');
-        try {
-          const d = JSON.parse(xhr.responseText);
-          onError(d.error ?? 'Upload failed.');
-        } catch {
-          onError(`Upload failed with status ${xhr.status}.`);
-        }
+        onError('Server returned an unexpected response.');
       }
     };
 
@@ -117,7 +134,7 @@ export default function TBUploadZone({
       onError('Network error during upload. Please check your connection.');
     };
 
-    xhr.open('POST', `/api/trial-balance/${companyId}/upload`);
+    xhr.open('POST', uploadUrl);
     // item 180: 60-second timeout + handler
     xhr.timeout = 60_000;
     xhr.ontimeout = () => {
@@ -226,18 +243,39 @@ export default function TBUploadZone({
 
           {/* Success state */}
           {uploadState === 'success' && result && (
-            <div className="flex items-center gap-2.5 py-2">
-              <span className="h-2 w-2 rounded-full bg-emerald-500 flex-shrink-0" aria-hidden="true" />
-              <span className="text-xs text-slate-700 truncate flex-1" title={result.filename}>
-                {result.filename} — {result.accountCount} accounts detected
-              </span>
-              <button
-                type="button"
-                onClick={handleReupload}
-                className="text-xs text-blue-600 hover:text-blue-800 underline flex-shrink-0 transition-colors"
-              >
-                Re-upload
-              </button>
+            <div className="py-2 space-y-2">
+              <div className="flex items-center gap-2.5">
+                <span className="h-2 w-2 rounded-full bg-emerald-500 flex-shrink-0" aria-hidden="true" />
+                <span className="text-xs text-slate-700 truncate flex-1" title={result.filename}>
+                  {result.filename} — {result.leafCount} ledger accounts
+                  {result.groupCount > 0 ? ` (${result.groupCount} group headers)` : ''}
+                </span>
+                <button
+                  type="button"
+                  onClick={handleReupload}
+                  className="text-xs text-blue-600 hover:text-blue-800 underline flex-shrink-0 transition-colors"
+                >
+                  Re-upload
+                </button>
+              </div>
+              <div className="text-xs text-slate-500 space-y-1 pl-4">
+                <p>Detected format: <span className="font-medium text-slate-700">{result.detectedFormat}</span></p>
+                <p>Balance check: <span className={result.isBalanced ? 'text-emerald-700' : 'text-amber-700'}>
+                  {result.isBalanced ? 'Balanced' : 'Imbalanced — review required'}
+                </span></p>
+                {result.warnings.length > 0 && (
+                  <details className="mt-1">
+                    <summary className="cursor-pointer text-amber-700">
+                      {result.warnings.length} parser notice{result.warnings.length === 1 ? '' : 's'}
+                    </summary>
+                    <ul className="mt-1 list-disc list-inside text-slate-500 max-h-24 overflow-y-auto">
+                      {result.warnings.map((w, i) => (
+                        <li key={i}>{w}</li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
+              </div>
             </div>
           )}
 

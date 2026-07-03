@@ -211,34 +211,35 @@ export default function TBAccountMapper({
   // item 74: suggestion state
   const [suggestion,    setSuggestion]    = useState<SimilarSuggestion | null>(null);
 
-  // ── Counts ─────────────────────────────────────────────────────────────────
-  const autoMappedCount  = rows.filter(r => (r.confidence ?? 0) >= 80).length;
-  const needsReviewCount = rows.filter(r => (r.confidence ?? 0) > 0 && (r.confidence ?? 0) < 80).length;
-  const unmatchedCount   = rows.filter(r => (r.confidence ?? 0) === 0 || !r.nfrsCategory || r.nfrsCategory === 'unclassified').length;
-  const mappedCount      = rows.length - unmatchedCount;
-  const completePct      = rows.length > 0 ? Math.round((mappedCount / rows.length) * 100) : 0;
+  // ── Counts (leaf ledgers only — group headers are not mapped) ───────────
+  const leafRows = rows.filter((r) => !r.isGroupRow);
+  const autoMappedCount  = leafRows.filter(r => (r.confidence ?? 0) >= 80).length;
+  const needsReviewCount = leafRows.filter(r => (r.confidence ?? 0) > 0 && (r.confidence ?? 0) < 80).length;
+  const unmatchedCount   = leafRows.filter(r => (r.confidence ?? 0) === 0 || !r.nfrsCategory || r.nfrsCategory === 'unclassified').length;
+  const mappedCount      = leafRows.length - unmatchedCount;
+  const completePct      = leafRows.length > 0 ? Math.round((mappedCount / leafRows.length) * 100) : 0;
 
   // ── Filtered rows ───────────────────────────────────────────────────────────
   const filteredRows = useMemo(() => {
-    let base = rows;
+    let base = leafRows;
 
     // item 73: "Needs Review" tab surfaces unmapped + low-confidence rows first
     switch (activeTab) {
       case 'review':
-        base = rows.filter(r => (r.confidence ?? 0) > 0 && (r.confidence ?? 0) < 80);
+        base = leafRows.filter(r => (r.confidence ?? 0) > 0 && (r.confidence ?? 0) < 80);
         break;
       case 'unmatched':
-        base = rows.filter(r => (r.confidence ?? 0) === 0 || !r.nfrsCategory || r.nfrsCategory === 'unclassified');
+        base = leafRows.filter(r => (r.confidence ?? 0) === 0 || !r.nfrsCategory || r.nfrsCategory === 'unclassified');
         break;
       case 'mapped':
-        base = rows.filter(r => (r.confidence ?? 0) >= 80);
+        base = leafRows.filter(r => (r.confidence ?? 0) >= 80);
         break;
       default:
         // Sort: unmapped first, then needs review, then mapped — item 73 triage
         base = [
-          ...rows.filter(r => (r.confidence ?? 0) === 0 || r.nfrsCategory === 'unclassified'),
-          ...rows.filter(r => (r.confidence ?? 0) > 0 && (r.confidence ?? 0) < 80),
-          ...rows.filter(r => (r.confidence ?? 0) >= 80),
+          ...leafRows.filter(r => (r.confidence ?? 0) === 0 || r.nfrsCategory === 'unclassified'),
+          ...leafRows.filter(r => (r.confidence ?? 0) > 0 && (r.confidence ?? 0) < 80),
+          ...leafRows.filter(r => (r.confidence ?? 0) >= 80),
         ];
         break;
     }
@@ -272,7 +273,7 @@ export default function TBAccountMapper({
         await Promise.resolve(onRerunAI());
       } else if (companyId) {
         const result = await tbApi.rematchWithAI(companyId);
-        dispatch({ type: 'SET_TRIAL_BALANCE', payload: result });
+        dispatch({ type: 'SET_TRIAL_BALANCE', payload: result.trialBalance });
       }
     } catch (err) {
       console.error('[TBAccountMapper] AI rematch failed:', err);

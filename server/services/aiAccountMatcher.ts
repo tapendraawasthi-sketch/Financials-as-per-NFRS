@@ -130,20 +130,33 @@ export async function classifyWithAI(
   return result;
 }
 
-/** Legacy export */
+/** Legacy export — rematch low-confidence rows; preserves original rowIndex values. */
 export async function aiMatchUnresolved(
-  accounts: Pick<MappedTBRow, 'rawLabel' | 'parentGroup' | 'closingDr' | 'closingCr'>[],
+  accounts: Array<
+    Pick<MappedTBRow, 'rawLabel' | 'parentGroup' | 'closingDr' | 'closingCr'> & { rowIndex: number }
+  >,
   _company: unknown,
   apiKey: string,
 ): Promise<Array<{ rowIndex: number; nfrsCategory: string; confidence: number; reasoning: string }>> {
-  const rows: MappedTBRow[] = accounts.map((a, i) => ({
-    rowIndex: i,
+  if (!apiKey) {
+    throw new Error('ANTHROPIC_API_KEY is not configured.');
+  }
+
+  const rows: MappedTBRow[] = accounts.map((a) => ({
+    rowIndex: a.rowIndex,
     rawLabel: a.rawLabel,
     parentGroup: a.parentGroup ?? '',
-    openingDr: 0, openingCr: 0, duringDr: 0, duringCr: 0,
-    adjustmentDr: 0, adjustmentCr: 0,
-    closingDr: a.closingDr ?? 0, closingCr: a.closingCr ?? 0,
-    rowLevel: 2, isGroupRow: false, rawIndentSpaces: 0,
+    openingDr: 0,
+    openingCr: 0,
+    duringDr: 0,
+    duringCr: 0,
+    adjustmentDr: 0,
+    adjustmentCr: 0,
+    closingDr: a.closingDr ?? 0,
+    closingCr: a.closingCr ?? 0,
+    rowLevel: 2,
+    isGroupRow: false,
+    rawIndentSpaces: 0,
     nfrsCategory: 'unclassified',
     matchMethod: 'unmatched',
     confidence: 0,
@@ -154,8 +167,8 @@ export async function aiMatchUnresolved(
 
   const classified = await classifyWithAI(rows, apiKey);
   return classified.map((r, i) => ({
-    rowIndex: i,
-    nfrsCategory: r.nfrsCategory,
+    rowIndex: accounts[i]?.rowIndex ?? r.rowIndex,
+    nfrsCategory: String(r.nfrsCategory),
     confidence: r.confidence,
     reasoning: '',
   }));

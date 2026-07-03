@@ -80,6 +80,11 @@ router.post('/:companyId/upload', tbUploadMiddleware, async (req: Request, res: 
       totalClosingCr: parsed.totalClosingCr,
       difference: parsed.difference,
       detectedFormat: parsed.detectedFormat,
+      detectedColumns: parsed.detectedColumns,
+      headerRowIndex: parsed.headerRowIndex,
+      previousYearData: parsed.previousYearData ?? null,
+      leafAccountCount: rows.filter((r) => !r.isGroupRow).length,
+      groupRowCount: rows.filter((r) => r.isGroupRow).length,
     };
 
     const validation = validateTrialBalanceTotals(rows);
@@ -127,7 +132,7 @@ router.put('/:companyId/mapping', asyncHandler(async (req: Request, res: Respons
         confidence: 100,
         matchMethod: 'manual',
         needsReview: false,
-        userOverride: 'manual',
+        userOverride: true,
       };
     }
   }
@@ -172,30 +177,51 @@ router.post('/:companyId/rematch-ai', asyncHandler(async (req: Request, res: Res
   const session = sessionStore.get(req.params.companyId);
   if (!session?.trialBalance) return res.status(404).json({ error: 'No trial balance loaded.' });
 
-  const lowConfRows = session.trialBalance.rows.filter((r: any) => !r.userOverride && (r.confidence ?? 0) < 80);
-  if (lowConfRows.length === 0) return res.json({ message: 'All accounts already matched with high confidence.', updatedCount: 0 });
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    return res.status(503).json({ error: 'AI matching is not configured. Set ANTHROPIC_API_KEY on the server.' });
+  }
+
+  const lowConfRows = session.trialBalance.rows.filter(
+    (r: any) => !r.isGroupRow && !r.userOverride && (r.confidence ?? 0) < 80,
+  );
+  if (lowConfRows.length === 0) {
+    return res.json({ message: 'All accounts already matched with high confidence.', updatedCount: 0, trialBalance: session.trialBalance });
+  }
 
   const aiInput = lowConfRows.map((r: any) => ({
-    rowIndex: r.rowIndex, rawLabel: r.rawLabel,
-    matchedLabel: r.matchedLabel ?? null,
-    nfrsCategory: (r.nfrsCategory ?? 'unclassified') as NFRSCategory | 'unclassified',
-    confidence: r.confidence ?? 0,
-    method: (r.matchMethod ?? 'unmatched') as any,
-    candidates: r.candidates ?? [],
-    needsReview: r.needsReview ?? true,
+    rowIndex: r.rowIndex,
+    rawLabel: r.rawLabel,
+    parentGroup: r.parentGroup ?? '',
+    closingDr: r.closingDr ?? 0,
+    closingCr: r.closingCr ?? 0,
   }));
 
-  const aiResults = await aiMatchUnresolved(aiInput.map((r: any) => ({ rawLabel: r.rawLabel, closingBalance: 0 })), session.company!, process.env.ANTHROPIC_API_KEY!);
-  const aiByRowIndex = new Map(aiResults.map((r: any) => [r.rowIndex, r]));
+  const aiResults = await aiMatchUnresolved(aiInput, session.company, apiKey);
+  const aiByRowIndex = new Map(aiResults.map((r) => [r.rowIndex, r]));
+  let updatedCount = 0;
+
   const updatedRows = session.trialBalance.rows.map((row: any) => {
+    if (row.isGroupRow || row.userOverride) return row;
     const ai = aiByRowIndex.get(row.rowIndex);
-    if (!ai || row.userOverride) return row;
-    return { ...row, nfrsCategory: ai.nfrsCategory as NFRSCategory, matchedLabel: null, confidence: ai.confidence, matchMethod: 'ai' as const, needsReview: ai.confidence < 80 };
+    if (!ai) return row;
+    updatedCount += 1;
+    return {
+      ...row,
+      nfrsCategory: ai.nfrsCategory as NFRSCategory,
+      matchedLabel: null,
+      confidence: ai.confidence,
+      matchMethod: 'ai' as const,
+      needsReview: ai.confidence < 80,
+      displayLabel: row.displayLabel ?? row.rawLabel,
+    };
   });
 
   const updatedTB = { ...session.trialBalance, rows: updatedRows };
+  const validation = validateTrialBalanceTotals(updatedRows);
+  (updatedTB as any).validation = validation;
   sessionStore.set(req.params.companyId, { trialBalance: updatedTB });
-  return res.json({ updatedCount: aiResults.length, trialBalance: updatedTB });
+  return res.json({ updatedCount, trialBalance: updatedTB });
 }));
 
 // GET /:companyId/validation

@@ -72,8 +72,9 @@ export default function TBDataGrid({
     []
   );
 
-  // ── Totals ──────────────────────────────────────────────────────────────────
-  const totals = rows.reduce(
+  // ── Totals (leaf accounts only — exclude group header rows) ───────────────
+  const leafRows = rows.filter((r) => !r.isGroupRow);
+  const totals = leafRows.reduce(
     (acc, r) => ({
       openDr:   acc.openDr   + Math.max(0, r.openingDr  ?? 0),
       openCr:   acc.openCr   + Math.max(0, r.openingCr  ?? 0),

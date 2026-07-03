@@ -104,11 +104,21 @@ export const tbApi = {
       xhr.onload = () => {
         if (onProgress) onProgress(100);
         try {
-          const data = JSON.parse(xhr.responseText);
+          const data = JSON.parse(xhr.responseText) as {
+            success?: boolean;
+            data?: ParsedTrialBalance;
+            error?: string;
+          };
           if (xhr.status >= 200 && xhr.status < 300) {
-            resolve(data as ParsedTrialBalance);
+            resolve(data.data ?? (data as unknown as ParsedTrialBalance));
+          } else if (xhr.status === 422) {
+            if (data.data) {
+              resolve(data.data);
+            } else {
+              reject(new Error(data.error || `Upload failed with status ${xhr.status}`));
+            }
           } else {
-            reject(new Error(data?.error || `Upload failed with status ${xhr.status}`));
+            reject(new Error(data.error || `Upload failed with status ${xhr.status}`));
           }
         } catch {
           reject(new Error(`Failed to parse server response: ${xhr.responseText.slice(0, 200)}`));
@@ -142,8 +152,11 @@ export const tbApi = {
   ): Promise<{ updated: boolean; row: unknown }> =>
     apiRequest('PUT', `/api/trial-balance/${companyId}/mapping/${rowIndex}`, { nfrsCategory }),
 
-  rematchWithAI: (companyId: string): Promise<ParsedTrialBalance> =>
-    apiRequest<ParsedTrialBalance>('POST', `/api/trial-balance/${companyId}/rematch-ai`),
+  rematchWithAI: (companyId: string): Promise<{ updatedCount: number; trialBalance: ParsedTrialBalance }> =>
+    apiRequest<{ updatedCount: number; trialBalance: ParsedTrialBalance }>(
+      'POST',
+      `/api/trial-balance/${companyId}/rematch-ai`,
+    ),
 
   getValidation: (companyId: string): Promise<ValidationResult> =>
     apiRequest<ValidationResult>('GET', `/api/trial-balance/${companyId}/validation`),

@@ -34,14 +34,16 @@ const COL_HINTS: Record<string, string[]> = {
     'open cr', 'open credit', 'opening cr balance',
   ],
   duringDr: [
-    'during dr', 'transaction dr', 'dur dr', 'movement dr', 'debit', 'dr', 'during year dr',
+    'during dr', 'transaction dr', 'dur dr', 'movement dr', 'during year dr',
     'receipt', 'dr total', 'transaction debit', 'total debit', 'transactions dr',
     'during period dr', 'period dr',
+    // bare 'debit' / 'dr' intentionally omitted — too ambiguous with closing columns
   ],
   duringCr: [
-    'during cr', 'transaction cr', 'dur cr', 'movement cr', 'credit', 'cr', 'during year cr',
+    'during cr', 'transaction cr', 'dur cr', 'movement cr', 'during year cr',
     'payment', 'cr total', 'transaction credit', 'total credit', 'transactions cr',
     'during period cr', 'period cr',
+    // bare 'credit' / 'cr' intentionally omitted — too ambiguous with closing columns
   ],
   adjustmentDr: [
     'adj dr', 'adjustment dr', 'year end adj dr', 'adjustment debit', 'jv dr',
@@ -140,6 +142,54 @@ const MAX_HEADER_SCAN = 25;
 
 const KNOWN_GROUP_NAMES = /^(capital account|non.?current liabilities?|current liabilities?|property.? plant|direct income|indirect income|employee benefit|administrative expenses?|sundry debtors?|sundry creditors?|fixed assets?|current assets?|equity|expenses?|income|loans?|investments?|provisions?)/i;
 
+/** Map bare "debit"/"credit" or "dr"/"cr" headers to closing columns in simple layouts. */
+function resolveAmbiguousClosingColumns(
+  row: unknown[],
+  colMap: Record<string, number>,
+): Record<string, number> {
+  const cells = row.map((c) => normCell(c));
+  const resolved = { ...colMap };
+
+  const hasClosing =
+    resolved.closingDr !== undefined || resolved.closingCr !== undefined;
+  const hasDuring = resolved.duringDr !== undefined || resolved.duringCr !== undefined;
+  const hasOpening =
+    resolved.openingDr !== undefined || resolved.openingCr !== undefined;
+  const hasAdjustment =
+    resolved.adjustmentDr !== undefined || resolved.adjustmentCr !== undefined;
+
+  // Simple Account | Dr | Cr exports: only label + two amount columns
+  if (!hasClosing && hasDuring && !hasOpening && !hasAdjustment) {
+    const amountFields = ['duringDr', 'duringCr'] as const;
+    const amountCount = amountFields.filter((f) => resolved[f] !== undefined).length;
+    if (amountCount === 2) {
+      resolved.closingDr = resolved.duringDr;
+      resolved.closingCr = resolved.duringCr;
+      delete resolved.duringDr;
+      delete resolved.duringCr;
+      return resolved;
+    }
+  }
+
+  // Scan for standalone debit/credit/dr/cr headers not yet mapped
+  if (!hasClosing) {
+    for (let c = 0; c < cells.length; c++) {
+      const cell = cells[c];
+      const isDebit =
+        cell === 'debit' || cell === 'dr' || cell === 'dr.' || cell.endsWith(' dr');
+      const isCredit =
+        cell === 'credit' || cell === 'cr' || cell === 'cr.' || cell.endsWith(' cr');
+      if (isDebit && resolved.closingDr === undefined && resolved.duringDr === undefined) {
+        resolved.closingDr = c;
+      } else if (isCredit && resolved.closingCr === undefined && resolved.duringCr === undefined) {
+        resolved.closingCr = c;
+      }
+    }
+  }
+
+  return resolved;
+}
+
 function detectColumns(
   matrix: unknown[][],
 ): { colMap: Record<string, number>; headerRowIndex: number } | null {
@@ -160,11 +210,13 @@ function detectColumns(
       }
     }
 
+    const resolvedMap = resolveAmbiguousClosingColumns(row, colMap);
+
     // We need at least a label column and one amount column
-    if (colMap['label'] !== undefined) {
-      const amountCols = Object.keys(colMap).filter((k) => k !== 'label');
+    if (resolvedMap['label'] !== undefined) {
+      const amountCols = Object.keys(resolvedMap).filter((k) => k !== 'label');
       if (amountCols.length >= 1) {
-        return { colMap, headerRowIndex: r };
+        return { colMap: resolvedMap, headerRowIndex: r };
       }
     }
   }
@@ -262,6 +314,20 @@ function detectFormat(
         };
       }
     }
+    if (row.length === 2 || row.length === 3) {
+      const labelCell = normCell(row[0]);
+      const hasLabel = COL_HINTS.label.some((h) => labelCell === h || labelCell.includes(h));
+      if (!hasLabel && row.length === 2) {
+        const secondIsNum = typeof row[1] === 'number' || !isNaN(parseFloat(String(row[1] ?? '')));
+        if (secondIsNum) {
+          return {
+            format: '1col',
+            colMap: { label: 0, closingDr: 1 },
+            headerRowIndex: 0,
+          };
+        }
+      }
+    }
   }
 
   // Default to 3-col if nothing else
@@ -302,15 +368,26 @@ function extractRow(
       duringCr = g('duringCr');
       adjustmentDr = 0;
       adjustmentCr = 0;
-      const balanceAmt = g('closingDr') || g('closingCr') || g('duringDr');
-      const drCrIdx = colMap['drCr'];
-      const drCrVal = drCrIdx !== undefined ? normCell(matRow[drCrIdx]) : '';
-      if (drCrVal.includes('cr') || drCrVal === 'c') {
-        closingCr = Math.abs(balanceAmt);
-        closingDr = 0;
+
+      const hasClosingDr = colMap['closingDr'] !== undefined;
+      const hasClosingCr = colMap['closingCr'] !== undefined;
+
+      if (hasClosingDr || hasClosingCr) {
+        // Tally Prime exports separate Closing Dr / Closing Cr columns — use them directly
+        closingDr = g('closingDr');
+        closingCr = g('closingCr');
       } else {
-        closingDr = Math.abs(balanceAmt);
-        closingCr = 0;
+        // Fallback: single balance column with optional Dr/Cr indicator
+        const balanceAmt = g('closingDr') || g('closingCr') || g('duringDr');
+        const drCrIdx = colMap['drCr'];
+        const drCrVal = drCrIdx !== undefined ? normCell(matRow[drCrIdx]) : '';
+        if (drCrVal.includes('cr') || drCrVal === 'c') {
+          closingCr = Math.abs(balanceAmt);
+          closingDr = 0;
+        } else {
+          closingDr = Math.abs(balanceAmt);
+          closingCr = 0;
+        }
       }
       break;
     }
@@ -522,25 +599,103 @@ function parseSecondaryMatrix(matrix: unknown[][]): RawTBRow[] | null {
   }
 }
 
-function parseMatrix(matrix: unknown[][]): RawTBParseResult {
-  const warnings: string[] = [];
-  const headerDetection = detectColumns(matrix);
-  const { format, colMap, headerRowIndex } = detectFormat(matrix, headerDetection);
-  const mode = format;
-
-  if (mode === '3col') {
-    warnings.push('Treating file as 3-column (label, debit, credit) layout.');
-  } else if (mode === '2col') {
-    warnings.push('Treating file as 2-column net balance layout (positive=Dr, negative=Cr).');
+function buildColMapInRange(
+  row: unknown[],
+  labelCol: number,
+  startCol: number,
+  endCol: number,
+): Record<string, number> {
+  const colMap: Record<string, number> = { label: labelCol };
+  for (let c = startCol; c <= endCol; c++) {
+    const cell = normCell(row[c]);
+    for (const [fieldName, hints] of Object.entries(COL_HINTS)) {
+      if (fieldName === 'label' || colMap[fieldName] !== undefined) continue;
+      for (const hint of hints) {
+        if (cell === hint || cell.includes(hint)) {
+          colMap[fieldName] = c;
+          break;
+        }
+      }
+    }
   }
+  return resolveAmbiguousClosingColumns(row, colMap);
+}
 
-  if (mode === 'full' && colMap['label'] === undefined) {
-    throw Object.assign(
-      new Error('Could not detect column headers.'),
-      { status: 400, code: 'NO_HEADERS' },
+/**
+ * Detect ICAN-style Trial Balance with Current Year and Previous Year blocks
+ * side-by-side on one sheet (e.g. cols B–J = CY, cols L–T = PY).
+ */
+function detectDualYearColumns(
+  matrix: unknown[][],
+): {
+  cyColMap: Record<string, number>;
+  pyColMap: Record<string, number>;
+  headerRowIndex: number;
+} | null {
+  for (let r = 0; r < Math.min(matrix.length, MAX_HEADER_SCAN); r++) {
+    const row = matrix[r] ?? [];
+    const cells = row.map((c) => normCell(c));
+
+    const labelCol = cells.findIndex((c) =>
+      COL_HINTS.label.some((h) => c === h || c.includes(h)),
     );
-  }
+    if (labelCol === -1) continue;
 
+    const hasPY = cells.some(
+      (c) => c.includes('previous year') || c.includes('last year') || c === 'py',
+    );
+    const hasCY = cells.some((c) => c.includes('current year') || c === 'cy');
+
+    // Find two "opening dr" column anchors (start of each year block)
+    const openingDrCols: number[] = [];
+    for (let c = labelCol + 1; c < row.length; c++) {
+      const cell = cells[c];
+      if (cell.includes('opening') && (cell.includes('dr') || cell.includes('debit'))) {
+        openingDrCols.push(c);
+      }
+    }
+
+    if (openingDrCols.length < 2) {
+      // Also try matching two "closing dr" anchors
+      const closingDrCols: number[] = [];
+      for (let c = labelCol + 1; c < row.length; c++) {
+        const cell = cells[c];
+        if (cell.includes('closing') && (cell.includes('dr') || cell.includes('debit'))) {
+          closingDrCols.push(c);
+        }
+      }
+      if (closingDrCols.length >= 2 && (hasPY || hasCY)) {
+        openingDrCols.push(...closingDrCols);
+      }
+    }
+
+    if (openingDrCols.length < 2) continue;
+
+    const cyStart = openingDrCols[0];
+    const pyStart = openingDrCols[1];
+    const cyEnd = pyStart - 1;
+    const pyEnd = row.length - 1;
+
+    const cyColMap = buildColMapInRange(row, labelCol, cyStart, cyEnd);
+    const pyColMap = buildColMapInRange(row, labelCol, pyStart, pyEnd);
+
+    const cyAmounts = Object.keys(cyColMap).filter((k) => k !== 'label');
+    const pyAmounts = Object.keys(pyColMap).filter((k) => k !== 'label');
+    if (cyAmounts.length >= 1 && pyAmounts.length >= 1) {
+      return { cyColMap, pyColMap, headerRowIndex: r };
+    }
+  }
+  return null;
+}
+
+function parseMatrixWithColMap(
+  matrix: unknown[][],
+  colMap: Record<string, number>,
+  headerRowIndex: number,
+  mode: FileFormat,
+  warningsPrefix: string[] = [],
+): RawTBParseResult {
+  const warnings = [...warningsPrefix];
   const rows: RawTBRow[] = [];
   const skippedSubtotals: string[] = [];
 
@@ -555,8 +710,13 @@ function parseMatrix(matrix: unknown[][]): RawTBParseResult {
     }
     const row = extractRow(matRow, r, colMap, mode);
     if (!row.rawLabel) continue;
-    if (!row.isGroupRow && row.closingDr === 0 && row.closingCr === 0 &&
-        row.openingDr === 0 && row.openingCr === 0) {
+    if (
+      !row.isGroupRow &&
+      row.closingDr === 0 &&
+      row.closingCr === 0 &&
+      row.openingDr === 0 &&
+      row.openingCr === 0
+    ) {
       warnings.push(`Zero-amount leaf row skipped or flagged: "${row.rawLabel}"`);
     }
     rows.push(row);
@@ -573,8 +733,12 @@ function parseMatrix(matrix: unknown[][]): RawTBParseResult {
     throw Object.assign(new Error('No data rows found.'), { status: 400, code: 'NO_DATA_ROWS' });
   }
 
-  let totalOpeningDr = 0, totalOpeningCr = 0, totalDuringDr = 0, totalDuringCr = 0;
-  let totalClosingDr = 0, totalClosingCr = 0;
+  let totalOpeningDr = 0,
+    totalOpeningCr = 0,
+    totalDuringDr = 0,
+    totalDuringCr = 0;
+  let totalClosingDr = 0,
+    totalClosingCr = 0;
   for (const row of rowsWithParents) {
     if (row.isGroupRow) continue;
     totalOpeningDr += row.openingDr;
@@ -592,7 +756,9 @@ function parseMatrix(matrix: unknown[][]): RawTBParseResult {
   const isBalanced = Math.abs(difference) < 1.0;
 
   if (!isBalanced) {
-    warnings.push(`Trial Balance not balanced. Difference: ${Math.abs(difference).toLocaleString('en-IN')}.`);
+    warnings.push(
+      `Trial Balance not balanced. Difference: ${Math.abs(difference).toLocaleString('en-IN')}.`,
+    );
   }
 
   return {
@@ -610,6 +776,59 @@ function parseMatrix(matrix: unknown[][]): RawTBParseResult {
     headerRowIndex,
     detectedFormat: mode,
   };
+}
+
+export function parseMatrix(matrix: unknown[][]): RawTBParseResult {
+  const warnings: string[] = [];
+  const headerDetection = detectColumns(matrix);
+  const { format, colMap, headerRowIndex } = detectFormat(matrix, headerDetection);
+  const mode = format;
+
+  if (mode === '3col') {
+    warnings.push('Treating file as 3-column (label, debit, credit) layout.');
+  } else if (mode === '2col') {
+    warnings.push('Treating file as 2-column net balance layout (positive=Dr, negative=Cr).');
+  } else if (mode === '1col') {
+    warnings.push('Treating file as single balance column layout.');
+  }
+
+  if (mode === 'full' && colMap['label'] === undefined) {
+    throw Object.assign(
+      new Error('Could not detect column headers.'),
+      { status: 400, code: 'NO_HEADERS' },
+    );
+  }
+
+  return parseMatrixWithColMap(matrix, colMap, headerRowIndex, mode, warnings);
+}
+
+/** Parse CY+PY side-by-side layout from a single worksheet matrix. */
+export function parseDualYearMatrix(matrix: unknown[][]): {
+  currentYear: RawTBParseResult;
+  previousYear: RawTBRow[];
+} | null {
+  const dual = detectDualYearColumns(matrix);
+  if (!dual) return null;
+
+  const warnings = [
+    'Detected Current Year and Previous Year columns side-by-side on one sheet.',
+  ];
+  const currentYear = parseMatrixWithColMap(
+    matrix,
+    dual.cyColMap,
+    dual.headerRowIndex,
+    'full',
+    warnings,
+  );
+  const previousYear = parseMatrixWithColMap(
+    matrix,
+    dual.pyColMap,
+    dual.headerRowIndex,
+    'full',
+    [],
+  ).rows;
+
+  return { currentYear, previousYear };
 }
 
 export type ParseTBResult = RawTBParseResult & {
@@ -670,17 +889,32 @@ export async function parseTrialBalance(
     throw new Error('The uploaded file appears to be empty.');
   }
 
-  const result = parseMatrix(matrix);
-
-  const secondaryWs = findSecondaryWorksheet(workbook, primaryWs.name);
+  // Prefer CY+PY side-by-side layout (ICAN reference format) when detected
+  const dualYear = parseDualYearMatrix(matrix);
+  let result: RawTBParseResult;
   let previousYearData: RawTBRow[] | null = null;
-  if (secondaryWs) {
-    const secondaryMatrix = worksheetToMatrix(secondaryWs);
-    previousYearData = parseSecondaryMatrix(secondaryMatrix);
-    if (previousYearData) {
-      result.warnings.push(
-        `Previous year data loaded from sheet "${secondaryWs.name}" (${previousYearData.length} rows).`,
-      );
+
+  if (dualYear) {
+    result = dualYear.currentYear;
+    previousYearData = dualYear.previousYear;
+    result.warnings.push(
+      `Previous year data extracted from side-by-side columns (${previousYearData.length} rows).`,
+    );
+  } else {
+    result = parseMatrix(matrix);
+  }
+
+  // Fall back to a separate PY worksheet if side-by-side block was not found
+  if (!previousYearData) {
+    const secondaryWs = findSecondaryWorksheet(workbook, primaryWs.name);
+    if (secondaryWs) {
+      const secondaryMatrix = worksheetToMatrix(secondaryWs);
+      previousYearData = parseSecondaryMatrix(secondaryMatrix);
+      if (previousYearData) {
+        result.warnings.push(
+          `Previous year data loaded from sheet "${secondaryWs.name}" (${previousYearData.length} rows).`,
+        );
+      }
     }
   }
 
