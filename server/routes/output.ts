@@ -27,7 +27,7 @@ router.post('/:companyId/generate-excel', asyncHandler(async (req: Request, res:
   });
 
   const companyName = (session.company!.companyName ?? 'Company').replace(/[^a-zA-Z0-9]/g, '_');
-  const fiscalYear  = (session.company!.fiscalYear ?? '').replace(/\//g, '-');
+  const fiscalYear  = session.company!.fiscalYear?.bsFY?.replace('/', '-') ?? 'financials';
   const filename    = `NFRS_Financials_${companyName}_${fiscalYear}.xlsx`;
 
   console.log('[Excel Generated]', companyName, fiscalYear, buffer.length, 'bytes');
