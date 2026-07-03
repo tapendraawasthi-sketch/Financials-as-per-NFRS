@@ -41,7 +41,7 @@ const CATEGORY_ALIAS_MAP: Record<string, string> = {
   advance_tax: 'advance_tax_paid',
 };
 
-function normalizeCategoryAlias(category: string): string {
+export function normalizeCategoryAlias(category: string): string {
   return CATEGORY_ALIAS_MAP[category] ?? category;
 }
 

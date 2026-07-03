@@ -1,6 +1,7 @@
 // src/components/output/DownloadPanel.tsx
 import React, { useState } from 'react';
 import { useAppStore } from '../../store/appStore';
+import { outputApi } from '../../api/client';
 import Card from '../ui/Card';
 import Button from '../ui/Button';
 import LoadingSpinner from '../ui/LoadingSpinner';
@@ -17,7 +18,7 @@ const WORKBOOK_CONTENTS = [
   'Statement of Income',
   'Statement of Cash Flows',
   'Statement of Changes in Equity',
-  'Notes 3.1 to 3.23',
+  'Notes 3.1 to 3.26',
   'Depreciation Schedule (Tax and Book)',
   'Income Tax Computation',
   'Trial Balance with NFRS Mapping',
@@ -27,6 +28,7 @@ const WORKBOOK_CONTENTS = [
 export default function DownloadPanel() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [downloadComplete, setDownloadComplete] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const { state, dispatch } = useAppStore();
   const { company, trialBalance, adjustments } = state;
@@ -70,7 +72,7 @@ export default function DownloadPanel() {
     {
       label: 'Year-end adjustments entered',
       done: adjustments != null,
-      fixStep: 'adjustments',
+      fixStep: 'year_end_adjustments',
     },
     {
       label: 'Financial statements generated',
@@ -86,29 +88,21 @@ export default function DownloadPanel() {
   };
 
   const handleGenerate = async () => {
-    if (!allDone) return;
+    if (!allDone || !company?.id) return;
     setIsGenerating(true);
+    setError(null);
     try {
-      const response = await fetch('/api/excel/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ company, fiscalYear, financials, adjustments }),
-      });
-      if (!response.ok) throw new Error('Generation failed');
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      const safeName = (company?.companyName ?? 'Company').replace(/[^a-zA-Z0-9]/g, '_');
+      const blob = await outputApi.generateExcel(
+        company.id,
+        company.companyName ?? company.name ?? 'Company',
+        fiscalYear?.bsFY ?? '',
+      );
+      const safeName = (company?.companyName ?? company?.name ?? 'Company').replace(/[^a-zA-Z0-9]/g, '_');
       const fy = fiscalYear?.bsFY ?? 'FY';
-      a.download = `NFRS_Financials_${safeName}_${fy.replace(/\//g, '-')}.xlsx`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      outputApi.triggerDownload(blob, `NFRS_Financials_${safeName}_${fy.replace(/\//g, '-')}.xlsx`);
       setDownloadComplete(true);
-    } catch {
-      // error handled silently — could add error state
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Excel generation failed.');
     } finally {
       setIsGenerating(false);
     }
@@ -195,6 +189,10 @@ export default function DownloadPanel() {
                 </p>
               ))}
             </div>
+
+            {error && (
+              <p className="text-xs text-red-600 mb-3">{error}</p>
+            )}
 
             {isGenerating ? (
               <LoadingSpinner message="Generating Excel workbook..." />

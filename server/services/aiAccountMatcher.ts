@@ -3,6 +3,7 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import { CHART_OF_ACCOUNTS, NFRS_CATEGORIES } from '../../src/data/chartOfAccounts.js';
+import { normalizeCategoryAlias } from './accountMatcher.js';
 import type { MappedTBRow } from '../../src/types/trialBalance.js';
 
 interface AIClassification {
@@ -109,7 +110,9 @@ export async function classifyWithAI(
       const idx = ai.index;
       if (idx < 0 || idx >= result.length) continue;
 
-      const category = validCategories.has(ai.category) ? ai.category : 'unclassified';
+      const category = validCategories.has(ai.category)
+        ? normalizeCategoryAlias(ai.category)
+        : 'unclassified';
       const entry = CHART_OF_ACCOUNTS.find((e) => e.category === category);
       const confidence = Math.min(100, Math.max(0, ai.confidence ?? 70));
 
