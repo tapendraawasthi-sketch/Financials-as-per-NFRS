@@ -38,7 +38,7 @@ export const SAMPLE_COMPANY: CompanyProfile = {
     recognizeLeaveEncashment: true,
     assetCategories: [
       { id: 'buildings', name: 'Buildings', defaultMethod: 'StraightLine', defaultUsefulLife: 25, defaultWDVRate: 5, defaultResidualPct: 0 },
-      { id 'furniture', name: 'Furniture & Office Equipment', defaultMethod: 'StraightLine', defaultUsefulLife: 5, defaultWDVRate: 25, defaultResidualPct: 0 },
+      { id: 'furniture', name: 'Furniture & Office Equipment', defaultMethod: 'StraightLine', defaultUsefulLife: 5, defaultWDVRate: 25, defaultResidualPct: 0 },
       { id: 'vehicles', name: 'Vehicles', defaultMethod: 'StraightLine', defaultUsefulLife: 10, defaultWDVRate: 20, defaultResidualPct: 0 },
       { id: 'plant', name: 'Plant & Machinery', defaultMethod: 'StraightLine', defaultUsefulLife: 15, defaultWDVRate: 15, defaultResidualPct: 0 },
       { id: 'intangibles', name: 'Intangible Assets', defaultMethod: 'StraightLine', defaultUsefulLife: 10, defaultWDVRate: 0, defaultResidualPct: 0 },
