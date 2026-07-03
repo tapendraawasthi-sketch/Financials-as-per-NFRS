@@ -12,6 +12,40 @@ import { CompanyProfile } from '../../types/company';
 import { SAMPLE_COMPANY } from '../../data/sampleData';
 import { companyApi } from '../../api/client';
 import { getFiscalYear, type FiscalYearEntry } from '../../data/fiscalYears';
+import { useAppStore } from '../../store/appStore';
+
+interface NasCompliance {
+  goingConcern: boolean;
+  impairmentIndicators: boolean;
+  relatedPartyExists: boolean;
+  contingentLiabilities: boolean;
+  eventsAfterDate: boolean;
+  leaseArrangements: boolean;
+  governmentGrants: boolean;
+  foreignCurrency: boolean;
+}
+
+const EMPTY_NAS: NasCompliance = {
+  goingConcern: false,
+  impairmentIndicators: false,
+  relatedPartyExists: false,
+  contingentLiabilities: false,
+  eventsAfterDate: false,
+  leaseArrangements: false,
+  governmentGrants: false,
+  foreignCurrency: false,
+};
+
+const NAS_COMPLIANCE_QUESTIONS: Array<{ key: keyof NasCompliance; label: string }> = [
+  { key: 'goingConcern', label: 'Management confirms the entity is a going concern' },
+  { key: 'impairmentIndicators', label: 'Any indicators of asset impairment identified?' },
+  { key: 'relatedPartyExists', label: 'Any related party transactions during the year?' },
+  { key: 'contingentLiabilities', label: 'Any contingent liabilities to disclose?' },
+  { key: 'eventsAfterDate', label: 'Any material events after the reporting date?' },
+  { key: 'leaseArrangements', label: 'Any lease arrangements (finance or operating)?' },
+  { key: 'governmentGrants', label: 'Any government grants received?' },
+  { key: 'foreignCurrency', label: 'Any foreign currency transactions?' },
+];
 
 // ── Option lists ───────────────────────────────────────────────────────────
 const COMPANY_TYPE_OPTIONS = [
@@ -63,7 +97,7 @@ interface FormValues {
   phone:              string;
   email:              string;
   chairperson:        string;
-  director:           string;
+  directors:          string[];
   accountsHead:       string;
   numberOfEmployees:  number;
   dividendDeclaredPercent: number;
@@ -77,6 +111,7 @@ interface FormValues {
   balanceSheetTotal:  number;
   fiduciaryAssets:    number;
   fiscalYear?:        FiscalYearEntry;
+  nasCompliance:      NasCompliance;
 }
 
 type FormErrors = Partial<Record<keyof FormValues, string>>;
@@ -85,10 +120,11 @@ const EMPTY: FormValues = {
   companyName: '', panVatNumber: '', registrationNumber: '', companyType: '',
   entityType: 'NASForMEs', province: '', district: '', municipality: '',
   wardNumber: '', tole: '', fullAddress: '', contactPerson: '', designation: '',
-  phone: '', email: '', chairperson: '', director: '', accountsHead: '',
+  phone: '', email: '', chairperson: '', directors: [''], accountsHead: '',
   numberOfEmployees: 0, dividendDeclaredPercent: 0, shareIssuedDuringYear: 0,
   auditorName: '', auditFirmName: '', icanRegNumber: '', auditorPosition: '',
   annualTurnover: 0, bankBorrowings: 0, balanceSheetTotal: 0, fiduciaryAssets: 0,
+  nasCompliance: { ...EMPTY_NAS },
 };
 
 interface CompanyInfoFormProps {
@@ -136,7 +172,10 @@ export default function CompanyInfoForm({
   const [fiscalYearOptions, setFiscalYearOptions] = useState<{ value: string; label: string }[]>([]);
   const [fiscalYearLoading, setFiscalYearLoading] = useState(true);
   const [fiscalYearError, setFiscalYearError] = useState(false);
+  const [nasOpen, setNasOpen] = useState(false);
+  const [pySaving, setPySaving] = useState(false);
   const { show } = useToast();   // item 52: toast hook
+  const { state } = useAppStore();
   const hasEligibilityInput = values.annualTurnover > 0 || values.bankBorrowings > 0 || values.balanceSheetTotal > 0 || values.fiduciaryAssets > 0;
   const isMicroEntityEligible = values.annualTurnover <= 100000000 && values.bankBorrowings <= 50000000 && values.balanceSheetTotal <= 100000000 && values.fiduciaryAssets <= 50000000;
 
@@ -150,7 +189,7 @@ export default function CompanyInfoForm({
       entityType: SAMPLE_COMPANY.entityType || 'NASForMEs',
       fullAddress: SAMPLE_COMPANY.fullAddress || '',
       chairperson: SAMPLE_COMPANY.chairperson || '',
-      director: SAMPLE_COMPANY.director || '',
+      directors: SAMPLE_COMPANY.director ? [SAMPLE_COMPANY.director] : [''],
       accountsHead: SAMPLE_COMPANY.accountsHead || '',
       auditorName: SAMPLE_COMPANY.auditorInfo?.auditorName || '',
       auditFirmName: SAMPLE_COMPANY.auditorInfo?.auditorFirmName || '',
@@ -166,6 +205,67 @@ export default function CompanyInfoForm({
   const onFieldChange = (field: string, value: unknown) => {
     if (field === 'fiscalYear') {
       set('fiscalYear', value as FiscalYearEntry);
+    }
+    if (field === 'nasCompliance') {
+      set('nasCompliance', value as NasCompliance);
+    }
+  };
+
+  const setDirector = (index: number, name: string) => {
+    setValues(prev => {
+      const next = [...prev.directors];
+      next[index] = name;
+      return { ...prev, directors: next };
+    });
+  };
+
+  const addDirector = () => {
+    setValues(prev => ({ ...prev, directors: [...prev.directors, ''] }));
+  };
+
+  const removeDirector = (index: number) => {
+    setValues(prev => ({
+      ...prev,
+      directors: prev.directors.length > 1
+        ? prev.directors.filter((_, i) => i !== index)
+        : [''],
+    }));
+  };
+
+  const setNasCompliance = (key: keyof NasCompliance, checked: boolean) => {
+    setValues(prev => ({
+      ...prev,
+      nasCompliance: { ...prev.nasCompliance, [key]: checked },
+    }));
+  };
+
+  const handleSavePreviousYear = async () => {
+    const companyId = state.company?.id;
+    const previousYearData = state.company?.previousYearData;
+    if (!companyId || !previousYearData) {
+      show('No previous year data to save.', 'error', 3000);
+      return;
+    }
+    setPySaving(true);
+    try {
+      const response = await fetch(`/api/company/${companyId}/previous-year`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(previousYearData),
+      });
+      if (!response.ok) {
+        let message = 'Failed to save previous year data.';
+        try {
+          const body = await response.json();
+          if (body.error) message = body.error;
+        } catch {}
+        throw new Error(message);
+      }
+      show('Previous year data saved successfully.', 'success', 2500);
+    } catch (err: unknown) {
+      show(err instanceof Error ? err.message : 'Failed to save previous year data.', 'error', 3000);
+    } finally {
+      setPySaving(false);
     }
   };
 
@@ -472,12 +572,39 @@ export default function CompanyInfoForm({
             helperText="For signing authority on financial statements"
           />
 
-          <InputField
-            label="Director"
-            value={values.director}
-            onChange={e => set('director', e.target.value)}
-            placeholder="Full name"
-          />
+          <div className="col-span-2">
+            <p
+              className="leading-none mb-1.5"
+              style={{ fontSize: '10.5px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.10em', color: '#64748b' }}
+            >
+              Directors
+            </p>
+            <div className="space-y-2">
+              {values.directors.map((name, index) => (
+                <div key={index} className="flex items-start gap-2">
+                  <InputField
+                    label=""
+                    value={name}
+                    onChange={e => setDirector(index, e.target.value)}
+                    placeholder="Full name"
+                    className="flex-1"
+                  />
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => removeDirector(index)}
+                    className="mt-0.5"
+                  >
+                    Remove
+                  </Button>
+                </div>
+              ))}
+              <Button type="button" variant="secondary" size="sm" onClick={addDirector}>
+                Add Director
+              </Button>
+            </div>
+          </div>
 
           <div className="col-span-2">
             <InputField
@@ -544,6 +671,51 @@ export default function CompanyInfoForm({
             placeholder="Select position…"
           />
         </div>
+      </Card>
+
+      <Card title="NAS Compliance Checklist" padding="md">
+        <button
+          type="button"
+          onClick={() => setNasOpen(prev => !prev)}
+          className="w-full flex items-center justify-between text-sm font-semibold text-slate-700"
+        >
+          <span>NAS Compliance Checklist</span>
+          <span className="text-slate-400">{nasOpen ? '−' : '+'}</span>
+        </button>
+        {nasOpen && (
+          <div className="mt-4 space-y-3">
+            {NAS_COMPLIANCE_QUESTIONS.map(({ key, label }) => (
+              <label key={key} className="flex items-center justify-between gap-4 text-sm text-slate-700">
+                <span>{label}</span>
+                <span className="flex items-center gap-3 shrink-0">
+                  <span className="inline-flex items-center gap-1">
+                    <input
+                      type="checkbox"
+                      checked={values.nasCompliance[key]}
+                      onChange={e => setNasCompliance(key, e.target.checked)}
+                    />
+                    Yes
+                  </span>
+                </span>
+              </label>
+            ))}
+          </div>
+        )}
+      </Card>
+
+      <Card title="Previous Year Data" padding="md">
+        <p className="text-sm text-slate-500 mb-4">
+          Save comparative balances entered on the Previous Year Data tab to the server.
+        </p>
+        <Button
+          type="button"
+          variant="secondary"
+          size="md"
+          loading={pySaving}
+          onClick={handleSavePreviousYear}
+        >
+          Save Previous Year Data
+        </Button>
       </Card>
 
       {/* ── Server error ──────────────────────────────── */}

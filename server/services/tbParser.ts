@@ -451,6 +451,77 @@ function assignParentGroups(rows: RawTBRow[]): RawTBRow[] {
   });
 }
 
+function worksheetToMatrix(ws: ExcelJS.Worksheet): unknown[][] {
+  const matrix: unknown[][] = [];
+  ws.eachRow({ includeEmpty: true }, (row) => {
+    const cells: unknown[] = [];
+    row.eachCell({ includeEmpty: true }, (cell) => {
+      const v = cell.value;
+      if (v !== null && typeof v === 'object') {
+        if ('richText' in v)
+          cells.push((v as ExcelJS.CellRichTextValue).richText.map((t) => t.text).join(''));
+        else if ('result' in v)
+          cells.push((v as ExcelJS.CellFormulaValue).result);
+        else
+          cells.push(v);
+      } else {
+        cells.push(v);
+      }
+    });
+    matrix.push(cells);
+  });
+  return matrix;
+}
+
+function isSecondarySheetName(name: string): boolean {
+  const n = name.trim().toLowerCase();
+  if (/\bpy\b/.test(n)) return true;
+  if (/previous\s*year/.test(n)) return true;
+  if (/last\s*year/.test(n)) return true;
+  if (/2080/.test(n)) return true;
+  if (/\b20\d{2}\b/.test(name)) return true;
+  if (/\b20[6-8]\d\b/.test(name)) return true;
+  if (/\d{4}\s*[-–]\s*\d{2,4}/.test(name)) return true;
+  return false;
+}
+
+function findSecondaryWorksheet(
+  workbook: ExcelJS.Workbook,
+  primaryName: string,
+): ExcelJS.Worksheet | null {
+  const candidates: { ws: ExcelJS.Worksheet; score: number }[] = [];
+
+  for (const ws of workbook.worksheets) {
+    if (ws.name === primaryName) continue;
+    if (!isSecondarySheetName(ws.name)) continue;
+
+    const n = ws.name.trim().toLowerCase();
+    let score = 0;
+    if (/\bpy\b/.test(n) || n === 'py') score += 50;
+    if (/previous\s*year/.test(n)) score += 45;
+    if (/last\s*year/.test(n)) score += 40;
+    if (/2080/.test(n)) score += 35;
+    if (/\b20\d{2}\b/.test(ws.name)) score += 20;
+    if (/\b20[6-8]\d\b/.test(ws.name)) score += 15;
+    if (/\d{4}\s*[-–]\s*\d{2,4}/.test(ws.name)) score += 10;
+
+    candidates.push({ ws, score });
+  }
+
+  if (candidates.length === 0) return null;
+
+  candidates.sort((a, b) => b.score - a.score);
+  return candidates[0].ws;
+}
+
+function parseSecondaryMatrix(matrix: unknown[][]): RawTBRow[] | null {
+  try {
+    return parseMatrix(matrix).rows;
+  } catch {
+    return null;
+  }
+}
+
 function parseMatrix(matrix: unknown[][]): RawTBParseResult {
   const warnings: string[] = [];
   const headerDetection = detectColumns(matrix);
@@ -541,13 +612,17 @@ function parseMatrix(matrix: unknown[][]): RawTBParseResult {
   };
 }
 
+export type ParseTBResult = RawTBParseResult & {
+  previousYearData: RawTBRow[] | null;
+};
+
 /** Parse CSV buffer using the same logic as Excel uploads. */
-export function parseCsv(buffer: Buffer): RawTBParseResult {
+export function parseCsv(buffer: Buffer): ParseTBResult {
   let text = buffer.toString('utf-8');
   if (text.includes('\ufffd')) {
     text = buffer.toString('latin1');
   }
-  return parseMatrix(parseCSVText(text));
+  return { ...parseMatrix(parseCSVText(text)), previousYearData: null };
 }
 
 // ---------------------------------------------------------------------------
@@ -556,7 +631,7 @@ export function parseCsv(buffer: Buffer): RawTBParseResult {
 export async function parseTrialBalance(
   buffer: Buffer,
   filename: string,
-): Promise<RawTBParseResult> {
+): Promise<ParseTBResult> {
   // --- Validation guards ---
   if (!buffer || buffer.length === 0) {
     throw Object.assign(
@@ -566,53 +641,48 @@ export async function parseTrialBalance(
   }
 
   const ext = filename.toLowerCase().slice(filename.lastIndexOf('.'));
-  let matrix: unknown[][] = [];
 
   // ── Read file into matrix ────────────────────────────────────────────────
   if (ext === '.csv') {
     return parseCsv(buffer);
-  } else {
-    // XLSX or XLS
-    const workbook = new ExcelJS.Workbook();
-    try {
-      await workbook.xlsx.load(buffer);
-    } catch (e) {
-      throw new Error(
-        'Could not read the uploaded file as an Excel workbook. ' +
-        'If the file is in .xls (old format), please re-save it as .xlsx in Excel first.',
-      );
-    }
-
-    const ws =
-      workbook.getWorksheet('Trial Balance') ??
-      workbook.getWorksheet('TB') ??
-      workbook.worksheets[0];
-    if (!ws) {
-      throw new Error('The uploaded workbook has no worksheets.');
-    }
-
-    ws.eachRow({ includeEmpty: true }, (row) => {
-      const cells: unknown[] = [];
-      row.eachCell({ includeEmpty: true }, (cell) => {
-        const v = cell.value;
-        if (v !== null && typeof v === 'object') {
-          if ('richText' in v)
-            cells.push((v as ExcelJS.CellRichTextValue).richText.map((t) => t.text).join(''));
-          else if ('result' in v)
-            cells.push((v as ExcelJS.CellFormulaValue).result);
-          else
-            cells.push(v);
-        } else {
-          cells.push(v);
-        }
-      });
-      matrix.push(cells);
-    });
   }
 
+  const workbook = new ExcelJS.Workbook();
+  try {
+    await workbook.xlsx.load(buffer);
+  } catch {
+    throw new Error(
+      'Could not read the uploaded file as an Excel workbook. ' +
+      'If the file is in .xls (old format), please re-save it as .xlsx in Excel first.',
+    );
+  }
+
+  const primaryWs =
+    workbook.getWorksheet('Trial Balance') ??
+    workbook.getWorksheet('TB') ??
+    workbook.worksheets[0];
+  if (!primaryWs) {
+    throw new Error('The uploaded workbook has no worksheets.');
+  }
+
+  const matrix = worksheetToMatrix(primaryWs);
   if (matrix.length === 0) {
     throw new Error('The uploaded file appears to be empty.');
   }
 
-  return parseMatrix(matrix);
+  const result = parseMatrix(matrix);
+
+  const secondaryWs = findSecondaryWorksheet(workbook, primaryWs.name);
+  let previousYearData: RawTBRow[] | null = null;
+  if (secondaryWs) {
+    const secondaryMatrix = worksheetToMatrix(secondaryWs);
+    previousYearData = parseSecondaryMatrix(secondaryMatrix);
+    if (previousYearData) {
+      result.warnings.push(
+        `Previous year data loaded from sheet "${secondaryWs.name}" (${previousYearData.length} rows).`,
+      );
+    }
+  }
+
+  return { ...result, previousYearData };
 }
