@@ -8,13 +8,14 @@ import Tabs from '../components/ui/Tabs';
 import AssetRegisterTable from '../components/adjustments/AssetRegisterTable';
 import ProvisionInputs from '../components/adjustments/ProvisionInputs';
 import AdjustmentJournalView from '../components/adjustments/AdjustmentJournalView';
-import Button from '../components/ui/Button';
+import { useToast } from '../components/ui/Toast';
 
 type TabId = 'assets' | 'provisions' | 'journal';
 
 export default function AdjustmentsPage() {
   const { state, dispatch } = useAppStore();
   const { saveAssets, calculateDepreciation, finalizeAdjustments } = useAdjustments();
+  const { show: showToast } = useToast();
   const [activeTab, setActiveTab] = useState<TabId>('assets');
   const ppePrefillDone = useRef(false);
   const journalAutoDone = useRef(false);
@@ -142,14 +143,22 @@ export default function AdjustmentsPage() {
 
   const handleSaveProvisions = async (rows: any[]) => {
     if (!state.company?.id) return;
-    await adjustmentsApi.saveProvisions(state.company.id, rows);
+    try {
+      await adjustmentsApi.saveProvisions(state.company.id, rows);
+      showToast('Adjustments saved', 'success');
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to save adjustments.';
+      showToast(message, 'error');
+    }
   };
 
   const handleProceed = async () => {
     try {
       await finalizeAdjustments();
-    } catch {
-      return;
+      showToast('Adjustments saved', 'success');
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to save adjustments.';
+      showToast(message, 'error');
     }
   };
 

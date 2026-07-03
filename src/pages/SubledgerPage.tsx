@@ -4,6 +4,7 @@ import { useAppStore }    from '../store/appStore';
 import { MappedTBRow }    from '../types';
 import Tabs               from '../components/ui/Tabs';
 import Alert              from '../components/ui/Alert';
+import { useToast } from '../components/ui/Toast';
 import Button             from '../components/ui/Button';
 import LoadingSpinner     from '../components/ui/LoadingSpinner';
 import { formatNPRSimple } from '../utils/numberFormat';
@@ -622,10 +623,9 @@ const BorrowingsTab: React.FC<{
 // ── Main Page ─────────────────────────────────────────────────────────────────
 const SubledgerPage: React.FC = () => {
   const { state, dispatch } = useAppStore();
+  const { show: showToast } = useToast();
   const [activeTab,     setActiveTab]     = useState('debtors');
   const [isSaving,      setIsSaving]      = useState(false);
-  const [error,         setError]         = useState<string | null>(null);
-  const [savedOk,       setSavedOk]       = useState(false);
 
   const tbRows = useMemo(() => state.trialBalance?.rows ?? [], [state.trialBalance]);
 
@@ -644,14 +644,14 @@ const SubledgerPage: React.FC = () => {
   const handleSave = async () => {
     if (!companyId) return;
     setIsSaving(true);
-    setError(null);
     try {
       await tbApi.saveSubledgers(companyId, { debtors, creditors, banks, relatedParties, borrowings });
-      setSavedOk(true);
+      showToast('Subledger saved', 'success');
       dispatch({ type: 'COMPLETE_STEP', payload: 'subledger_details' });
       dispatch({ type: 'SET_STEP',      payload: 'year_end_adjustments' });
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to save subledger details.');
+      const message = err instanceof Error ? err.message : 'Failed to save subledger details.';
+      showToast(message, 'error');
     } finally {
       setIsSaving(false);
     }
@@ -685,9 +685,6 @@ const SubledgerPage: React.FC = () => {
 
       {/* item 166: KPI strip */}
       <SubledgerKPIStrip totalDebtors={totalDebtors} totalCreditors={totalCreditors} />
-
-      {error    && <Alert type="error"   message={error}  onDismiss={() => setError(null)} />}
-      {savedOk  && <Alert type="success" message="Subledger details saved successfully." />}
 
       <Tabs tabs={tabs} active={activeTab} onChange={id => setActiveTab(id)} variant="pill" />
 

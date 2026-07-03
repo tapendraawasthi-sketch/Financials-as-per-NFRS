@@ -1,6 +1,10 @@
 // src/pages/DashboardPage.tsx
-import React from 'react';
+import React, { useState } from 'react';
 import Button from '../components/ui/Button';
+import Modal from '../components/ui/Modal';
+import { useAppStore } from '../store/appStore';
+import { outputApi } from '../api/client';
+import type { AppStep } from '../types';
 
 interface DashboardPageProps {
   onStart: () => void;
@@ -8,7 +12,71 @@ interface DashboardPageProps {
   hasSession: boolean;
 }
 
+const WIZARD_STEPS: AppStep[] = [
+  'company_setup',
+  'accounting_policies',
+  'trial_balance_upload',
+  'trial_balance_mapping',
+  'subledger_details',
+  'year_end_adjustments',
+  'review_statements',
+  'generate_output',
+];
+
+function isSessionInProgress(currentStep: AppStep, hasSession: boolean): boolean {
+  const stepIndex = WIZARD_STEPS.indexOf(currentStep);
+  return stepIndex > 0 || hasSession;
+}
+
 export default function DashboardPage({ onStart, onContinue, hasSession }: DashboardPageProps) {
+  const { state } = useAppStore();
+  const [showResetModal, setShowResetModal] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
+
+  const handleStartClick = () => {
+    if (!isSessionInProgress(state.currentStep, hasSession)) {
+      onStart();
+      return;
+    }
+    setShowResetModal(true);
+  };
+
+  const handleCancelReset = () => {
+    setShowResetModal(false);
+  };
+
+  const handleDiscardAndStart = () => {
+    setShowResetModal(false);
+    onStart();
+  };
+
+  const handleDownloadAndStart = async () => {
+    const company = state.company;
+    if (!company?.id || !state.balanceSheet) {
+      setShowResetModal(false);
+      onStart();
+      return;
+    }
+    setIsDownloading(true);
+    try {
+      const blob = await outputApi.generateExcel(
+        company.id,
+        company.companyName ?? 'Company',
+        company.fiscalYear?.bsFY ?? 'FY',
+      );
+      const safeName = (company.companyName ?? 'Company').replace(/[^a-zA-Z0-9]/g, '_');
+      const fy = (company.fiscalYear?.bsFY ?? 'FY').replace(/\//g, '-');
+      outputApi.triggerDownload(blob, `NFRS_Financials_${safeName}_${fy}.xlsx`);
+      setShowResetModal(false);
+      onStart();
+    } catch {
+      setShowResetModal(false);
+      onStart();
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
       {/* Hero */}
@@ -59,7 +127,7 @@ export default function DashboardPage({ onStart, onContinue, hasSession }: Dashb
         </p>
 
         <div className="flex flex-col sm:flex-row items-center gap-3">
-          <Button variant="primary" size="lg" onClick={onStart}>
+          <Button variant="primary" size="lg" onClick={handleStartClick}>
             Start New Report
           </Button>
           {hasSession && (
@@ -108,6 +176,31 @@ export default function DashboardPage({ onStart, onContinue, hasSession }: Dashb
           </p>
         </div>
       </div>
+
+      <Modal
+        isOpen={showResetModal}
+        onClose={handleCancelReset}
+        title="Start a new report?"
+        size="md"
+        footer={
+          <>
+            <Button variant="secondary" size="sm" onClick={handleCancelReset} disabled={isDownloading}>
+              Cancel
+            </Button>
+            <Button variant="secondary" size="sm" onClick={handleDiscardAndStart} disabled={isDownloading}>
+              Start New (discard)
+            </Button>
+            <Button variant="primary" size="sm" onClick={handleDownloadAndStart} loading={isDownloading}>
+              Download &amp; Start New
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm text-slate-600 leading-relaxed">
+          Starting a new report will discard your current session. Would you like to download
+          the current session data before proceeding?
+        </p>
+      </Modal>
     </div>
   );
 }
