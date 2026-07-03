@@ -75,7 +75,7 @@ export default function TBUploadZone({
     setProgress(0);
 
     const formData = new FormData();
-    formData.append('file', file);
+    formData.append('trialbalance', file);
     if (aiOn) formData.append('useAI', 'true');
 
     const xhr = new XMLHttpRequest();
