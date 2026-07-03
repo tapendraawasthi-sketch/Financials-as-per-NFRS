@@ -138,7 +138,7 @@ Refreshment Expenses,0,0,100000,0,100000,0
 Travelling,0,0,20000,0,20000,0
 Water & Electricity Charges,0,0,25000,0,25000,0
 Cash Credit,0,0,0,100000,0,100000
-Working Capital Loan,0,0,0,50000,0,50000\`;
+Working Capital Loan,0,0,0,50000,0,50000`;
 
 export const SAMPLE_EXPECTED = {
   totalAssets: 58785494,
