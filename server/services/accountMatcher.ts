@@ -178,11 +178,11 @@ const KEYWORD_BUCKETS: Array<{
   // Share capital
   { pattern: /\b(share capital|paid.?up capital)\b/i, nfrsCategory: 'share_capital', confidence: 92 },
   // Retained earnings
-  { pattern: /\b(retained earnings|profit and loss)\b/i, nfrsCategory: 'retained_earnings', confidence: 90 },
-  // Inventory
-  { pattern: /\b(inventory|closing stock|stock in trade|finished goods)\b/i, nfrsCategory: 'inventory_finished_goods', confidence: 80 },
+  { pattern: /\b(reserves?\s*[&and]+\s*surplus|retained earnings|profit and loss)\b/i, nfrsCategory: 'retained_earnings', confidence: 95 },
+  // CWIP / capital work in progress
+  { pattern: /\b(work in progress|capital work in progress|cwip|construction in progress)\b/i, nfrsCategory: 'ppe_cwip', confidence: 93 },
   // Biological assets
-  { pattern: /\b(biological asset|livestock|aquaculture|crops)\b/i, nfrsCategory: 'biological_assets', confidence: 85 },
+  { pattern: /\b(biological assets?|livestock|aquaculture|crops)\b/i, nfrsCategory: 'biological_assets', confidence: 92 },
   // Security deposit
   { pattern: /\b(security deposit|guarantee margin|refundable deposit)\b/i, nfrsCategory: 'nca_deposits', confidence: 85 },
   // CSR provision

@@ -90,6 +90,11 @@ export interface CompanyProfile {
   accountingPolicies: AccountingPolicies;
   previousYearData?: PreviousYearBalances;
   numberOfEmployees?: number;
+  dividendDeclaredPercent?: number;
+  employeeBonusRate?: number;
+  incomeTaxRate?: number;
+  shareIssuedDuringYear?: number;
+  openingShareCount?: number;
   createdAt?: string;
   updatedAt?: string;
 }

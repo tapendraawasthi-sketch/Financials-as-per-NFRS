@@ -123,6 +123,15 @@ export interface JournalEntry {
   isSystemGenerated?: boolean;
 }
 
+export interface InventoryDetails {
+  rawMaterialsCY: number;
+  rawMaterialsPY: number;
+  wipCY: number;
+  wipPY: number;
+  finishedGoodsCY: number;
+  finishedGoodsPY: number;
+}
+
 export interface YearEndAdjustments {
   companyId: string;
   fiscalYear: string;
@@ -153,4 +162,16 @@ export interface YearEndAdjustments {
   company?: any;
   taxableProfit?: number;
   currentTaxExpense?: number;
+  inventoryDetails?: InventoryDetails;
+  staffBonusProvision?: number;
+  incomeTaxProvision?: number;
+  incomeTaxPaidPY?: number;
+  dividendPayable?: number;
+  bankAccounts?: unknown[];
+  debtors?: unknown[];
+  creditors?: unknown[];
+  relatedParties?: unknown[];
+  manualJournals?: JournalEntry[];
+  taxDepPool?: TaxDepreciationPool[];
+  disallowedForTax?: Array<{ description: string; amount: number; taxSection?: string; notes?: string }>;
 }

@@ -918,6 +918,18 @@ export const CHART_OF_ACCOUNTS: ChartAccountEntry[] = [
   },
   {
     label: 'Work in Progress',
+    nfrsCategory: 'ppe_cwip',
+    noteRef: '3.1',
+    normalBalance: 'debit',
+    synonyms: [
+      'capital work in progress',
+      'cwip',
+      'construction in progress',
+      'work in progress fixed assets',
+    ],
+  },
+  {
+    label: 'Work in Progress (Inventory)',
     nfrsCategory: 'inventory_wip',
     noteRef: '3.7',
     normalBalance: 'debit',
@@ -927,6 +939,7 @@ export const CHART_OF_ACCOUNTS: ChartAccountEntry[] = [
       'work-in-process',
       'goods in process',
       'work-in-progress',
+      'inventory wip',
     ],
   },
   {
