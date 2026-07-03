@@ -143,23 +143,55 @@ export const tbApi = {
     apiRequest('PUT', `/api/trial-balance/${companyId}/mapping/${rowIndex}`, { nfrsCategory }),
 
   rematchWithAI: (companyId: string): Promise<ParsedTrialBalance> =>
-    apiRequest<ParsedTrialBalance>('POST', `/api/trial-balance/${companyId}/rematch`),
+    apiRequest<ParsedTrialBalance>('POST', `/api/trial-balance/${companyId}/rematch-ai`),
 
   getValidation: (companyId: string): Promise<ValidationResult> =>
     apiRequest<ValidationResult>('GET', `/api/trial-balance/${companyId}/validation`),
-
-  saveSubledgers: (
-    companyId: string,
-    subledgers: {
-      debtors?: unknown[];
-      creditors?: unknown[];
-      banks?: unknown[];
-      relatedParties?: unknown[];
-      borrowings?: unknown[];
-    },
-  ): Promise<{ saved: boolean }> =>
-    apiRequest<{ saved: boolean }>('POST', `/api/trial-balance/${companyId}/subledgers`, subledgers),
 };
+
+export async function saveDebtorSubledger(
+  companyId: string,
+  data: { debtors: unknown[] },
+): Promise<unknown> {
+  try {
+    return await apiRequest('POST', '/api/adjustments/subledger/debtors', { companyId, ...data });
+  } catch (err: unknown) {
+    throw err instanceof Error ? err : new Error('Failed to save debtor subledger.');
+  }
+}
+
+export async function saveCreditorSubledger(
+  companyId: string,
+  data: { creditors: unknown[] },
+): Promise<unknown> {
+  try {
+    return await apiRequest('POST', '/api/adjustments/subledger/creditors', { companyId, ...data });
+  } catch (err: unknown) {
+    throw err instanceof Error ? err : new Error('Failed to save creditor subledger.');
+  }
+}
+
+export async function saveBankSubledger(
+  companyId: string,
+  data: { bankAccounts: unknown[] },
+): Promise<unknown> {
+  try {
+    return await apiRequest('POST', '/api/adjustments/subledger/bank-accounts', { companyId, ...data });
+  } catch (err: unknown) {
+    throw err instanceof Error ? err : new Error('Failed to save bank subledger.');
+  }
+}
+
+export async function saveRelatedPartySubledger(
+  companyId: string,
+  data: { relatedParties: unknown[] },
+): Promise<unknown> {
+  try {
+    return await apiRequest('POST', '/api/adjustments/subledger/related-parties', { companyId, ...data });
+  } catch (err: unknown) {
+    throw err instanceof Error ? err : new Error('Failed to save related party subledger.');
+  }
+}
 
 // ── Adjustments API ────────────────────────────────────────────────────────────
 
