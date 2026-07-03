@@ -94,9 +94,14 @@ export interface BalanceSheetRowMap {
   totalCaRow: number;
   totalAssetsRow: number;
   shareCapitalRow: number;
+  reservesRow: number;
+  retainedEarningsRow: number;
+  totalEquityRow: number;
   ncBorrowingsRow: number;
+  totalNclRow: number;
   cBorrowingsRow: number;
   taxPayableRow: number;
+  totalClRow: number;
   totalLiabilitiesEquityRow: number;
 }
 
@@ -108,9 +113,12 @@ export interface IncomeStatementRowMap {
   taxRow: number;
   profitBeforeTaxRow: number;
   netProfitRow: number;
+  totalIncomeRow: number;
+  totalExpensesRow: number;
 }
 
 export interface CashFlowRowMap {
+  profitBeforeTaxRow: number;
   openingCashRow: number;
   closingCashRow: number;
   netOperatingRow: number;
@@ -118,10 +126,15 @@ export interface CashFlowRowMap {
   netFinancingRow: number;
 }
 
+export interface ChangesInEquityRowMap {
+  profitForYearRow: number;
+}
+
 export interface WorkbookRowMaps {
   balanceSheet: BalanceSheetRowMap;
   incomeStatement: IncomeStatementRowMap;
   cashFlow: CashFlowRowMap;
+  changesInEquity: ChangesInEquityRowMap;
   notes: NoteRowMap;
 }
 
@@ -712,7 +725,8 @@ export function writeBalanceSheet(ws: ExcelJS.Worksheet, bs: BalanceSheet, compa
   const bsRowMap: BalanceSheetRowMap = {
     ppeRow: 0, ncaInvestmentsRow: 0, ncaReceivablesRow: 0, ncaOtherRow: 0, totalNcaRow: 0,
     caInvestmentsRow: 0, inventoriesRow: 0, receivablesRow: 0, cashRow: 0, caOtherRow: 0, totalCaRow: 0,
-    totalAssetsRow: 0, shareCapitalRow: 0, ncBorrowingsRow: 0, cBorrowingsRow: 0, taxPayableRow: 0,
+    totalAssetsRow: 0, shareCapitalRow: 0, reservesRow: 0, retainedEarningsRow: 0, totalEquityRow: 0,
+    ncBorrowingsRow: 0, totalNclRow: 0, cBorrowingsRow: 0, taxPayableRow: 0, totalClRow: 0,
     totalLiabilitiesEquityRow: 0,
   };
   let bsSection = '';
@@ -730,13 +744,41 @@ export function writeBalanceSheet(ws: ExcelJS.Worksheet, bs: BalanceSheet, compa
     if (r.label === 'Other Current Assets') bsRowMap.caOtherRow = row;
     if (r.label === 'Total Current Assets') bsRowMap.totalCaRow = row;
     if (r.label === 'Share Capital') bsRowMap.shareCapitalRow = row;
+    if (r.label === 'Reserves') bsRowMap.reservesRow = row;
+    if (r.label === 'Retained Earnings') bsRowMap.retainedEarningsRow = row;
+    if (r.label === 'Total Equity') bsRowMap.totalEquityRow = row;
     if (r.label === 'Loans and Borrowings' && bsSection === 'D.  NON-CURRENT LIABILITIES') bsRowMap.ncBorrowingsRow = row;
+    if (r.label === 'Total Non-Current Liabilities') bsRowMap.totalNclRow = row;
     if (r.label === 'Loans and Borrowings' && bsSection === 'E.  CURRENT LIABILITIES') bsRowMap.cBorrowingsRow = row;
     if (r.label === 'Income Tax Liability') bsRowMap.taxPayableRow = row;
+    if (r.label === 'Total Current Liabilities') bsRowMap.totalClRow = row;
     if (r.label === 'TOTAL ASSETS') bsRowMap.totalAssetsRow = row;
     if (r.label === 'TOTAL EQUITY AND LIABILITIES') bsRowMap.totalLiabilitiesEquityRow = row;
     writeAmountRow(ws, row, r); row++;
   });
+
+  const applyBsSumFormula = (targetRow: number, fromRow: number, toRow: number, col = 'C') => {
+    if (!targetRow || !fromRow || !toRow) return;
+    const cell = ws.getRow(targetRow).getCell(col);
+    cell.value = fromRow === toRow
+      ? { formula: `${col}${fromRow}`, result: cell.value as number ?? 0 }
+      : { formula: `SUM(${col}${fromRow}:${col}${toRow})`, result: cell.value as number ?? 0 };
+    cell.numFmt = NUMBER_FORMAT;
+    applyTotalStyle(cell);
+  };
+
+  if (bsRowMap.totalNcaRow && bsRowMap.ppeRow && bsRowMap.ncaOtherRow) {
+    applyBsSumFormula(bsRowMap.totalNcaRow, bsRowMap.ppeRow, bsRowMap.ncaOtherRow, 'C');
+    applyBsSumFormula(bsRowMap.totalNcaRow, bsRowMap.ppeRow, bsRowMap.ncaOtherRow, 'D');
+  }
+  if (bsRowMap.totalCaRow && bsRowMap.caInvestmentsRow && bsRowMap.caOtherRow) {
+    applyBsSumFormula(bsRowMap.totalCaRow, bsRowMap.caInvestmentsRow, bsRowMap.caOtherRow, 'C');
+    applyBsSumFormula(bsRowMap.totalCaRow, bsRowMap.caInvestmentsRow, bsRowMap.caOtherRow, 'D');
+  }
+  if (bsRowMap.totalEquityRow && bsRowMap.shareCapitalRow && bsRowMap.retainedEarningsRow) {
+    applyBsSumFormula(bsRowMap.totalEquityRow, bsRowMap.shareCapitalRow, bsRowMap.retainedEarningsRow, 'C');
+    applyBsSumFormula(bsRowMap.totalEquityRow, bsRowMap.shareCapitalRow, bsRowMap.retainedEarningsRow, 'D');
+  }
 
   // Balance check
   const checkCell = ws.getRow(row).getCell(3);
@@ -795,17 +837,75 @@ export function writeIncomeStatement(ws: ExcelJS.Worksheet, is: IncomeStatement,
     { label: 'Net Profit/(Loss) for the Year', cy: is.netProfit, py: is.netProfit_py, isTotal: true },
   ];
 
-  const isRowMap: IncomeStatementRowMap = { revenueRow: 0, empExpenseRow: 0, adminExpenseRow: 0, depreciationRow: 0, taxRow: 0, profitBeforeTaxRow: 0, netProfitRow: 0 };
+  const isRowMap: IncomeStatementRowMap = {
+    revenueRow: 0, empExpenseRow: 0, adminExpenseRow: 0, depreciationRow: 0, taxRow: 0,
+    profitBeforeTaxRow: 0, netProfitRow: 0, totalIncomeRow: 0, totalExpensesRow: 0,
+  };
+  const incomeDetailRows: number[] = [];
+  const expenseDetailRows: number[] = [];
+  let isSection: 'income' | 'expense' | '' = '';
+
   rows.forEach((r) => {
+    if (r.label === 'INCOME') isSection = 'income';
+    if (r.label === 'EXPENSES') isSection = 'expense';
+    if (r.label === 'Total Income') isSection = '';
+    if (r.label === 'Total Expenses') isSection = '';
+
     if (r.label === 'Revenue from Operations') isRowMap.revenueRow = row;
     if (r.label === 'Employee Benefit Expenses') isRowMap.empExpenseRow = row;
     if (r.label === 'Administrative & Other Exp') isRowMap.adminExpenseRow = row;
     if (r.label === 'Depreciation') isRowMap.depreciationRow = row;
-    if (r.label === 'Profit Before Tax') isRowMap.profitBeforeTaxRow = row;
+    if (r.label === 'Profit/(Loss) before Tax') isRowMap.profitBeforeTaxRow = row;
     if (r.label === 'Less: Income Tax Expense') isRowMap.taxRow = row;
-    if (r.label === 'Profit After Tax') isRowMap.netProfitRow = row;
+    if (r.label === 'Net Profit/(Loss) for the Year') isRowMap.netProfitRow = row;
+    if (r.label === 'Total Income') isRowMap.totalIncomeRow = row;
+    if (r.label === 'Total Expenses') isRowMap.totalExpensesRow = row;
+
+    if (isSection === 'income' && !r.isSectionHeader && !r.isSubTotal) incomeDetailRows.push(row);
+    if (isSection === 'expense' && !r.isSectionHeader && !r.isSubTotal) expenseDetailRows.push(row);
+
     writeAmountRow(ws, row, r); row++;
   });
+
+  const applySumFormula = (targetRow: number, detailRows: number[], col = 'C') => {
+    if (!targetRow || detailRows.length === 0) return;
+    const cell = ws.getRow(targetRow).getCell(col);
+    if (detailRows.length === 1) {
+      cell.value = { formula: `${col}${detailRows[0]}`, result: cell.value as number ?? 0 };
+    } else {
+      cell.value = {
+        formula: `SUM(${col}${detailRows[0]}:${col}${detailRows[detailRows.length - 1]})`,
+        result: cell.value as number ?? 0,
+      };
+    }
+    cell.numFmt = NUMBER_FORMAT;
+    applyTotalStyle(cell);
+  };
+
+  applySumFormula(isRowMap.totalIncomeRow, incomeDetailRows, 'C');
+  applySumFormula(isRowMap.totalIncomeRow, incomeDetailRows, 'D');
+  applySumFormula(isRowMap.totalExpensesRow, expenseDetailRows, 'C');
+  applySumFormula(isRowMap.totalExpensesRow, expenseDetailRows, 'D');
+
+  if (isRowMap.profitBeforeTaxRow && isRowMap.totalIncomeRow && isRowMap.totalExpensesRow) {
+    const pbtCell = ws.getRow(isRowMap.profitBeforeTaxRow).getCell('C');
+    pbtCell.value = {
+      formula: `C${isRowMap.totalIncomeRow}-C${isRowMap.totalExpensesRow}`,
+      result: pbtCell.value as number ?? 0,
+    };
+    pbtCell.numFmt = NUMBER_FORMAT;
+    applyTotalStyle(pbtCell);
+  }
+
+  if (isRowMap.netProfitRow && isRowMap.profitBeforeTaxRow && isRowMap.taxRow) {
+    const npCell = ws.getRow(isRowMap.netProfitRow).getCell('C');
+    npCell.value = {
+      formula: `C${isRowMap.profitBeforeTaxRow}-C${isRowMap.taxRow}`,
+      result: npCell.value as number ?? 0,
+    };
+    npCell.numFmt = NUMBER_FORMAT;
+    applyTotalStyle(npCell);
+  }
   writeSignatureLine(ws, row + 1, company);
   appendComplianceStatement(ws, {
     companyName: company.companyName ?? '',
@@ -824,7 +924,8 @@ export function writeCashFlowStatement(ws: ExcelJS.Worksheet, cf: CashFlowStatem
   let row = writeStatementHeader(ws, company.companyName ?? '', 'STATEMENT OF CASH FLOWS (Indirect Method)', `For the Year Ended 31 Ashadh ${endBS ?? ''}`, fy, '');
 
   const cfRowMap: CashFlowRowMap = {
-    openingCashRow: 0, closingCashRow: 0, netOperatingRow: 0, netInvestingRow: 0, netFinancingRow: 0,
+    profitBeforeTaxRow: 0, openingCashRow: 0, closingCashRow: 0,
+    netOperatingRow: 0, netInvestingRow: 0, netFinancingRow: 0,
   };
 
   const rows: AmtRow[] = [
@@ -871,6 +972,7 @@ export function writeCashFlowStatement(ws: ExcelJS.Worksheet, cf: CashFlowStatem
   ];
 
   rows.forEach((r) => {
+    if (r.label === 'Profit Before Tax') cfRowMap.profitBeforeTaxRow = row;
     if (r.label === 'Net Cash from Operating Activities') cfRowMap.netOperatingRow = row;
     if (r.label === 'Net Cash from Investing Activities') cfRowMap.netInvestingRow = row;
     if (r.label === 'Net Cash from Financing Activities') cfRowMap.netFinancingRow = row;
@@ -884,7 +986,7 @@ export function writeCashFlowStatement(ws: ExcelJS.Worksheet, cf: CashFlowStatem
   return cfRowMap;
 }
 
-export function writeChangesInEquity(ws: ExcelJS.Worksheet, ce: ChangesInEquity, company: CompanyProfile): void {
+export function writeChangesInEquity(ws: ExcelJS.Worksheet, ce: ChangesInEquity, company: CompanyProfile): ChangesInEquityRowMap {
   ws.columns = [{ width: 36 }, { width: 18 }, { width: 16 }, { width: 16 }, { width: 20 }, { width: 18 }];
   const fy = company.fiscalYear?.bsFY ?? '';
   const [, endBS] = fy.split('/').map((y: string) => y.trim());
@@ -920,8 +1022,12 @@ export function writeChangesInEquity(ws: ExcelJS.Worksheet, ce: ChangesInEquity,
     ['Closing Balance (31 Ashadh)', ce.cyClosingShareCapital ?? 0, ce.cyClosingSharePremium ?? 0, ce.cyClosingGeneralReserve ?? 0, ce.cyClosingRetainedEarnings ?? 0, ce.cyClosingTotal ?? 0],
   ];
 
+  const ceRowMap: ChangesInEquityRowMap = { profitForYearRow: 0 };
+
   ceRows.forEach(([label, sc, sp, gr, re, total], idx) => {
-    const r = ws.getRow(6 + idx);
+    const rowNum = 6 + idx;
+    if (label === 'Profit for the Year') ceRowMap.profitForYearRow = rowNum;
+    const r = ws.getRow(rowNum);
     [label, sc, sp, gr, re, total].forEach((val, ci) => {
       const cell = r.getCell(ci + 1);
       if (ci === 0) { cell.value = val as string; }
@@ -932,6 +1038,7 @@ export function writeChangesInEquity(ws: ExcelJS.Worksheet, ce: ChangesInEquity,
     r.height = 15;
   });
   ws.pageSetup = { paperSize: 9, orientation: 'landscape', fitToPage: true, fitToWidth: 1 };
+  return ceRowMap;
 }
 
 export function writeNote31_PPE(ws: ExcelJS.Worksheet, depnSummary: DepreciationSummary[]): NoteRowMap {
@@ -2286,6 +2393,65 @@ function normalizeNotesForExcel(
 }
 
 // Generic note writer for key-value record notes
+function buildInvestmentsNoteData(
+  note32?: NotesData['note32_investments'] | null,
+): CyPyRecord {
+  const data: CyPyRecord = {};
+  if (!note32) return data;
+
+  for (const share of note32.listedShares ?? []) {
+    data[`Listed Shares — ${share.companyName}`] = {
+      cy: share.carryingAmount ?? share.marketValue ?? 0,
+      py: share.openingCost ?? 0,
+    };
+  }
+  for (const share of note32.unlistedShares ?? []) {
+    data[`Unlisted Shares — ${share.companyName}`] = {
+      cy: share.closingCarrying ?? 0,
+      py: share.openingCost ?? 0,
+    };
+  }
+  if ((note32.fdrNonCurrent ?? 0) !== 0) {
+    data['Fixed Deposits (Non-current)'] = { cy: note32.fdrNonCurrent ?? 0, py: 0 };
+  }
+  if ((note32.fdrCurrent ?? 0) !== 0) {
+    data['Fixed Deposits (Current)'] = { cy: note32.fdrCurrent ?? 0, py: 0 };
+  }
+  if ((note32.totalNonCurrent ?? 0) !== 0 && Object.keys(data).length === 0) {
+    data['Investments (Non-current)'] = { cy: note32.totalNonCurrent ?? 0, py: 0 };
+  }
+  if ((note32.totalCurrent ?? 0) !== 0 && Object.keys(data).length === 0) {
+    data['Investments (Current)'] = { cy: note32.totalCurrent ?? 0, py: 0 };
+  }
+  return data;
+}
+
+function buildProvisionsNoteData(adjustments: YearEndAdjustments): CyPyRecord {
+  const record: CyPyRecord = {};
+  for (const provision of adjustments.provisions ?? []) {
+    const label = String(provision.provisionType ?? 'Provision')
+      .replace(/_/g, ' ')
+      .replace(/\b\w/g, (c) => c.toUpperCase());
+    record[label] = {
+      cy: provision.closingBalance ?? 0,
+      py: provision.openingBalance ?? 0,
+    };
+  }
+  if (Object.keys(record).length === 0) {
+    record['No provisions recognised'] = { cy: 0, py: 0 };
+  }
+  return record;
+}
+
+function writeDisclosureTextNote(ws: ExcelJS.Worksheet, title: string, body: string): void {
+  writeNoteSheetTitle(ws, title);
+  ws.mergeCells(3, 1, 10, 3);
+  const cell = ws.getCell(3, 1);
+  cell.value = body;
+  cell.alignment = { wrapText: true, vertical: 'top' };
+  cell.font = { name: 'Arial', size: 10 };
+}
+
 function writeGenericNoteRecord(ws: ExcelJS.Worksheet, title: string, data?: CyPyRecord | null): NoteRowMap {
   const safeData = data ?? {};
   writeNoteSheetTitle(ws, title);
@@ -2297,8 +2463,9 @@ function writeGenericNoteRecord(ws: ExcelJS.Worksheet, title: string, data?: CyP
     applyAllBorders(c);
   });
   const entries = Object.entries(safeData);
+  const dataStartRow = 4;
   entries.forEach(([label, vals], i) => {
-    const r = ws.getRow(4 + i);
+    const r = ws.getRow(dataStartRow + i);
     r.getCell(1).value = label;
     applyBodyStyle(r.getCell(1));
     r.getCell(2).value = vals.cy || null;
@@ -2310,8 +2477,42 @@ function writeGenericNoteRecord(ws: ExcelJS.Worksheet, title: string, data?: CyP
       applyBodyStyle(c);
     });
   });
-  const cyTotalRow = entries.length > 0 ? 4 + entries.length - 1 : 4;
-  return { cyTotalRow };
+
+  if (entries.length === 0) {
+    return { cyTotalRow: dataStartRow };
+  }
+
+  const totalRowNum = dataStartRow + entries.length;
+  const totalRow = ws.getRow(totalRowNum);
+  totalRow.getCell(1).value = 'Total';
+  applyBodyStyle(totalRow.getCell(1));
+  applyTotalStyle(totalRow.getCell(1));
+
+  const cySum = entries.reduce((s, [, v]) => s + (v.cy ?? 0), 0);
+  const pySum = entries.reduce((s, [, v]) => s + (v.py ?? 0), 0);
+  const cyCell = totalRow.getCell(2);
+  const pyCell = totalRow.getCell(3);
+
+  if (entries.length === 1) {
+    cyCell.value = { formula: `B${dataStartRow}`, result: cySum };
+    pyCell.value = { formula: `C${dataStartRow}`, result: pySum };
+  } else {
+    cyCell.value = {
+      formula: `SUM(B${dataStartRow}:B${dataStartRow + entries.length - 1})`,
+      result: cySum,
+    };
+    pyCell.value = {
+      formula: `SUM(C${dataStartRow}:C${dataStartRow + entries.length - 1})`,
+      result: pySum,
+    };
+  }
+  [cyCell, pyCell].forEach((c) => {
+    c.numFmt = NUMBER_FORMAT;
+    c.alignment = { horizontal: 'right' };
+    applyTotalStyle(c);
+  });
+
+  return { cyTotalRow: totalRowNum };
 }
 
 // ---------------------------------------------------------------------------
@@ -2350,7 +2551,7 @@ export async function generateNFRSWorkbook(params: {
   writeTrialBalance(addSheet('Trial Balance', COLORS.BRAND_BLUE), trialBalance);
   const bsRowMap = writeBalanceSheet(addSheet('Balance Sheet', COLORS.BRAND_BLUE), balanceSheet, company);
   const isRowMap = writeIncomeStatement(addSheet('Income Statement', COLORS.BRAND_BLUE), incomeStatement, company);
-  writeChangesInEquity(addSheet('Change in Equity', COLORS.BRAND_BLUE), changesInEquity, company);
+  const ceRowMap = writeChangesInEquity(addSheet('Change in Equity', COLORS.BRAND_BLUE), changesInEquity, company);
   const cfRowMap = writeCashFlowStatement(addSheet('Cash Flow', COLORS.BRAND_BLUE), cashFlow, company);
   writeNote1_AccountingPolicies(wb, {
     ...(company.accountingPolicies ?? {}),
@@ -2371,7 +2572,11 @@ export async function generateNFRSWorkbook(params: {
   writeGenericNoteRecord(addSheet('Note 3.21b - Depn Summary', '16A34A'), '3.21  Depreciation Summary', Object.fromEntries(
     (notes.note321_depreciation?.byClass ?? []).map((item: { categoryName: string; depreciationForYear: number }) => [item.categoryName, { cy: item.depreciationForYear, py: 0 }]),
   ));
-  Object.assign(noteRowMap, writeGenericNoteRecord(addSheet('Note 3.2 - Investments', '16A34A'), '3.2  Investments', {}));
+  Object.assign(noteRowMap, writeGenericNoteRecord(
+    addSheet('Note 3.2 - Investments', '16A34A'),
+    '3.2  Investments',
+    buildInvestmentsNoteData(notes.note32_investments),
+  ));
   noteRowMap.note32_investmentsRow = noteRowMap.cyTotalRow;
   const receivablesMap = writeGenericNoteRecord(addSheet('Note 3.3 - Receivables', '16A34A'), '3.3  Trade Receivables', {
     'Net Trade Receivables': {
@@ -2404,7 +2609,7 @@ export async function generateNFRSWorkbook(params: {
     }),
   ));
   writeGenericNoteRecord(addSheet('Note 3.13 - Payables', '16A34A'), '3.13  Trade and Other Payables', notes.note313_tradePayables);
-  writeGenericNoteRecord(addSheet('Note 3.14 - Provisions', '16A34A'), '3.14  Provisions', {});
+  writeGenericNoteRecord(addSheet('Note 3.14 - Provisions', '16A34A'), '3.14  Provisions', buildProvisionsNoteData(adjustments));
   writeGenericNoteRecord(addSheet('Note 3.15 - TDS', '16A34A'), '3.15  TDS Payable', Object.fromEntries(
     (notes.note313_tradePayables?.tdsPayableBreakdown ?? []).map((item: { ledgerName: string; amount: number }) => [item.ledgerName, { cy: item.amount, py: 0 }]),
   ));
@@ -2480,8 +2685,18 @@ export async function generateNFRSWorkbook(params: {
   writeGenericNoteRecord(addSheet('Note 3.24 - Related Party', '16A34A'), '3.24  Related Party Disclosures', Object.fromEntries(
     (notes.note324_relatedParty?.relatedParties ?? []).map((p: { partyName: string; outstandingBalance: number }) => [p.partyName, { cy: p.outstandingBalance, py: 0 }]),
   ));
-  writeGenericNoteRecord(addSheet('Note 3.25 - Contingencies', '16A34A'), '3.25  Contingent Liabilities', {});
-  writeGenericNoteRecord(addSheet('Note 3.26 - Subsequent Events', '16A34A'), '3.26  Events After Reporting Date', {});
+  writeDisclosureTextNote(
+    addSheet('Note 3.25 - Contingencies', '16A34A'),
+    '3.25  Contingent Liabilities and Commitments',
+    notes.note325_contingencies?.defaultText
+      ?? 'The Company has no contingent liabilities or commitments as at the reporting date.',
+  );
+  writeDisclosureTextNote(
+    addSheet('Note 3.26 - Subsequent Events', '16A34A'),
+    '3.26  Events After Reporting Date',
+    notes.note326_subsequentEvents?.defaultText
+      ?? 'There are no significant events after the reporting date that require adjustment to or disclosure in these financial statements.',
+  );
   writeAdjustments(addSheet('Adjustments', COLORS.LIGHT_GRAY), adjustments);
   const listedSharesData = (
     (adjustments as YearEndAdjustments & { listedShares?: Array<Record<string, unknown>> }).listedShares
@@ -2556,11 +2771,14 @@ export async function generateNFRSWorkbook(params: {
     tax: 'Note 3.23 - Tax',
     taxCalculation: 'Tax Calculation',
   }, isRowMap, noteRowMap);
+  applyCashFlowCrossReferences(wb, 'Cash Flow', 'Income Statement', cfRowMap, isRowMap);
   applyCashFlowReconciliation(wb, 'Cash Flow', 'Balance Sheet', cfRowMap);
+  applyChangesInEquityCrossReferences(wb, 'Change in Equity', 'Income Statement', ceRowMap, isRowMap);
   applyWorkingsValidationRefs(wb, {
     balanceSheet: bsRowMap,
     incomeStatement: isRowMap,
     cashFlow: cfRowMap,
+    changesInEquity: ceRowMap,
     notes: noteRowMap,
   });
 
@@ -2707,7 +2925,6 @@ function applyBalanceSheetCrossReferences(
   appendNoteRef(assetParts, noteSheetNames.investments, noteRows.note32_investmentsRow);
   appendNoteRef(assetParts, noteSheetNames.otherReceivables, noteRows.note34_otherRecvRow);
   appendNoteRef(assetParts, noteSheetNames.ncAssets, noteRows.note35_ncAssetsRow);
-  appendNoteRef(assetParts, noteSheetNames.investments, noteRows.note32_investmentsRow);
   appendNoteRef(assetParts, noteSheetNames.inventories, noteRows.inventoryTotalRow);
   appendNoteRef(assetParts, noteSheetNames.receivables, noteRows.note33_receivablesRow);
   appendNoteRef(assetParts, noteSheetNames.cash, noteRows.cashTotalRow);
@@ -2776,6 +2993,46 @@ function applyIncomeStatementCrossReferences(
 }
 
 // ── Apply Cash Flow reconciliation formula ────────────────────────────────────
+function applyCashFlowCrossReferences(
+  wb: import('exceljs').Workbook,
+  cfSheetName: string,
+  isSheetName: string,
+  cfMap: CashFlowRowMap,
+  isMap: IncomeStatementRowMap,
+  cyCol = 'C',
+): void {
+  const ws = wb.getWorksheet(cfSheetName);
+  if (!ws || !cfMap.profitBeforeTaxRow || !isMap.profitBeforeTaxRow) return;
+
+  const cell = ws.getRow(cfMap.profitBeforeTaxRow).getCell(cyCol);
+  cell.value = {
+    formula: cellRef(isSheetName, cyCol, isMap.profitBeforeTaxRow).replace(/^=/, ''),
+    result: cell.value as number ?? 0,
+  };
+  cell.numFmt = NUMBER_FORMAT;
+  cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE3F2FD' } };
+}
+
+function applyChangesInEquityCrossReferences(
+  wb: import('exceljs').Workbook,
+  ceSheetName: string,
+  isSheetName: string,
+  ceMap: ChangesInEquityRowMap,
+  isMap: IncomeStatementRowMap,
+  cyCol = 'C',
+): void {
+  const ws = wb.getWorksheet(ceSheetName);
+  if (!ws || !ceMap.profitForYearRow || !isMap.netProfitRow) return;
+
+  const isRef = cellRef(isSheetName, cyCol, isMap.netProfitRow).replace(/^=/, '');
+  for (const col of ['E', 'F'] as const) {
+    const cell = ws.getRow(ceMap.profitForYearRow).getCell(col);
+    cell.value = { formula: isRef, result: cell.value as number ?? 0 };
+    cell.numFmt = NUMBER_FORMAT;
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE3F2FD' } };
+  }
+}
+
 function applyCashFlowReconciliation(
   wb: import('exceljs').Workbook,
   cfSheetName: string,
@@ -2804,7 +3061,7 @@ function applyCashFlowReconciliation(
 function applyWorkingsValidationRefs(wb: import('exceljs').Workbook, maps: WorkbookRowMaps): void {
   const ws = wb.getWorksheet('Workings');
   if (!ws) return;
-  const { balanceSheet: bs, incomeStatement: is, cashFlow: cf } = maps;
+  const { balanceSheet: bs, incomeStatement: is, cashFlow: cf, changesInEquity: ce } = maps;
   const valStart = 56;
   const checks = [
     {
@@ -2814,7 +3071,7 @@ function applyWorkingsValidationRefs(wb: import('exceljs').Workbook, maps: Workb
       formula: `'Cash Flow'!C${cf.closingCashRow}-'Balance Sheet'!C${bs.cashRow}`,
     },
     {
-      formula: `'Income Statement'!C${is.netProfitRow}-'Change in Equity'!F10`,
+      formula: `'Income Statement'!C${is.netProfitRow}-'Change in Equity'!F${ce.profitForYearRow}`,
     },
   ];
   checks.forEach((check, idx) => {
