@@ -1,7 +1,9 @@
 // src/components/company/CompanyInfoForm.tsx
 import React, { useState } from 'react';
 import Card           from '../ui/Card';
+import Alert          from '../ui/Alert';
 import InputField     from '../ui/InputField';
+import NumberInput    from '../ui/NumberInput';
 import SelectDropdown from '../ui/SelectDropdown';
 import Textarea       from '../ui/Textarea';
 import Button         from '../ui/Button';
@@ -65,6 +67,10 @@ interface FormValues {
   auditFirmName:      string;
   icanRegNumber:      string;
   auditorPosition:    string;
+  annualTurnover:     number;
+  bankBorrowings:     number;
+  balanceSheetTotal:  number;
+  fiduciaryAssets:    number;
 }
 
 type FormErrors = Partial<Record<keyof FormValues, string>>;
@@ -75,6 +81,7 @@ const EMPTY: FormValues = {
   wardNumber: '', tole: '', fullAddress: '', contactPerson: '', designation: '',
   phone: '', email: '', chairperson: '', director: '', accountsHead: '',
   auditorName: '', auditFirmName: '', icanRegNumber: '', auditorPosition: '',
+  annualTurnover: 0, bankBorrowings: 0, balanceSheetTotal: 0, fiduciaryAssets: 0,
 };
 
 interface CompanyInfoFormProps {
@@ -120,6 +127,8 @@ export default function CompanyInfoForm({
   const [saving,  setSaving]  = useState(false);
   const [saveErr, setSaveErr] = useState<string | null>(null);
   const { show } = useToast();   // item 52: toast hook
+  const hasEligibilityInput = values.annualTurnover > 0 || values.bankBorrowings > 0 || values.balanceSheetTotal > 0 || values.fiduciaryAssets > 0;
+  const isMicroEntityEligible = values.annualTurnover <= 100000000 && values.bankBorrowings <= 50000000 && values.balanceSheetTotal <= 100000000 && values.fiduciaryAssets <= 50000000;
 
   const loadDummyData = () => {
     setValues(prev => ({
@@ -157,7 +166,7 @@ export default function CompanyInfoForm({
     setSaving(true);
     setSaveErr(null);
     try {
-      await onSave(values);
+      await onSave({ ...values, annualTurnover: values.annualTurnover, bankBorrowings: values.bankBorrowings, balanceSheetTotal: values.balanceSheetTotal, fiduciaryAssets: values.fiduciaryAssets });
       // item 52: show "Changes saved" toast after successful save
       show('Company details saved successfully.', 'success', 2500);
     } catch (err: any) {
@@ -236,6 +245,51 @@ export default function CompanyInfoForm({
               options={FRAMEWORK_OPTIONS}
             />
           </div>
+        </div>
+      </Card>
+
+      <Card title="Micro Entity Eligibility Check" padding="md">
+        <div className="grid grid-cols-2 gap-4">
+          <NumberInput
+            label="Annual Turnover"
+            value={values.annualTurnover}
+            onChange={v => set('annualTurnover', v)}
+            prefix="NPR"
+          />
+
+          <NumberInput
+            label="Bank/BFI Borrowings"
+            value={values.bankBorrowings}
+            onChange={v => set('bankBorrowings', v)}
+            prefix="NPR"
+          />
+
+          <NumberInput
+            label="Balance Sheet Total"
+            value={values.balanceSheetTotal}
+            onChange={v => set('balanceSheetTotal', v)}
+            prefix="NPR"
+          />
+
+          <NumberInput
+            label="Fiduciary Assets"
+            value={values.fiduciaryAssets}
+            onChange={v => set('fiduciaryAssets', v)}
+            prefix="NPR"
+          />
+
+          {hasEligibilityInput && (
+            <div className="col-span-2">
+              <Alert
+                type={isMicroEntityEligible ? 'success' : 'warning'}
+                message={
+                  isMicroEntityEligible
+                    ? 'This entity qualifies as a Micro Entity under NAS for MEs.'
+                    : 'This entity may exceed Micro Entity thresholds. NAS for MEs may not be the appropriate reporting standard — please verify with your engagement partner.'
+                }
+              />
+            </div>
+          )}
         </div>
       </Card>
 
