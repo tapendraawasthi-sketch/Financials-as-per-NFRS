@@ -73,7 +73,7 @@ const aiLimiter       = createRateLimiter(60_000, 5);
 app.use('/api',                        standardLimiter);
 app.use('/api/trial-balance',          uploadLimiter);
 app.use('/api/output',                 outputLimiter);
-app.use('/api/trial-balance/ai-match', aiLimiter);
+app.use('/api/trial-balance/:companyId/rematch-ai', aiLimiter);
 
 // ══════════════════════════════════════════════════════════════════════════
 // HEALTH CHECK
