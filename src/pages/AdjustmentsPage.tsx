@@ -1,6 +1,8 @@
 // src/pages/AdjustmentsPage.tsx
 import React, { useState } from 'react';
 import { useAppStore } from '../store/appStore';
+import { useAdjustments } from '../hooks/useAdjustments';
+import { adjustmentsApi } from '../api/client';
 import Tabs from '../components/ui/Tabs';
 import AssetRegisterTable from '../components/adjustments/AssetRegisterTable';
 import ProvisionInputs from '../components/adjustments/ProvisionInputs';
@@ -11,15 +13,18 @@ type TabId = 'assets' | 'provisions' | 'subledger';
 
 export default function AdjustmentsPage() {
   const { state, dispatch } = useAppStore();
+  const { saveAssets, calculateDepreciation } = useAdjustments();
   const [activeTab, setActiveTab] = useState<TabId>('assets');
 
   const handleCalculateDepreciation = async (assets: any[]) => {
-    // In a full implementation, call the API. For now, return empty.
-    return [];
+    await saveAssets(assets);
+    const { summary } = await calculateDepreciation();
+    return summary;
   };
 
   const handleSaveProvisions = async (rows: any[]) => {
-    // Save provisions to adjustments state
+    if (!state.company?.id) return;
+    await adjustmentsApi.saveProvisions(state.company.id, rows);
   };
 
   const handleProceed = () => {
