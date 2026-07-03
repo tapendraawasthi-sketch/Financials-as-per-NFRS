@@ -96,7 +96,7 @@ export function computeIncomeStatement(
   const revenue = round2(sumCr(rows, 'revenue_sales', 'revenue_services'));
   const interestIncome = round2(sumCr(rows, 'other_income_interest'));
   const otherIncome = round2(
-    sumCr(rows, 'other_income_dividend', 'other_income_rental', 'other_income_misc', 'other_income_disposal_gain')
+    sumCr(rows, 'other_income_dividend', 'other_income_rental', 'other_income_misc', 'other_income_disposal_gain', 'commission_income' as NFRSCategory, 'insurance_claim_income' as NFRSCategory)
     + adj.gainOnDisposals
     + adj.investmentAdjustments
       .filter((i) => (i.fairValueGainLoss ?? 0) > 0)
