@@ -43,7 +43,25 @@ function f(n: number | undefined): string {
 
 // ─── Tab 1: PPE ────────────────────────────────────────────────────────────
 function Tab31PPE({ data, roundingLevel }: { data: any; roundingLevel: number }) {
-  const ppe = data?.ppe ?? {};
+  const ppe = Object.fromEntries((data?.note31_ppe ?? []).map((item: any) => {
+    const key = item.categoryName === 'Plant & Machinery' ? 'P&M'
+      : item.categoryName === 'Computer & IT Equipment' ? 'Computers'
+      : item.categoryName === 'Furniture & Office Equipment' ? 'Furniture'
+      : item.categoryName === 'Intangibles / Software' ? 'Intangibles'
+      : item.categoryName;
+    return [key, {
+      costOpen: item.openingCost,
+      additions: item.additions,
+      disposals: item.disposals,
+      costClose: item.closingCost,
+      accumDepnOpen: item.openingAccumDepn,
+      depnCharge: item.depnForYear,
+      depnOnDisposal: item.depnOnDisposal,
+      accumDepnClose: item.closingAccumDepn,
+      nbvCurrent: item.nbvClosing,
+      nbvPrev: item.nbvOpening,
+    }];
+  }));
   const categories = ['Land', 'Buildings', 'Vehicles', 'Office Eq.', 'Computers', 'Furniture', 'P&M', 'Intangibles'];
 
   const costRows = [
@@ -121,8 +139,22 @@ function Tab31PPE({ data, roundingLevel }: { data: any; roundingLevel: number })
 
 // ─── Tab 2: 3.7–3.8 Assets ────────────────────────────────────────────────
 function Tab378Assets({ data, roundingLevel }: { data: any; roundingLevel: number }) {
-  const inv = data?.inventories ?? {};
-  const cash = data?.cashEquivalents ?? [];
+  const note37 = data?.note37_inventories ?? {};
+  const note38 = data?.note38_cashEquivalents ?? {};
+  const inv = {
+    rawMaterials: { current: note37.rawMaterials?.closing, prev: note37.rawMaterials?.opening },
+    wip: { current: note37.wip?.closing, prev: note37.wip?.opening },
+    finishedGoods: { current: note37.finishedGoods?.closing, prev: note37.finishedGoods?.opening },
+    consumables: { current: 0, prev: 0 },
+  };
+  const cash = [
+    { name: 'Cash in Hand', current: note38.cashInHand_cy, prev: note38.cashInHand_py },
+    ...(note38.bankAccounts ?? []).map((row: any) => ({
+      name: row.accountName ?? row.bankName,
+      current: row.closingBalance,
+      prev: row.openingBalance,
+    })),
+  ].filter((row: any) => (row.current ?? 0) !== 0 || (row.prev ?? 0) !== 0);
 
   return (
     <div>
@@ -206,9 +238,36 @@ function Tab378Assets({ data, roundingLevel }: { data: any; roundingLevel: numbe
 
 // ─── Tab 3: 3.9–3.11 Capital ──────────────────────────────────────────────
 function Tab3911Capital({ data, roundingLevel }: { data: any; roundingLevel: number }) {
-  const sc = data?.shareCapital ?? {};
-  const res = data?.reserves ?? {};
-  const borrow = data?.borrowings ?? [];
+  const note39 = data?.note39_shareCapital ?? {};
+  const ordinaryShares = note39.ordinaryShares ?? {};
+  const note310 = data?.note310_reserves ?? {};
+  const note311 = data?.note311_borrowings ?? {};
+  const sc = {
+    authorised: { current: ordinaryShares.authorizedAmount, prev: 0 },
+    issuedPaidup: { current: ordinaryShares.closingPaidUp, prev: ordinaryShares.openingPaidUp },
+  };
+  const res = {
+    generalReserve: { current: note310.generalReserve?.closing, prev: note310.generalReserve?.opening },
+    sharePremium: { current: note310.sharePremium?.closing, prev: note310.sharePremium?.opening },
+    retainedOpen: { current: note310.retainedEarnings?.opening, prev: 0 },
+    netProfit: { current: note310.retainedEarnings?.netProfitForYear, prev: 0 },
+    transferToReserve: { current: note310.retainedEarnings?.transferToReserve, prev: 0 },
+    dividendPaid: { current: note310.retainedEarnings?.dividendsDeclared, prev: 0 },
+    total: {
+      current: (note310.sharePremium?.closing ?? 0) + (note310.generalReserve?.closing ?? 0) + (note310.retainedEarnings?.closing ?? 0) + (note310.otherReserves ?? 0),
+      prev: (note310.sharePremium?.opening ?? 0) + (note310.generalReserve?.opening ?? 0) + (note310.retainedEarnings?.opening ?? 0),
+    },
+  };
+  const borrow = [
+    ...(note311.nonCurrent ?? []),
+    ...(note311.current ?? []),
+  ].map((b: any) => ({
+    name: b.lenderName,
+    rate: b.interestRate,
+    maturity: b.maturityDate,
+    current: b.balance_cy,
+    prev: b.balance_py,
+  }));
 
   return (
     <div>
@@ -315,9 +374,29 @@ function Tab3911Capital({ data, roundingLevel }: { data: any; roundingLevel: num
 
 // ─── Tab 4: 3.12–3.14 Liabilities ─────────────────────────────────────────
 function Tab31214Liabilities({ data, roundingLevel }: { data: any; roundingLevel: number }) {
-  const eb = data?.employeeBenefits ?? {};
-  const tp = data?.tradePayables ?? {};
-  const prov = data?.provisions ?? [];
+  const note312 = data?.note312_employeeBenefits ?? {};
+  const note313 = data?.note313_tradePayables ?? {};
+  const eb = {
+    gratuity: { current: note312.definedBenefit?.closingBalance, prev: note312.definedBenefit?.openingBalance },
+    leave: { current: note312.leaveEncashment?.closingBalance, prev: note312.leaveEncashment?.openingBalance },
+    bonus: { current: note312.bonusPayable, prev: 0 },
+    salary: { current: note312.salaryPayable, prev: 0 },
+  };
+  const tp = {
+    tradeCreditors: { current: note313.tradeCreditors, prev: note313.tradeCreditors_py },
+    advanceFromCustomers: { current: note313.advanceFromCustomers, prev: 0 },
+    vatPayable: { current: note313.vatPayable, prev: note313.vatPayable_py },
+    tdsPayable: { current: note313.tdsPayableTotal, prev: note313.tdsPayableTotal_py },
+    other: { current: note313.otherAccruals, prev: 0 },
+  };
+  const prov = (data?.note315_provisions?.items ?? []).map((p: any) => ({
+    name: p.description,
+    opening: p.opening,
+    addition: p.addition,
+    utilised: p.utilisation,
+    reversed: 0,
+    closing: p.closing,
+  }));
 
   const simpleTable = (items: { label: string; current: number; prev?: number }[]) => (
     <table className="fin-table w-full max-w-lg">
@@ -409,7 +488,36 @@ function Tab31214Liabilities({ data, roundingLevel }: { data: any; roundingLevel
 
 // ─── Tab 5: 3.17–3.22 P&L ─────────────────────────────────────────────────
 function Tab31722PL({ data, roundingLevel }: { data: any; roundingLevel: number }) {
-  const pl = data?.pl ?? {};
+  const note317 = data?.note317_revenueDetailed ?? {};
+  const note318 = data?.note318_materialConsumed ?? {};
+  const note320 = data?.note320_employeeExpenses ?? {};
+  const note321 = data?.note321_depreciation ?? {};
+  const note322 = data?.note322_adminExpenses ?? {};
+  const adminLine = (label: string) => (note322.lineItems ?? []).find((item: any) => item.label === label) ?? {};
+  const pl = {
+    saleOfGoods: { current: note317.saleOfGoods?.cy, prev: note317.saleOfGoods?.py },
+    saleOfServices: { current: note317.renderingOfServices?.cy, prev: note317.renderingOfServices?.py },
+    otherRevenue: { current: note317.otherIncome?.cy, prev: note317.otherIncome?.py },
+    openingStock: { current: note318.openingRawMaterial, prev: 0 },
+    purchases: { current: note318.purchasesDuringYear, prev: 0 },
+    closingStock: { current: note318.closingRawMaterial, prev: 0 },
+    wages: { current: note318.directWages, prev: 0 },
+    factoryOverhead: { current: note318.otherDirectExpenses, prev: 0 },
+    power: { current: 0, prev: 0 },
+    salaries: { current: note320.salariesWages?.cy, prev: note320.salariesWages?.py },
+    pf: { current: note320.pfSsfContribution?.cy, prev: note320.pfSsfContribution?.py },
+    gratuity: { current: note320.gratuityExpense?.cy, prev: note320.gratuityExpense?.py },
+    bonus: { current: note320.staffBonusExpense?.cy, prev: note320.staffBonusExpense?.py },
+    leave: { current: note320.leaveEncashment?.cy, prev: note320.leaveEncashment?.py },
+    otherStaff: { current: note320.otherEmployeeCosts?.cy, prev: note320.otherEmployeeCosts?.py },
+    rent: { current: adminLine('Rent / Lease Rentals').cy, prev: adminLine('Rent / Lease Rentals').py },
+    repairs: { current: adminLine('Repairs & Maintenance').cy, prev: adminLine('Repairs & Maintenance').py },
+    communication: { current: adminLine('Communication Expenses').cy, prev: adminLine('Communication Expenses').py },
+    professional: { current: adminLine('Professional & Legal Fees').cy, prev: adminLine('Professional & Legal Fees').py },
+    depreciation: { current: note321.totalDepreciation, prev: note321.totalDepreciation_py },
+    auditFees: { current: adminLine('Audit Fees').cy, prev: adminLine('Audit Fees').py },
+    miscellaneous: { current: adminLine('CSR & Other Miscellaneous').cy, prev: adminLine('CSR & Other Miscellaneous').py },
+  };
 
   const compactNote = (
     noteNum: string,
@@ -493,7 +601,32 @@ function Tab31722PL({ data, roundingLevel }: { data: any; roundingLevel: number 
 
 // ─── Tab 6: 3.23 Tax ──────────────────────────────────────────────────────
 function Tab323Tax({ data, roundingLevel }: { data: any; roundingLevel: number }) {
-  const tax = data?.tax ?? {};
+  const note323 = data?.note323_taxExpense ?? {};
+  const recon = note323.reconciliation ?? {};
+  const statutoryRate = recon.taxableProfit ? Math.round((recon.taxAtStatutoryRate / recon.taxableProfit) * 100) : 25;
+  const tax = {
+    rate: statutoryRate,
+    profitBeforeTax: { current: recon.profitBeforeTax, prev: 0 },
+    disallowedExpenses: { current: Object.values(recon.disallowableExpenses ?? {}).reduce((s: number, v: any) => s + (v ?? 0), 0), prev: 0 },
+    allowableDeductions: { current: Object.values(recon.allowableDeductions ?? {}).reduce((s: number, v: any) => s + (v ?? 0), 0), prev: 0 },
+    taxDepreciation: { current: (note323.taxDepreciationByPool ?? []).reduce((s: number, p: any) => s + (p.taxDepreciation ?? 0), 0), prev: 0 },
+    taxableIncome: { current: recon.taxableProfit, prev: 0 },
+    taxAtRate: { current: recon.taxAtStatutoryRate, prev: 0 },
+    taxCredits: { current: (note323.advanceTaxPaid ?? 0) + (note323.tdsCreditAvailable ?? 0), prev: 0 },
+    currentTax: { current: note323.netTaxPayable, prev: 0 },
+    dtDepreciation: { current: 0, prev: 0 },
+    dtProvisions: { current: 0, prev: 0 },
+    deferredTax: { current: note323.deferredTaxExpense, prev: 0 },
+    totalTaxExpense: { current: note323.totalTaxExpense, prev: 0 },
+    taxAtStatutory: { current: recon.taxAtStatutoryRate },
+    effectNonDeductible: { current: Object.values(recon.disallowableExpenses ?? {}).reduce((s: number, v: any) => s + (v ?? 0), 0) * statutoryRate / 100 },
+    rateNonDeductible: { current: statutoryRate },
+    effectExempt: { current: -Object.values(recon.allowableDeductions ?? {}).reduce((s: number, v: any) => s + (v ?? 0), 0) * statutoryRate / 100 },
+    rateExempt: { current: statutoryRate },
+    otherAdj: { current: recon.taxAdjustments },
+    rateOtherAdj: { current: statutoryRate },
+    effectiveRate: { current: note323.effectiveTaxRate },
+  };
 
   return (
     <div>
