@@ -5,6 +5,46 @@ import { CHART_OF_ACCOUNTS, type COAEntry } from '../../src/data/chartOfAccounts
 import type { MappedTBRow, NFRSCategory } from '../../src/types/trialBalance.js';
 import type { RawTBRow } from './tbParser.js';
 
+const CATEGORY_ALIAS_MAP: Record<string, string> = {
+  bank_charges: 'finance_cost_bank_charges',
+  admin_travelling: 'admin_traveling',
+  admin_repair_maintenance: 'admin_repairs',
+  admin_printing_stationery: 'admin_printing',
+  admin_legal: 'admin_legal_professional',
+  admin_others: 'admin_other',
+  admin_miscellaneous: 'admin_other',
+  borrowings_current_overdraft: 'borrowings_current_od',
+  borrowings_current_working: 'borrowings_current_wc',
+  salary_payable: 'employee_payables_salary',
+  bonus_payable: 'employee_payables_bonus',
+  pf_ssf_payable: 'employee_payables_pf',
+  impairment_on_debtors: 'impairment_expense',
+  trade_payables: 'trade_payables_creditors',
+  advance_from_customers: 'trade_payables_advance_customers',
+  other_current_liabilities: 'other_payables',
+  employee_benefit_noncurrent: 'employee_benefit_gratuity',
+  borrowings_noncurrent_related: 'borrowings_noncurrent_other',
+  salary_wages_expense: 'emp_expense_salaries',
+  pf_ssf_expense: 'emp_expense_pf',
+  staff_bonus_expense: 'emp_expense_bonus',
+  leave_encashment_expense: 'emp_expense_leave',
+  other_employee_expense: 'emp_expense_welfare',
+  purchase: 'cogs_purchases',
+  wages_direct: 'direct_wages',
+  other_direct_expenses: 'direct_expenses_other',
+  interest_income: 'other_income_interest',
+  dividend_income: 'other_income_dividend',
+  rental_income: 'other_income_rental',
+  gain_on_disposal: 'other_income_disposal_gain',
+  other_income: 'other_income_misc',
+  interest_expense: 'finance_cost_interest',
+  advance_tax: 'advance_tax_paid',
+};
+
+function normalizeCategoryAlias(category: string): string {
+  return CATEGORY_ALIAS_MAP[category] ?? category;
+}
+
 export interface MatchResult {
   nfrsCategory: NFRSCategory | 'unclassified';
   matchMethod: MappedTBRow['matchMethod'];
@@ -221,7 +261,7 @@ function keywordMatch(normalizedLabel: string, parentGroup: string): MatchResult
 
   const confidence = Math.min(85, Math.max(60, 50 + best.score));
   return {
-    nfrsCategory: best.entry.category,
+    nfrsCategory: normalizeCategoryAlias(best.entry.category),
     matchMethod: 'keyword',
     confidence,
     needsReview: confidence < REVIEW_THRESHOLD,
@@ -257,7 +297,7 @@ function fuzzyMatch(normalizedLabel: string): MatchResult | null {
   const clamped = Math.min(60, Math.max(40, confidence));
 
   return {
-    nfrsCategory: best.entry.category,
+    nfrsCategory: normalizeCategoryAlias(best.entry.category),
     matchMethod: 'fuzzy',
     confidence: clamped,
     needsReview: true,
@@ -289,7 +329,7 @@ export function classifyRow(row: RawTBRow): MatchResult {
   if (exact) {
     const entry = CHART_OF_ACCOUNTS.find((e) => e.category === exact);
     return {
-      nfrsCategory: exact,
+      nfrsCategory: normalizeCategoryAlias(exact),
       matchMethod: 'exact',
       confidence: 100,
       needsReview: false,
@@ -303,7 +343,7 @@ export function classifyRow(row: RawTBRow): MatchResult {
     for (const syn of entry.synonyms) {
       if (normalize(syn) === normalized) {
         return {
-          nfrsCategory: entry.category,
+          nfrsCategory: normalizeCategoryAlias(entry.category),
           matchMethod: 'synonym',
           confidence: 95,
           needsReview: false,
@@ -319,7 +359,7 @@ export function classifyRow(row: RawTBRow): MatchResult {
     for (const nr of entry.nepaliRomanized) {
       if (normalize(nr) === normalized) {
         return {
-          nfrsCategory: entry.category,
+          nfrsCategory: normalizeCategoryAlias(entry.category),
           matchMethod: 'synonym',
           confidence: 90,
           needsReview: false,
@@ -338,7 +378,7 @@ export function classifyRow(row: RawTBRow): MatchResult {
   if (ctx) {
     const entry = CHART_OF_ACCOUNTS.find((e) => e.category === ctx.category);
     return {
-      nfrsCategory: ctx.category,
+      nfrsCategory: normalizeCategoryAlias(ctx.category),
       matchMethod: 'context',
       confidence: ctx.confidence,
       needsReview: ctx.confidence < REVIEW_THRESHOLD,
