@@ -742,7 +742,7 @@ export function writeNote38_Cash(ws: ExcelJS.Worksheet, note38: NotesData['note3
   let r = 4;
   const cashRow = ws.getRow(r++);
   cashRow.getCell(1).value = 'Cash in Hand'; cashRow.getCell(2).value = note38.cashInHand_cy || null; cashRow.getCell(2).numFmt = NUMBER_FORMAT; cashRow.getCell(2).alignment = { horizontal: 'right' };
-  note38.bankBalances.forEach((b) => {
+  note38.bankBalances?.forEach((b: { bankName: string; cy?: number }) => {
     const row = ws.getRow(r++);
     row.getCell(1).value = b.bankName; row.getCell(2).value = b.cy || null; row.getCell(2).numFmt = NUMBER_FORMAT; row.getCell(2).alignment = { horizontal: 'right' };
   });
@@ -771,18 +771,18 @@ export function writeNote311_Borrowings(ws: ExcelJS.Worksheet, note311: NotesDat
   const hRow = ws.getRow(3);
   ['Lender', 'Interest Rate %', 'Security', 'Current Year', 'Previous Year'].forEach((h, i) => { const c = hRow.getCell(i + 1); c.value = h; c.font = FONTS.SUBHEADING; applyHeaderFill(c, COLORS.SUBHEADER_BG); applyAllBorders(c); });
   let r = 4;
-  note311.nonCurrentBank.forEach((b) => {
+  note311.nonCurrentBank?.forEach((b: { lenderName: string; interestRate?: number; security?: string; amount_cy?: number; amount_py?: number }) => {
     const row = ws.getRow(r++);
-    [b.lenderName, `${b.interestRate}%`, b.security, b.amount_cy, b.amount_py].forEach((v, i) => {
+    [b.lenderName, `${b.interestRate ?? 0}%`, b.security ?? '', b.amount_cy, b.amount_py].forEach((v, i) => {
       const c = row.getCell(i + 1); c.value = v || null;
       if (i >= 3) { c.numFmt = NUMBER_FORMAT; c.alignment = { horizontal: 'right' }; }
     });
   });
   r++;
   ws.getRow(r).getCell(1).value = 'Current Borrowings'; ws.getRow(r).getCell(1).font = FONTS.SUBHEADING; r++;
-  note311.currentLoans.forEach((b) => {
+  note311.currentLoans?.forEach((b: { lenderName: string; loanType?: string; amount_cy?: number; amount_py?: number }) => {
     const row = ws.getRow(r++);
-    [b.lenderName, b.loanType, '', b.amount_cy, b.amount_py].forEach((v, i) => {
+    [b.lenderName, b.loanType ?? '', '', b.amount_cy, b.amount_py].forEach((v, i) => {
       const c = row.getCell(i + 1); c.value = v || null;
       if (i >= 3) { c.numFmt = NUMBER_FORMAT; c.alignment = { horizontal: 'right' }; }
     });
@@ -793,8 +793,8 @@ export function writeNote323_Tax(ws: ExcelJS.Worksheet, note323: NotesData['note
   ws.getRow(1).getCell(1).value = '3.23  Income Tax'; ws.getRow(1).getCell(1).font = { name: 'Arial', size: 11, bold: true };
   const items: [string, number][] = [
     ['Profit Before Tax (per Income Statement)', note323.profitBeforeTax],
-    ...Object.entries(note323.addDisallowableExpenses).map(([k, v]) => [`Add: ${k}`, v] as [string, number]),
-    ...Object.entries(note323.lessAllowableExpenses).map(([k, v]) => [`Less: ${k}`, -v] as [string, number]),
+    ...Object.entries(note323.addDisallowableExpenses ?? {}).map(([k, v]) => [`Add: ${k}`, v as number] as [string, number]),
+    ...Object.entries(note323.lessAllowableExpenses ?? {}).map(([k, v]) => [`Less: ${k}`, -(v as number)] as [string, number]),
     ['Taxable Income', note323.taxableIncome],
     [`Income Tax at ${(note323.taxRate * 100).toFixed(0)}%`, note323.currentTax],
     ['Less: Advance Tax / TDS Credit', -note323.advanceTaxPaid],
@@ -837,7 +837,7 @@ export function writeBankAccounts(ws: ExcelJS.Worksheet, note38: NotesData['note
   ws.getRow(1).getCell(1).value = 'Bank Accounts'; ws.getRow(1).getCell(1).font = { name: 'Arial', size: 11, bold: true };
   const hRow = ws.getRow(3);
   ['Bank Name', 'Account Type', 'Current Year', 'Previous Year'].forEach((h, i) => { const c = hRow.getCell(i + 1); c.value = h; c.font = FONTS.SUBHEADING; applyHeaderFill(c, COLORS.SUBHEADER_BG); });
-  note38.bankBalances.forEach((b, i) => {
+  (note38.bankBalances ?? []).forEach((b: { bankName: string; accountType?: string; cy?: number; py?: number }, i: number) => {
     const r = ws.getRow(4 + i);
     r.getCell(1).value = b.bankName; r.getCell(2).value = b.accountType;
     r.getCell(3).value = b.cy || null; r.getCell(3).numFmt = NUMBER_FORMAT; r.getCell(3).alignment = { horizontal: 'right' };
@@ -888,8 +888,8 @@ export function writeTaxCalculation(ws: ExcelJS.Worksheet, note323: NotesData['n
   ws.getRow(2).getCell(1).value = `Tax Rate: ${(note323.taxRate * 100).toFixed(0)}%`;
   const items: [string, number][] = [
     ['Profit Before Tax', note323.profitBeforeTax],
-    ...Object.entries(note323.addDisallowableExpenses).map(([k, v]) => [`Add: ${k}`, v] as [string, number]),
-    ...Object.entries(note323.lessAllowableExpenses).map(([k, v]) => [`Less: ${k}`, v] as [string, number]),
+    ...Object.entries(note323.addDisallowableExpenses ?? {}).map(([k, v]) => [`Add: ${k}`, v as number] as [string, number]),
+    ...Object.entries(note323.lessAllowableExpenses ?? {}).map(([k, v]) => [`Less: ${k}`, v as number] as [string, number]),
     ['Taxable Income', note323.taxableIncome],
     ['Income Tax', note323.currentTax],
     ['Advance Tax / TDS Credit', note323.advanceTaxPaid + note323.tdsCreditAvailable],
@@ -902,12 +902,234 @@ export function writeTaxCalculation(ws: ExcelJS.Worksheet, note323: NotesData['n
   });
 }
 
+type CyPyRecord = Record<string, { cy: number; py: number }>;
+
+/** Convert notesEngine output to the flat structure expected by Excel sheet writers. */
+function normalizeNotesForExcel(
+  notes: NotesData,
+  is: IncomeStatement,
+  bs: BalanceSheet,
+): NotesData {
+  if (notes.note34_otherReceivables || notes.note317_revenue) {
+    return {
+      ...notes,
+      note38_cashAndEquivalents: notes.note38_cashAndEquivalents ?? notes.note38_cashEquivalents ?? {
+        cashInHand_cy: 0, cashInHand_py: 0, bankBalances: [], totalCash_cy: 0, totalCash_py: 0,
+      },
+      note323_incomeTax: notes.note323_incomeTax ?? notes.note323_taxExpense,
+      note321_impairment: notes.note321_impairment ?? [],
+    };
+  }
+
+  const n34 = notes.note34_otherCurrentAssets as Record<string, number> | undefined;
+  const n35 = notes.note35_biologicalAssets as Record<string, number> | undefined;
+  const n36 = notes.note36_heldForSale as { total?: number } | undefined;
+  const n37 = notes.note37_inventories as Record<string, unknown> | undefined;
+  const n38 = notes.note38_cashEquivalents as {
+    cashInHand_cy?: number; cashInHand_py?: number;
+    bankAccounts?: Array<{ bankName: string; accountType: string; closingBalance: number; openingBalance: number }>;
+    totalCash_cy?: number; totalCash_py?: number;
+  } | undefined;
+  const n39 = notes.note39_shareCapital as { ordinaryShares?: Record<string, number> } | undefined;
+  const n310 = notes.note310_reserves as Record<string, { opening?: number; closing?: number }> | undefined;
+  const n311 = notes.note311_borrowings as {
+    nonCurrent?: Array<{ lenderName: string; interestRate?: number; secured?: boolean; balance_cy: number; balance_py: number }>;
+    current?: Array<{ lenderName: string; type?: string; balance_cy: number; balance_py: number }>;
+  } | undefined;
+  const n312 = notes.note312_employeeBenefits as Record<string, unknown> | undefined;
+  const n313 = notes.note313_tradePayables as Record<string, number> | undefined;
+  const n317 = notes.note317_revenueDetailed as Record<string, { cy: number; py: number }> | undefined;
+  const n318 = notes.note318_materialConsumed as Record<string, number> | undefined;
+  const n320 = notes.note320_employeeExpenses as Record<string, { cy: number; py: number }> | undefined;
+  const n322 = notes.note322_adminExpenses as { lineItems?: Array<{ label: string; cy: number; py: number }> } | undefined;
+  const n323 = notes.note323_taxExpense as {
+    reconciliation?: {
+      profitBeforeTax: number;
+      disallowableExpenses: Record<string, number>;
+      allowableDeductions: Record<string, number>;
+      taxableProfit: number;
+      totalCurrentTax: number;
+    };
+    effectiveTaxRate?: number;
+    advanceTaxPaid?: number;
+    tdsCreditAvailable?: number;
+    netTaxPayable?: number;
+  } | undefined;
+
+  const note31_ppe = (notes.note31_ppe ?? []).map((item) => {
+    const d = item as DepreciationSummary & { nbvClosing?: number };
+    return {
+      ...d,
+      netBookValueClosing: d.netBookValueClosing ?? d.nbvClosing ?? Math.max(0, (d.closingCost ?? 0) - (d.closingAccumDepn ?? 0)),
+    };
+  });
+
+  const note37_inventories = n37?.rawMaterials
+    ? {
+        rawMaterials_cy: (n37.rawMaterials as { closing: number }).closing ?? 0,
+        rawMaterials_py: (n37.rawMaterials as { opening: number }).opening ?? 0,
+        wip_cy: (n37.wip as { closing: number }).closing ?? 0,
+        wip_py: (n37.wip as { opening: number }).opening ?? 0,
+        finishedGoods_cy: (n37.finishedGoods as { closing: number }).closing ?? 0,
+        finishedGoods_py: (n37.finishedGoods as { opening: number }).opening ?? 0,
+        totalInventory_cy: (n37.totalClosing as number) ?? bs.ca_inventories,
+        totalInventory_py: (n37.totalOpening as number) ?? 0,
+      }
+    : notes.note37_inventories;
+
+  const note38_cashAndEquivalents = {
+    cashInHand_cy: n38?.cashInHand_cy ?? 0,
+    cashInHand_py: n38?.cashInHand_py ?? 0,
+    bankBalances: (n38?.bankAccounts ?? []).map((b) => ({
+      bankName: b.bankName,
+      accountType: b.accountType,
+      cy: b.closingBalance,
+      py: b.openingBalance,
+    })),
+    totalCash_cy: n38?.totalCash_cy ?? bs.ca_cashAndEquivalents,
+    totalCash_py: n38?.totalCash_py ?? 0,
+  };
+
+  const os = n39?.ordinaryShares ?? {};
+  const note39_shareCapital = {
+    authorizedShares: os.authorizedShares ?? 0,
+    issuedShares: os.closingIssuedShares ?? 0,
+    faceValuePerShare: os.parValuePerShare ?? 100,
+    paidUpAmount_cy: os.closingPaidUp ?? bs.eq_shareCapital,
+    paidUpAmount_py: os.openingPaidUp ?? 0,
+  };
+
+  const note310_reserves: Record<string, { closingCY: number; py: number }> = {};
+  if (n310) {
+    if (n310.sharePremium) {
+      note310_reserves['Share Premium'] = { closingCY: n310.sharePremium.closing ?? 0, py: n310.sharePremium.opening ?? 0 };
+    }
+    if (n310.generalReserve) {
+      note310_reserves['General Reserve'] = { closingCY: n310.generalReserve.closing ?? 0, py: n310.generalReserve.opening ?? 0 };
+    }
+    if (n310.retainedEarnings) {
+      note310_reserves['Retained Earnings'] = { closingCY: n310.retainedEarnings.closing ?? 0, py: n310.retainedEarnings.opening ?? 0 };
+    }
+  }
+
+  const note311_borrowings = {
+    nonCurrentBank: (n311?.nonCurrent ?? []).map((b) => ({
+      lenderName: b.lenderName,
+      amount_cy: b.balance_cy,
+      amount_py: b.balance_py,
+      interestRate: b.interestRate ?? 0,
+      security: b.secured ? 'Secured' : '',
+    })),
+    currentLoans: (n311?.current ?? []).map((b) => ({
+      lenderName: b.lenderName,
+      amount_cy: b.balance_cy,
+      amount_py: b.balance_py,
+      loanType: b.type ?? 'Loan',
+    })),
+  };
+
+  const db = n312?.definedBenefit as { openingBalance?: number; closingBalance?: number } | undefined;
+  const le = n312?.leaveEncashment as { openingBalance?: number; closingBalance?: number } | undefined;
+  const note312_employeeBenefits: Record<string, { opening: number; closing: number }> = {
+    Gratuity: { opening: db?.openingBalance ?? 0, closing: db?.closingBalance ?? 0 },
+    'Leave Encashment': { opening: le?.openingBalance ?? 0, closing: le?.closingBalance ?? 0 },
+    'Salary Payable': { opening: 0, closing: (n312?.salaryPayable as number) ?? 0 },
+    'Bonus Payable': { opening: 0, closing: (n312?.bonusPayable as number) ?? 0 },
+  };
+
+  const note313_tradePayables: CyPyRecord = n313 ? {
+    'Trade Creditors': { cy: n313.tradeCreditors ?? 0, py: n313.tradeCreditors_py ?? 0 },
+    'Advance from Customers': { cy: n313.advanceFromCustomers ?? 0, py: 0 },
+    'Audit Fee Payable': { cy: n313.auditFeePayable ?? 0, py: n313.auditFeePayable_py ?? 0 },
+    'VAT Payable': { cy: n313.vatPayable ?? 0, py: n313.vatPayable_py ?? 0 },
+    'TDS Payable': { cy: n313.tdsPayableTotal ?? 0, py: n313.tdsPayableTotal_py ?? 0 },
+  } : {};
+
+  const note317_revenue: CyPyRecord = n317 ? {
+    'Sale of Goods': n317.saleOfGoods ?? { cy: 0, py: 0 },
+    'Rendering of Services': n317.renderingOfServices ?? { cy: 0, py: 0 },
+    'Interest Income': n317.interestIncome ?? { cy: 0, py: 0 },
+    'Other Income': n317.otherIncome ?? { cy: 0, py: 0 },
+  } : {};
+
+  const note318_materialConsumed = n318 ? {
+    openingInventory: n318.openingRawMaterial ?? 0,
+    purchases: n318.purchasesDuringYear ?? 0,
+    closingInventory: n318.closingRawMaterial ?? 0,
+    consumed: n318.rawMaterialConsumed ?? is.materialConsumed,
+  } : notes.note318_materialConsumed;
+
+  const note319_directExpenses: CyPyRecord = n318 ? {
+    'Direct Wages': { cy: n318.directWages ?? 0, py: 0 },
+    'Other Direct Expenses': { cy: n318.otherDirectExpenses ?? 0, py: 0 },
+  } : (notes.note319_directExpenses ?? {});
+
+  const note320_employeeBenefitExpenses: CyPyRecord = n320 ? {
+    'Salaries & Wages': n320.salariesWages ?? { cy: 0, py: 0 },
+    'PF / SSF / CIT': n320.pfSsfContribution ?? { cy: 0, py: 0 },
+    'Gratuity': n320.gratuityExpense ?? { cy: 0, py: 0 },
+    'Staff Bonus': n320.staffBonusExpense ?? { cy: 0, py: 0 },
+    'Staff Welfare': n320.staffWelfare ?? { cy: 0, py: 0 },
+    'Other Employee Costs': n320.otherEmployeeCosts ?? { cy: 0, py: 0 },
+  } : (notes.note320_employeeBenefitExpenses ?? {});
+
+  const note322_adminExpenses: CyPyRecord = n322?.lineItems
+    ? Object.fromEntries(n322.lineItems.map((li) => [li.label, { cy: li.cy, py: li.py }]))
+    : (notes.note322_adminExpenses ?? {});
+
+  const recon = n323?.reconciliation;
+  const note323_incomeTax = {
+    profitBeforeTax: recon?.profitBeforeTax ?? is.profitBeforeTax,
+    addDisallowableExpenses: recon?.disallowableExpenses ?? {},
+    lessAllowableExpenses: recon?.allowableDeductions ?? {},
+    taxableIncome: recon?.taxableProfit ?? is.profitBeforeTax,
+    currentTax: recon?.totalCurrentTax ?? is.incomeTaxExpense,
+    taxRate: n323?.effectiveTaxRate ?? 0.25,
+    advanceTaxPaid: n323?.advanceTaxPaid ?? 0,
+    tdsCreditAvailable: n323?.tdsCreditAvailable ?? 0,
+    netTaxPayable: n323?.netTaxPayable ?? bs.cl_incomeTaxPayable,
+  };
+
+  return {
+    ...notes,
+    note31_ppe,
+    note34_otherReceivables: {
+      'Security Deposits': { cy: n34?.securityDeposits ?? 0, py: 0 },
+      'Advance Income Tax': { cy: n34?.advanceIncomeTax ?? 0, py: 0 },
+      'Other Prepaid Expenses': { cy: n34?.otherPrepaidExpenses ?? 0, py: 0 },
+    },
+    note35_otherNonCurrentAssets: {
+      'Biological Assets': { cy: n35?.closingCarrying ?? 0, py: n35?.openingCarrying ?? 0 },
+    },
+    note36_otherCurrentAssets: {
+      'Held for Sale': { cy: n36?.total ?? 0, py: 0 },
+    },
+    note37_inventories,
+    note38_cashAndEquivalents,
+    note39_shareCapital,
+    note310_reserves,
+    note311_borrowings,
+    note312_employeeBenefits,
+    note313_tradePayables,
+    note317_revenue,
+    note318_materialConsumed,
+    note319_directExpenses,
+    note320_employeeBenefitExpenses,
+    note321_impairment: notes.note321_impairment ?? [
+      { description: 'Impairment on Receivables', cy: is.impairment ?? 0, py: 0 },
+    ],
+    note322_adminExpenses,
+    note323_incomeTax,
+  };
+}
+
 // Generic note writer for key-value record notes
-function writeGenericNoteRecord(ws: ExcelJS.Worksheet, title: string, data: Record<string, { cy: number; py: number }>): void {
+function writeGenericNoteRecord(ws: ExcelJS.Worksheet, title: string, data?: CyPyRecord | null): void {
+  const safeData = data ?? {};
   ws.getRow(1).getCell(1).value = title; ws.getRow(1).getCell(1).font = { name: 'Arial', size: 11, bold: true };
   const hRow = ws.getRow(3);
   ['Particulars', 'Current Year', 'Previous Year'].forEach((h, i) => { const c = hRow.getCell(i + 1); c.value = h; c.font = FONTS.SUBHEADING; applyHeaderFill(c, COLORS.SUBHEADER_BG); applyAllBorders(c); });
-  Object.entries(data).forEach(([label, vals], i) => {
+  Object.entries(safeData).forEach(([label, vals], i) => {
     const r = ws.getRow(4 + i);
     r.getCell(1).value = label; r.getCell(2).value = vals.cy || null; r.getCell(3).value = vals.py || null;
     [2, 3].forEach((ci) => { r.getCell(ci).numFmt = NUMBER_FORMAT; r.getCell(ci).alignment = { horizontal: 'right' }; });
@@ -928,7 +1150,8 @@ export async function generateNFRSWorkbook(params: {
   adjustments: YearEndAdjustments;
 }): Promise<Buffer> {
   try {
-    const { company, trialBalance, balanceSheet, incomeStatement, changesInEquity, cashFlow, notes, adjustments } = params;
+    const { company, trialBalance, balanceSheet, incomeStatement, changesInEquity, cashFlow, notes: rawNotes, adjustments } = params;
+    const notes = normalizeNotesForExcel(rawNotes, incomeStatement, balanceSheet);
 
     const wb = new ExcelJS.Workbook();
   wb.creator = 'NFRS Reporter';
@@ -969,18 +1192,38 @@ export async function generateNFRSWorkbook(params: {
   writeNote37_Inventories(addSheet('Note 3.7 - Inventories', '16A34A'), notes.note37_inventories);
   writeNote38_Cash(addSheet('Note 3.8 - Cash', '16A34A'), notes.note38_cashAndEquivalents);
   writeNote39_ShareCapital(addSheet('Note 3.9 - Share Capital', '16A34A'), notes.note39_shareCapital);
-  writeGenericNoteRecord(addSheet('Note 3.10 - Reserves', '16A34A'), '3.10  Reserves', Object.fromEntries(Object.entries(notes.note310_reserves).map(([k, v]) => [k, { cy: v.closingCY, py: v.py }])));
-  writeNote311_Borrowings(addSheet('Note 3.11 - Borrowings', '16A34A'), notes.note311_borrowings);
-  writeGenericNoteRecord(addSheet('Note 3.12 - Emp Benefits', '16A34A'), '3.12  Employee Benefits', Object.fromEntries(Object.entries(notes.note312_employeeBenefits).map(([k, v]) => [k, { cy: v.closing, py: v.opening }])));
+  writeGenericNoteRecord(addSheet('Note 3.10 - Reserves', '16A34A'), '3.10  Reserves', Object.fromEntries(
+    Object.entries(notes.note310_reserves ?? {}).map(([k, v]) => {
+      const entry = v as { closingCY?: number; closing?: number; py?: number; opening?: number };
+      return [k, { cy: entry.closingCY ?? entry.closing ?? 0, py: entry.py ?? entry.opening ?? 0 }];
+    }),
+  ));
+  writeNote311_Borrowings(addSheet('Note 3.11 - Borrowings', '16A34A'), notes.note311_borrowings ?? { nonCurrentBank: [], currentLoans: [] });
+  writeGenericNoteRecord(addSheet('Note 3.12 - Emp Benefits', '16A34A'), '3.12  Employee Benefits', Object.fromEntries(
+    Object.entries(notes.note312_employeeBenefits ?? {}).map(([k, v]) => {
+      const entry = v as { closing?: number; opening?: number };
+      return [k, { cy: entry.closing ?? 0, py: entry.opening ?? 0 }];
+    }),
+  ));
   writeGenericNoteRecord(addSheet('Note 3.13 - Payables', '16A34A'), '3.13  Trade and Other Payables', notes.note313_tradePayables);
   writeGenericNoteRecord(addSheet('Note 3.14 - Provisions', '16A34A'), '3.14  Provisions', {});
   writeGenericNoteRecord(addSheet('Note 3.17 - Revenue', '16A34A'), '3.17  Revenue', notes.note317_revenue);
-  writeGenericNoteRecord(addSheet('Note 3.18 - Materials', '16A34A'), '3.18  Material Consumed', { 'Opening Stock': { cy: notes.note318_materialConsumed.openingInventory, py: 0 }, 'Purchases': { cy: notes.note318_materialConsumed.purchases, py: 0 }, 'Less: Closing Stock': { cy: -notes.note318_materialConsumed.closingInventory, py: 0 }, 'Material Consumed': { cy: notes.note318_materialConsumed.consumed, py: 0 } });
+  writeGenericNoteRecord(addSheet('Note 3.18 - Materials', '16A34A'), '3.18  Material Consumed', {
+    'Opening Stock': { cy: notes.note318_materialConsumed?.openingInventory ?? 0, py: 0 },
+    'Purchases': { cy: notes.note318_materialConsumed?.purchases ?? 0, py: 0 },
+    'Less: Closing Stock': { cy: -(notes.note318_materialConsumed?.closingInventory ?? 0), py: 0 },
+    'Material Consumed': { cy: notes.note318_materialConsumed?.consumed ?? 0, py: 0 },
+  });
   writeGenericNoteRecord(addSheet('Note 3.19 - Direct Exp', '16A34A'), '3.19  Direct Expenses', notes.note319_directExpenses);
   writeGenericNoteRecord(addSheet('Note 3.20 - Emp Expense', '16A34A'), '3.20  Employee Benefit Expenses', notes.note320_employeeBenefitExpenses);
-  writeGenericNoteRecord(addSheet('Note 3.21 - Impairment', '16A34A'), '3.21  Impairment', Object.fromEntries(notes.note321_impairment.map((n) => [n.description, { cy: n.cy, py: n.py }])));
+  writeGenericNoteRecord(addSheet('Note 3.21 - Impairment', '16A34A'), '3.21  Impairment', Object.fromEntries(
+    (notes.note321_impairment ?? []).map((n: { description: string; cy: number; py: number }) => [n.description, { cy: n.cy, py: n.py }]),
+  ));
   writeGenericNoteRecord(addSheet('Note 3.22 - Admin Exp', '16A34A'), '3.22  Administrative Expenses', notes.note322_adminExpenses);
-  writeNote323_Tax(addSheet('Note 3.23 - Tax', '16A34A'), notes.note323_incomeTax);
+  writeNote323_Tax(addSheet('Note 3.23 - Tax', '16A34A'), notes.note323_incomeTax ?? {
+    profitBeforeTax: 0, addDisallowableExpenses: {}, lessAllowableExpenses: {},
+    taxableIncome: 0, currentTax: 0, taxRate: 0.25, advanceTaxPaid: 0, tdsCreditAvailable: 0, netTaxPayable: 0,
+  });
   writeAdjustments(addSheet('Adjustments', COLORS.LIGHT_GRAY), adjustments);
   writeTaxCalculation(addSheet('Tax Calculation', COLORS.LIGHT_GRAY), notes.note323_incomeTax);
   writeSundryDebtors(addSheet('Sundry Debtors', '16A34A'), trialBalance);

@@ -14,7 +14,7 @@ interface AIMatchResult {
 const aiCache = new Map<string, AIMatchResult[]>();
 
 function buildCacheKey(accounts: Pick<MappedTBRow, 'rawLabel' | 'closingBalance'>[]): string {
-  return accounts.map(a => `${a.rawLabel}:${Math.sign(a.closingBalance)}`).join('|');
+  return accounts.map(a => `${a.rawLabel}:${Math.sign(a.closingBalance ?? 0)}`).join('|');
 }
 
 // ── System prompt ─────────────────────────────────────────────────────────
@@ -37,8 +37,9 @@ function buildUserPrompt(
 ): string {
   const accountLines = accounts
     .map((a, i) => {
-      const side   = a.closingBalance >= 0 ? 'Dr' : 'Cr';
-      const amount = Math.abs(a.closingBalance).toLocaleString('en-IN');
+      const balance = a.closingBalance ?? 0;
+      const side   = balance >= 0 ? 'Dr' : 'Cr';
+      const amount = Math.abs(balance).toLocaleString('en-IN');
       return `${i + 1}. "${a.rawLabel}" [Closing: ${side} NPR ${amount}]`;
     })
     .join('\n');

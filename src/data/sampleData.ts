@@ -49,7 +49,7 @@ export const SAMPLE_COMPANY: CompanyProfile = {
 
 export const SAMPLE_TRIAL_BALANCE_CSV = `Account Name,Opening Dr,Opening Cr,During Dr,During Cr,Closing Dr,Closing Cr
 Paid-up Capital,0,50000000,0,1000000,0,51000000
-Reserves & Surplus,0,2532000,0,0,938901,0
+Reserves & Surplus,0,2532000,0,0,0,2532000
 Bank A,0,2500000,1000000,0,0,1500000
 Bank B,0,1200000,200000,0,0,1000000
 Creditor A,0,125000,50000,400000,0,475000

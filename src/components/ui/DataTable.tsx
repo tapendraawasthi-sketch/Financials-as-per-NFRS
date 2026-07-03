@@ -82,14 +82,16 @@ export default function DataTable<T extends Record<string, any>>({
                 <th
                   key={col.key}
                   scope="col"
-                  style={col.width ? { width: col.width } : {}}
+                  style={{
+                    ...(col.width ? { width: col.width } : {}),
+                    fontSize: '11px',
+                  }}
                   className={[
                     cellPad,
                     'font-bold text-slate-500 uppercase tracking-[0.06em] whitespace-nowrap',
                     alignClass(col.align),
                     col.sortable ? 'cursor-pointer select-none hover:text-slate-700' : '',
                   ].filter(Boolean).join(' ')}
-                  style={{ fontSize: '11px' }}
                   onClick={col.sortable ? () => handleSort(col.key) : undefined}
                   aria-sort={
                     col.sortable && sortKey === col.key

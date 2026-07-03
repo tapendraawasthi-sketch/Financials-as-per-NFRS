@@ -127,6 +127,7 @@ export function buildNotesData(params: {
       depnOnDisposal,
       closingAccumDepn,
       // NBV
+      netBookValueClosing: nbvClosing,
       nbvClosing,
       nbvOpening,
       // Assets pledged

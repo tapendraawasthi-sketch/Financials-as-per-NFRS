@@ -1,14 +1,14 @@
 {
-  "generatedAt": "2026-07-02T03:44:50.509Z",
-  "company": "Himalayan Trading Pvt. Ltd.",
+  "generatedAt": "2026-07-03T10:06:45.534Z",
+  "company": "ABC PRIVATE LIMITED",
   "fiscalYear": "2081/82",
-  "tbRows": 30,
-  "autoMatchedRows": 30,
+  "tbRows": 91,
+  "autoMatchedRows": 86,
   "unmatchedRows": 0,
   "totalDepreciation": 150000,
-  "revenue": 3500000,
-  "netProfit": 549450,
-  "totalAssets": 4505000,
-  "balanceSheetCheck": 0,
-  "xlsxSizeKB": "48.7"
+  "revenue": 10500000,
+  "netProfit": 1634157,
+  "totalAssets": 57444493,
+  "balanceSheetCheck": 266901,
+  "xlsxSizeKB": "52.2"
 }
