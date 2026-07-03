@@ -16,12 +16,29 @@ export type CompanyProfile = CompanyProfileBase & {
   panVatNumber?: string;
   registrationNumber?: string;
   companyType?: string;
+  entityType?: string;
+  province?: string;
+  district?: string;
+  municipality?: string;
+  wardNumber?: string;
+  tole?: string;
+  fullAddress?: string;
+  contactPerson?: string;
+  designation?: string;
+  phone?: string;
+  email?: string;
+  directors?: string[];
+  nasCompliance?: Record<string, boolean>;
   fiscalYear?: import('../data/fiscalYears').FiscalYearEntry;
   previousFiscalYear?: import('../data/fiscalYears').FiscalYearEntry;
   accountingPolicies?: AccountingPolicies;
   auditorInfo?: { auditorName: string; auditorFirmName: string; position: string; icanRegNumber?: string };
   previousYearData?: Record<string, number>;
   numberOfEmployees?: number;
+  annualTurnover?: number;
+  bankBorrowings?: number;
+  balanceSheetTotal?: number;
+  fiduciaryAssets?: number;
 };
 
 export type AccountingPolicies = AccountingPoliciesBase & {

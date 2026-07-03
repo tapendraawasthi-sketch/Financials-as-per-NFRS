@@ -38,6 +38,10 @@ export default function CompanySetupPage() {
         isLeapYear: false,
       };
 
+      const directors = (formData.directors ?? [])
+        .map((name: string) => name.trim())
+        .filter(Boolean);
+
       const profileData: Partial<CompanyProfile> = {
         companyName: formData.companyName,
         panVatNumber: formData.panVatNumber,
@@ -47,10 +51,18 @@ export default function CompanySetupPage() {
         province: formData.province,
         district: formData.district,
         municipality: formData.municipality,
+        wardNumber: formData.wardNumber,
+        tole: formData.tole,
         fullAddress: formData.fullAddress,
+        contactPerson: formData.contactPerson,
+        designation: formData.designation,
+        phone: formData.phone,
+        email: formData.email,
         chairperson: formData.chairperson,
-        director: formData.director,
+        director: directors[0] ?? formData.chairperson ?? '',
+        directors,
         accountsHead: formData.accountsHead,
+        nasCompliance: formData.nasCompliance,
         annualTurnover: formData.annualTurnover,
         bankBorrowings: formData.bankBorrowings,
         balanceSheetTotal: formData.balanceSheetTotal,
@@ -88,6 +100,7 @@ export default function CompanySetupPage() {
 
       dispatch({ type: 'SET_COMPANY',    payload: localCompany });
       dispatch({ type: 'COMPLETE_STEP',  payload: 'company_setup' });
+      localStorage.setItem('me_last_company_id', localId);
       setActiveTab('policies');
       dispatch({ type: 'SET_STEP',       payload: 'accounting_policies' });
 
@@ -101,6 +114,9 @@ export default function CompanySetupPage() {
         }
         // Replace local placeholder id with the real server id
         dispatch({ type: 'SET_COMPANY', payload: savedCompany });
+        if (savedCompany.id) {
+          localStorage.setItem('me_last_company_id', savedCompany.id);
+        }
       } catch {
         dispatch({ type: 'SET_ERROR', payload: 'Could not reach the server to save your company profile. Your progress is stored locally only — if you refresh the page or the server restarts, this data will be lost. Please check your connection.' });
       }
@@ -196,8 +212,20 @@ export default function CompanySetupPage() {
               municipality: state.company.municipality || '',
               fullAddress: state.company.fullAddress || '',
               chairperson: state.company.chairperson || '',
-              director: state.company.director || '',
+              directors: state.company.directors?.length
+                ? state.company.directors
+                : state.company.director
+                  ? [state.company.director]
+                  : [''],
               accountsHead: state.company.accountsHead || '',
+              nasCompliance: state.company.nasCompliance ?? undefined,
+              annualTurnover: state.company.annualTurnover ?? 0,
+              bankBorrowings: state.company.bankBorrowings ?? 0,
+              balanceSheetTotal: state.company.balanceSheetTotal ?? 0,
+              fiduciaryAssets: state.company.fiduciaryAssets ?? 0,
+              numberOfEmployees: state.company.numberOfEmployees ?? 0,
+              dividendDeclaredPercent: state.company.dividendDeclaredPercent ?? 0,
+              shareIssuedDuringYear: state.company.shareIssuedDuringYear ?? 0,
               auditorName: state.company.auditorInfo?.auditorName || '',
               auditFirmName: state.company.auditorInfo?.auditorFirmName || '',
               auditorPosition: state.company.auditorInfo?.position || '',

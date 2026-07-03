@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useAppStore } from '../store/appStore';
 import { useAdjustments } from '../hooks/useAdjustments';
 import { adjustmentsApi } from '../api/client';
-import type { AssetItem, YearEndAdjustments } from '../types';
+import type { AssetItem, ProvisionEntry, YearEndAdjustments } from '../types';
 import Tabs from '../components/ui/Tabs';
 import AssetRegisterTable from '../components/adjustments/AssetRegisterTable';
 import ProvisionInputs from '../components/adjustments/ProvisionInputs';
@@ -141,13 +141,40 @@ export default function AdjustmentsPage() {
     return summary;
   };
 
-  const handleSaveProvisions = async (rows: any[]) => {
+  const handleSaveProvisions = async (rows: Array<{
+    id: string;
+    type: string;
+    openingBalance: number;
+    addition: number;
+    utilised: number;
+    reversed: number;
+    classification: 'Current' | 'Non-current';
+  }>) => {
     if (!state.company?.id) return;
+
+    const provisions: ProvisionEntry[] = rows.map((row) => ({
+      id: row.id,
+      provisionType: row.type,
+      openingBalance: row.openingBalance,
+      additionForYear: row.addition,
+      utilisedDuringYear: row.utilised + row.reversed,
+      closingBalance: row.openingBalance + row.addition - row.utilised - row.reversed,
+      classification: row.classification,
+    } as ProvisionEntry & { classification?: string }));
+
     try {
-      await adjustmentsApi.saveProvisions(state.company.id, rows);
-      showToast('Adjustments saved', 'success');
+      await adjustmentsApi.saveProvisions(state.company.id, provisions);
+      dispatch({
+        type: 'SET_ADJUSTMENTS',
+        payload: {
+          ...(state.adjustments ?? {}),
+          provisions,
+          totalProvisions: provisions.reduce((sum, row) => sum + row.additionForYear, 0),
+        } as YearEndAdjustments,
+      });
+      showToast('Provisions saved', 'success');
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Failed to save adjustments.';
+      const message = err instanceof Error ? err.message : 'Failed to save provisions.';
       showToast(message, 'error');
     }
   };
@@ -187,7 +214,15 @@ export default function AdjustmentsPage() {
         )}
 
         {activeTab === 'provisions' && (
-          <ProvisionInputs onSave={handleSaveProvisions} />
+          <ProvisionInputs
+            onSave={handleSaveProvisions}
+            initialData={Object.fromEntries(
+              (state.adjustments?.provisions ?? []).map((provision) => [
+                provision.id ?? provision.provisionType,
+                provision.openingBalance,
+              ]),
+            )}
+          />
         )}
 
         {activeTab === 'journal' && (

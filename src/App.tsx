@@ -8,7 +8,7 @@ import AppShell from './components/layout/AppShell';
 import { KeyboardShortcutsModal } from './components/ui/KeyboardShortcutsModal';
 import { useToast } from './components/ui/Toast';
 import { AlertTriangle, ArrowRight } from 'lucide-react';
-import { saveSession } from './hooks/useSessionPersistence';
+import { saveSession, useSessionPersistence } from './hooks/useSessionPersistence';
 import useKeyboardShortcuts from './hooks/useKeyboardShortcuts';
 
 // ── Prerequisite definitions ───────────────────────────────────────────────────
@@ -156,6 +156,7 @@ async function fetchWithStatus<T>(path: string): Promise<{ data: T | null; statu
 const AppInner: React.FC = () => {
   const { state, dispatch } = useAppStore();
   const { show: showToast } = useToast();
+  const { lastSavedAt } = useSessionPersistence(state.company?.id);
 
   const [hasStarted, setHasStarted] = React.useState(false);
   const [isHydrating, setIsHydrating] = React.useState(() => Boolean(resolveStoredCompanyId()));
@@ -177,6 +178,7 @@ const AppInner: React.FC = () => {
         if (cancelled) return;
         if (companyResult.data) {
           dispatch({ type: 'SET_COMPANY', payload: companyResult.data as CompanyProfile });
+          localStorage.setItem('me_last_company_id', companyId);
         }
 
         const tbResult = await fetchWithStatus<Record<string, unknown>>(
@@ -359,6 +361,7 @@ const AppInner: React.FC = () => {
       onNavigate={handleNavigate}
       companyName={state.company?.companyName}
       fiscalYear={state.company?.fiscalYear.bsFY}
+      lastSavedAt={lastSavedAt}
       headerTitle={stepInfo.title}
       headerSubtitle={stepInfo.subtitle}
       breadcrumb={['Home', stepInfo.title]}

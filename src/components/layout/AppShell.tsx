@@ -15,6 +15,7 @@ interface AppShellProps {
   headerSubtitle?:  string;
   headerActions?:   React.ReactNode;
   breadcrumb?:      string[];
+  lastSavedAt?:     Date | null;
   error?:           string | null;
   onDismissError?:  () => void;
   children:         React.ReactNode;
@@ -30,6 +31,7 @@ export default function AppShell({
   headerSubtitle,
   headerActions,
   breadcrumb,
+  lastSavedAt,
   error,
   onDismissError,
   children,
@@ -56,6 +58,7 @@ export default function AppShell({
           breadcrumb={breadcrumb}
           companyName={companyName}
           fiscalYear={fiscalYear}
+          lastSavedAt={lastSavedAt}
         />
 
         {error && (
