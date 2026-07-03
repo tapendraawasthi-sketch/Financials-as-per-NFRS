@@ -693,6 +693,7 @@ export function writeNote31_PPE(ws: ExcelJS.Worksheet, depnSummary: Depreciation
     row.getCell(depnSummary.length + 2).numFmt = NUMBER_FORMAT;
     row.getCell(depnSummary.length + 2).alignment = { horizontal: 'right' };
     row.height = 15;
+    if (label === 'Charge for the Year') SHEET_ROW_REGISTRY.ppeDepreciationRow = r - 1;
   });
 
   ws.getRow(r).getCell(1).value = 'NET BOOK VALUE'; ws.getRow(r).getCell(1).font = FONTS.SUBHEADING; r++;
@@ -715,6 +716,7 @@ export function writeNote31_PPE(ws: ExcelJS.Worksheet, depnSummary: Depreciation
     applyHeaderFill(tc, COLORS.TOTAL_BG);
     row.height = 15;
   });
+  SHEET_ROW_REGISTRY.ppeNetBookValueRow = r - 1;
 }
 
 export function writeNote37_Inventories(ws: ExcelJS.Worksheet, note37: NotesData['note37_inventories']): void {
@@ -733,6 +735,7 @@ export function writeNote37_Inventories(ws: ExcelJS.Worksheet, note37: NotesData
     r.getCell(1).value = label; if (i === rows.length - 1) { r.getCell(1).font = FONTS.TOTAL; }
     [cy, py].forEach((v, ci) => { const c = r.getCell(ci + 2); c.value = v || null; c.numFmt = NUMBER_FORMAT; c.alignment = { horizontal: 'right' }; if (i === rows.length - 1) { c.font = FONTS.TOTAL; applyHeaderFill(c, COLORS.TOTAL_BG); } applyAllBorders(c); });
   });
+  SHEET_ROW_REGISTRY.inventoryTotalRow = 4 + rows.length - 1;
 }
 
 export function writeNote38_Cash(ws: ExcelJS.Worksheet, note38: NotesData['note38_cashAndEquivalents']): void {
@@ -750,6 +753,7 @@ export function writeNote38_Cash(ws: ExcelJS.Worksheet, note38: NotesData['note3
   totRow.getCell(1).value = 'Total Cash and Equivalents'; totRow.getCell(1).font = FONTS.TOTAL;
   totRow.getCell(2).value = note38.totalCash_cy || null; totRow.getCell(2).numFmt = NUMBER_FORMAT; totRow.getCell(2).alignment = { horizontal: 'right' }; totRow.getCell(2).font = FONTS.TOTAL;
   applyHeaderFill(totRow.getCell(2), COLORS.TOTAL_BG);
+  SHEET_ROW_REGISTRY.cashTotalRow = r;
 }
 
 export function writeNote39_ShareCapital(ws: ExcelJS.Worksheet, note39: NotesData['note39_shareCapital']): void {
@@ -769,6 +773,7 @@ export function writeNote39_ShareCapital(ws: ExcelJS.Worksheet, note39: NotesDat
     const r = ws.getRow(3 + i);
     r.getCell(1).value = label; r.getCell(2).value = val || null; r.getCell(2).numFmt = NUMBER_FORMAT; r.getCell(2).alignment = { horizontal: 'right' };
   });
+  SHEET_ROW_REGISTRY.shareCapitalRow = 3 + rows.length - 1;
 }
 
 export function writeNote311_Borrowings(ws: ExcelJS.Worksheet, note311: NotesData['note311_borrowings']): void {
@@ -788,6 +793,7 @@ export function writeNote311_Borrowings(ws: ExcelJS.Worksheet, note311: NotesDat
       if (i >= 3) { c.numFmt = NUMBER_FORMAT; c.alignment = { horizontal: 'right' }; }
     });
   });
+  SHEET_ROW_REGISTRY.ncBorrowingsRow = r - 1;
   r++;
   ws.getRow(r).getCell(1).value = 'Current Borrowings'; ws.getRow(r).getCell(1).font = FONTS.SUBHEADING; r++;
   const currentLoans = (n311.currentLoans as Array<Record<string, unknown>>)
@@ -800,6 +806,7 @@ export function writeNote311_Borrowings(ws: ExcelJS.Worksheet, note311: NotesDat
       if (i >= 3) { c.numFmt = NUMBER_FORMAT; c.alignment = { horizontal: 'right' }; }
     });
   });
+  SHEET_ROW_REGISTRY.cBorrowingsRow = r - 1;
 }
 
 export function writeNote323_Tax(ws: ExcelJS.Worksheet, note323: NotesData['note323_incomeTax']): void {
@@ -818,6 +825,7 @@ export function writeNote323_Tax(ws: ExcelJS.Worksheet, note323: NotesData['note
     r.getCell(1).value = label; r.getCell(2).value = val || null;
     r.getCell(2).numFmt = NUMBER_FORMAT; r.getCell(2).alignment = { horizontal: 'right' };
   });
+  SHEET_ROW_REGISTRY.taxPayableRow = 3 + items.length - 1;
 }
 
 export function writeSundryDebtors(ws: ExcelJS.Worksheet, tb: ParsedTrialBalance): void {
@@ -1204,6 +1212,7 @@ export async function generateNFRSWorkbook(params: {
       py: notes.note33_tradeReceivables?.netReceivables_py ?? 0,
     },
   });
+  SHEET_ROW_REGISTRY.receivablesNetRow = 4;
   writeGenericNoteRecord(addSheet('Note 3.4 - Other Recv', '16A34A'), '3.4  Other Receivables', notes.note34_otherReceivables);
   writeGenericNoteRecord(addSheet('Note 3.5 - NC Assets', '16A34A'), '3.5  Other Non-Current Assets', notes.note35_otherNonCurrentAssets);
   writeGenericNoteRecord(addSheet('Note 3.6 - CA Other', '16A34A'), '3.6  Other Current Assets', notes.note36_otherCurrentAssets);
@@ -1226,6 +1235,7 @@ export async function generateNFRSWorkbook(params: {
   writeGenericNoteRecord(addSheet('Note 3.13 - Payables', '16A34A'), '3.13  Trade and Other Payables', notes.note313_tradePayables);
   writeGenericNoteRecord(addSheet('Note 3.14 - Provisions', '16A34A'), '3.14  Provisions', {});
   writeGenericNoteRecord(addSheet('Note 3.17 - Revenue', '16A34A'), '3.17  Revenue', notes.note317_revenue);
+  SHEET_ROW_REGISTRY.revenueTotalRow = 4 + Object.keys(notes.note317_revenue ?? {}).length - 1;
   writeGenericNoteRecord(addSheet('Note 3.18 - Materials', '16A34A'), '3.18  Material Consumed', {
     'Opening Stock': { cy: notes.note318_materialConsumed?.openingInventory ?? 0, py: 0 },
     'Purchases': { cy: notes.note318_materialConsumed?.purchases ?? 0, py: 0 },
@@ -1234,10 +1244,12 @@ export async function generateNFRSWorkbook(params: {
   });
   writeGenericNoteRecord(addSheet('Note 3.19 - Direct Exp', '16A34A'), '3.19  Direct Expenses', notes.note319_directExpenses);
   writeGenericNoteRecord(addSheet('Note 3.20 - Emp Expense', '16A34A'), '3.20  Employee Benefit Expenses', notes.note320_employeeBenefitExpenses);
+  SHEET_ROW_REGISTRY.empExpenseTotalRow = 4 + Object.keys(notes.note320_employeeBenefitExpenses ?? {}).length - 1;
   writeGenericNoteRecord(addSheet('Note 3.21 - Impairment', '16A34A'), '3.21  Impairment', Object.fromEntries(
     (notes.note321_impairment ?? []).map((item: { description: string; cy: number; py: number }) => [item.description, { cy: item.cy, py: item.py }]),
   ));
   writeGenericNoteRecord(addSheet('Note 3.22 - Admin Exp', '16A34A'), '3.22  Administrative Expenses', notes.note322_adminExpenses);
+  SHEET_ROW_REGISTRY.adminExpenseTotalRow = 4 + Object.keys(notes.note322_adminExpenses ?? {}).length - 1;
   writeNote323_Tax(addSheet('Note 3.23 - Tax', '16A34A'), notes.note323_incomeTax ?? {
     profitBeforeTax: 0, addDisallowableExpenses: {}, lessAllowableExpenses: {},
     taxableIncome: 0, currentTax: 0, taxRate: 0.25, advanceTaxPaid: 0, tdsCreditAvailable: 0, netTaxPayable: 0,
