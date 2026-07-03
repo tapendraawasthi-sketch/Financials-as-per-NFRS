@@ -38,7 +38,46 @@ export interface NoteRowMap {
   taxPayableRow?: number;
   taxCalcNetPayableRow?: number;
   taxCalcIncomeTaxRow?: number;
+  assessableIncomeRow?: number;
+  totalTaxLiabilityRow?: number;
   cyTotalRow?: number;
+}
+
+export interface TaxCalculationSheetData {
+  companyName: string;
+  address: string;
+  incomeStatement: IncomeStatement;
+  otherIncome?: {
+    interestIncome?: { cy: number };
+    commissionIncome?: { cy: number };
+    rentalIncome?: { cy: number };
+    dividendReceived?: { cy: number };
+    gainOnDisposalAssets?: { cy: number };
+    insuranceClaims?: { cy: number };
+    miscellaneousIncome?: { cy: number };
+  };
+  repairExpense?: number;
+  taxRate?: number;
+  donations?: number;
+  lossCarryForward?: number;
+  feeSection117?: number;
+  lateTaxPaidAmount?: number;
+  advanceTaxShortfall?: number;
+  taxDepSheetName?: string;
+  taxDepTotalRow?: number;
+}
+
+export interface TaxProfitReconciliationData {
+  fiscalYear: string;
+  profitBeforeTax: number;
+  bookDepreciation: number;
+  dividendExempt: number;
+  disallowSheetName: string;
+  disallowTotalRow: number;
+  taxDepSheetName: string;
+  taxDepTotalRow: number;
+  taxCalcSheetName: string;
+  taxCalcAssessableRow: number;
 }
 
 export interface BalanceSheetRowMap {
@@ -1112,7 +1151,7 @@ export function writeNote323_Tax(
     applyBodyStyle(r.getCell(1));
     const amountCell = r.getCell(2);
     if (items[i][2] && taxCalcSheetName && taxCalcNetPayableRow) {
-      amountCell.value = { formula: cellRef(taxCalcSheetName, 'B', taxCalcNetPayableRow).replace(/^=/, ''), result: note323.netTaxPayable };
+      amountCell.value = { formula: cellRef(taxCalcSheetName, 'D', taxCalcNetPayableRow).replace(/^=/, ''), result: note323.netTaxPayable };
     } else {
       amountCell.value = val || null;
     }
@@ -1255,7 +1294,7 @@ export function writeTaxDepreciationSheet(
   ws: ExcelJS.Worksheet,
   taxDepPools: Array<Record<string, unknown>>,
   _fiscalYear: string,
-): void {
+): { totalTaxDepRow: number } {
   writeNoteSheetTitle(ws, 'Tax Depreciation');
 
   const headers = [
@@ -1292,15 +1331,21 @@ export function writeTaxDepreciationSheet(
     for (let ci = 1; ci <= headers.length; ci++) applyAllBorders(r.getCell(ci));
   });
 
-  const noteRow = ws.getRow(4 + pools.length + 1);
+  const firstDataRow = 4;
+  const lastDataRow = 4 + pools.length - 1;
+  const totalRow = 4 + pools.length;
+  writeSumTotalRow(ws, totalRow, 1, [7], firstDataRow, lastDataRow, 'Total Tax Depreciation');
+
+  const noteRow = ws.getRow(totalRow + 2);
   noteRow.getCell(1).value = 'Copy Closing Basis into Opening Basis each year.';
   noteRow.getCell(1).font = { name: 'Arial', size: 9, italic: true, color: { argb: 'FF64748B' } };
+  return { totalTaxDepRow: totalRow };
 }
 
 export function writeDisallowForTaxSheet(
   ws: ExcelJS.Worksheet,
   disallowItems: Array<{ description?: string; amount?: number; section?: string; asPerBooks?: number; notes?: string }>,
-): void {
+): { totalDisallowedRow: number } {
   writeNoteSheetTitle(ws, 'Disallow for Tax');
 
   const headers = ['Particulars', 'As per Books', 'Disallowed Amount', 'Allowed for Tax', 'Notes'];
@@ -1333,6 +1378,12 @@ export function writeDisallowForTaxSheet(
     r.getCell(5).value = item.section ?? item.notes ?? '';
     for (let ci = 1; ci <= headers.length; ci++) applyAllBorders(r.getCell(ci));
   });
+
+  const firstDataRow = 4;
+  const lastDataRow = 4 + items.length - 1;
+  const totalRow = 4 + items.length;
+  writeSumTotalRow(ws, totalRow, 1, [2, 3, 4], firstDataRow, lastDataRow, 'Total Disallowed');
+  return { totalDisallowedRow: totalRow };
 }
 
 export function writeFairValueChangeSheet(
@@ -1545,6 +1596,434 @@ export function writeAdjustments(ws: ExcelJS.Worksheet, adj: YearEndAdjustments)
       applyAllBorders(c);
     });
   });
+}
+
+export function writeTaxCalculationSheet(
+  ws: ExcelJS.Worksheet,
+  taxData: TaxCalculationSheetData,
+  fiscalYear: string,
+): NoteRowMap {
+  ws.columns = [{ width: 44 }, { width: 10 }, { width: 18 }, { width: 18 }];
+
+  ws.mergeCells('A1:D1');
+  const r1 = ws.getCell('A1');
+  r1.value = (taxData.companyName || 'Company Name').toUpperCase();
+  r1.alignment = { horizontal: 'center', vertical: 'middle' };
+  applyHeaderStyle(r1);
+  ws.getRow(1).height = 26;
+
+  ws.mergeCells('A2:D2');
+  const r2 = ws.getCell('A2');
+  r2.value = taxData.address || '';
+  r2.font = { name: 'Arial', size: 10 };
+  r2.alignment = { horizontal: 'center', vertical: 'middle' };
+  applyBodyStyle(r2);
+
+  ws.mergeCells('A3:D3');
+  const r3 = ws.getCell('A3');
+  r3.value = 'COMPUTATION OF INCOME TAX';
+  r3.font = { name: 'Arial', size: 11, bold: true };
+  r3.alignment = { horizontal: 'center', vertical: 'middle' };
+
+  ws.mergeCells('A4:D4');
+  const r4 = ws.getCell('A4');
+  r4.value = `FOR FISCAL YEAR ${fiscalYear}`;
+  r4.font = { name: 'Arial', size: 10, italic: true };
+  r4.alignment = { horizontal: 'center', vertical: 'middle' };
+
+  const headerRow = ws.getRow(6);
+  ['Particulars', 'Note', 'As per Books', 'For Income Tax'].forEach((h, i) => {
+    const c = headerRow.getCell(i + 1);
+    c.value = h;
+    applySubHeaderStyle(c);
+    c.alignment = { horizontal: i === 0 ? 'left' : 'center', vertical: 'middle' };
+    applyAllBorders(c);
+  });
+
+  const is = taxData.incomeStatement;
+  const oi = taxData.otherIncome;
+  const repair = taxData.repairExpense ?? 0;
+  const interestExp = Number(is.financeCharges ?? is.interestExpenses ?? 0);
+  const bookDepn = Number(is.depreciation ?? 0);
+  const generalDeduction = Math.max(
+    0,
+    Number(is.totalExpenses ?? 0) - bookDepn - interestExp - repair,
+  );
+
+  const inclusionItems: Array<{ label: string; note?: string; books: number; tax: number | 'exempt' }> = [
+    {
+      label: 'Sales u/s 7(2)(Kha)',
+      note: '3.17',
+      books: Number(is.revenue ?? is.revenueFromOperations ?? 0),
+      tax: Number(is.revenue ?? is.revenueFromOperations ?? 0),
+    },
+    {
+      label: 'Interest Income',
+      books: Number(oi?.interestIncome?.cy ?? is.interestIncome ?? 0),
+      tax: Number(oi?.interestIncome?.cy ?? is.interestIncome ?? 0),
+    },
+    {
+      label: 'Commission Income',
+      books: Number(oi?.commissionIncome?.cy ?? 0),
+      tax: Number(oi?.commissionIncome?.cy ?? 0),
+    },
+    {
+      label: 'Rental Income',
+      books: Number(oi?.rentalIncome?.cy ?? 0),
+      tax: Number(oi?.rentalIncome?.cy ?? 0),
+    },
+    {
+      label: 'Dividend Income',
+      books: Number(oi?.dividendReceived?.cy ?? 0),
+      tax: 'exempt',
+    },
+    {
+      label: 'Insurance Claim Income',
+      books: Number(oi?.insuranceClaims?.cy ?? 0),
+      tax: Number(oi?.insuranceClaims?.cy ?? 0),
+    },
+    {
+      label: 'Gain on Disposal of Assets',
+      books: Number(oi?.gainOnDisposalAssets?.cy ?? 0),
+      tax: Number(oi?.gainOnDisposalAssets?.cy ?? 0),
+    },
+    {
+      label: 'Other Income',
+      books: Number(oi?.miscellaneousIncome?.cy ?? is.otherIncome ?? 0),
+      tax: Number(oi?.miscellaneousIncome?.cy ?? is.otherIncome ?? 0),
+    },
+  ];
+
+  let row = 7;
+  writeSectionHeader(ws, row++, 'INCLUSIONS', 4);
+  const inclusionStart = row;
+  inclusionItems.forEach((item) => {
+    const r = ws.getRow(row++);
+    r.getCell(1).value = item.label;
+    if (item.note) {
+      r.getCell(2).value = item.note;
+      r.getCell(2).font = FONTS.NOTE_REF;
+    }
+    setAmountCell(r.getCell(3), item.books || null);
+    if (item.tax === 'exempt') {
+      setAmountCell(r.getCell(4), 0);
+    } else {
+      setAmountCell(r.getCell(4), item.tax || null);
+    }
+    [1, 2, 3, 4].forEach((ci) => applyAllBorders(r.getCell(ci)));
+  });
+  const inclusionEnd = row - 1;
+  const totalInclusionRow = row++;
+  writeSumTotalRow(ws, totalInclusionRow, 1, [3, 4], inclusionStart, inclusionEnd, 'Total Inclusion');
+
+  writeSectionHeader(ws, row++, 'DEDUCTIONS', 4);
+  const deductionStart = row;
+  const deductionRows: Array<{ label: string; note?: string; books: number | null; taxFormula?: string; taxValue?: number | null }> = [
+    { label: 'General Deduction u/s 13', books: generalDeduction, taxValue: generalDeduction },
+    { label: 'Interest u/s 14', books: interestExp, taxValue: interestExp },
+    { label: 'Cost of Trading Stock u/s 15', note: '3.18', books: Number(is.materialConsumed ?? 0), taxValue: Number(is.materialConsumed ?? 0) },
+    { label: 'Repair & Improvement u/s 16', books: repair, taxValue: repair },
+    { label: 'Depreciation u/s 19', books: bookDepn, taxValue: null },
+  ];
+
+  deductionRows.forEach((item, idx) => {
+    const r = ws.getRow(row++);
+    r.getCell(1).value = item.label;
+    if (item.note) {
+      r.getCell(2).value = item.note;
+      r.getCell(2).font = FONTS.NOTE_REF;
+    }
+    setAmountCell(r.getCell(3), item.books);
+    const taxCell = r.getCell(4);
+    if (idx === 4 && taxData.taxDepSheetName && taxData.taxDepTotalRow) {
+      taxCell.value = {
+        formula: cellRef(taxData.taxDepSheetName, 'G', taxData.taxDepTotalRow).replace(/^=/, ''),
+        result: 0,
+      };
+      taxCell.numFmt = NUMBER_FORMAT;
+      taxCell.alignment = { horizontal: 'right' };
+    } else {
+      setAmountCell(taxCell, item.taxValue ?? null);
+    }
+    [1, 2, 3, 4].forEach((ci) => applyAllBorders(r.getCell(ci)));
+  });
+  const deductionEnd = row - 1;
+  const totalDeductionRow = row++;
+  writeSumTotalRow(ws, totalDeductionRow, 1, [3, 4], deductionStart, deductionEnd, 'Total Deduction');
+
+  const assessableIncomeRow = row++;
+  const assessableRow = ws.getRow(assessableIncomeRow);
+  assessableRow.getCell(1).value = 'Assessable Income';
+  assessableRow.getCell(3).value = {
+    formula: `C${totalInclusionRow}-C${totalDeductionRow}`,
+    result: 0,
+  };
+  assessableRow.getCell(4).value = {
+    formula: `D${totalInclusionRow}-D${totalDeductionRow}`,
+    result: 0,
+  };
+  [3, 4].forEach((ci) => {
+    const c = assessableRow.getCell(ci);
+    c.numFmt = NUMBER_FORMAT;
+    c.alignment = { horizontal: 'right' };
+    applyTotalStyle(c);
+    applyAllBorders(c);
+  });
+  applyAllBorders(assessableRow.getCell(1));
+
+  const donationRow = row++;
+  const donationR = ws.getRow(donationRow);
+  donationR.getCell(1).value = 'Less: Donation u/s 12';
+  const donationCell = donationR.getCell(4);
+  donationCell.value = taxData.donations ?? 0;
+  donationCell.numFmt = NUMBER_FORMAT;
+  donationCell.alignment = { horizontal: 'right' };
+  applyInputStyle(donationCell);
+  applyAllBorders(donationCell);
+  applyAllBorders(donationR.getCell(1));
+
+  const incomeLossRow = row++;
+  const incomeLossR = ws.getRow(incomeLossRow);
+  incomeLossR.getCell(1).value = 'Income/(Loss)';
+  incomeLossR.getCell(4).value = { formula: `D${assessableIncomeRow}-D${donationRow}`, result: 0 };
+  incomeLossR.getCell(4).numFmt = NUMBER_FORMAT;
+  incomeLossR.getCell(4).alignment = { horizontal: 'right' };
+  applyTotalStyle(incomeLossR.getCell(4));
+  applyAllBorders(incomeLossR.getCell(1));
+  applyAllBorders(incomeLossR.getCell(4));
+
+  const lossCarryRow = row++;
+  const lossCarryR = ws.getRow(lossCarryRow);
+  lossCarryR.getCell(1).value = 'Carry forward of losses u/s 20';
+  const lossCarryCell = lossCarryR.getCell(4);
+  lossCarryCell.value = taxData.lossCarryForward ?? 0;
+  lossCarryCell.numFmt = NUMBER_FORMAT;
+  lossCarryCell.alignment = { horizontal: 'right' };
+  applyInputStyle(lossCarryCell);
+  applyAllBorders(lossCarryCell);
+  applyAllBorders(lossCarryR.getCell(1));
+
+  const taxableIncomeRow = row++;
+  const taxableR = ws.getRow(taxableIncomeRow);
+  taxableR.getCell(1).value = 'Taxable Income/(Loss)';
+  taxableR.getCell(4).value = { formula: `D${incomeLossRow}-D${lossCarryRow}`, result: 0 };
+  taxableR.getCell(4).numFmt = NUMBER_FORMAT;
+  taxableR.getCell(4).alignment = { horizontal: 'right' };
+  applyTotalStyle(taxableR.getCell(4));
+  applyAllBorders(taxableR.getCell(1));
+  applyAllBorders(taxableR.getCell(4));
+
+  const taxRateRow = row++;
+  const taxRateR = ws.getRow(taxRateRow);
+  taxRateR.getCell(1).value = 'Income Tax Rate';
+  const rateCell = taxRateR.getCell(4);
+  rateCell.value = taxData.taxRate ?? 0.25;
+  rateCell.numFmt = '0.00%';
+  rateCell.alignment = { horizontal: 'right' };
+  applyAssumptionStyle(rateCell);
+  applyAllBorders(rateCell);
+  applyAllBorders(taxRateR.getCell(1));
+
+  const incomeTaxLiabilityRow = row++;
+  const incomeTaxR = ws.getRow(incomeTaxLiabilityRow);
+  incomeTaxR.getCell(1).value = 'Income Tax Liability';
+  incomeTaxR.getCell(4).value = { formula: `MAX(0,D${taxableIncomeRow}*D${taxRateRow})`, result: 0 };
+  incomeTaxR.getCell(4).numFmt = NUMBER_FORMAT;
+  incomeTaxR.getCell(4).alignment = { horizontal: 'right' };
+  applyTotalStyle(incomeTaxR.getCell(4));
+  applyAllBorders(incomeTaxR.getCell(1));
+  applyAllBorders(incomeTaxR.getCell(4));
+
+  const feeRow = row++;
+  const feeR = ws.getRow(feeRow);
+  feeR.getCell(1).value = 'Fee u/s 117';
+  const feeCell = feeR.getCell(4);
+  feeCell.value = taxData.feeSection117 ?? 0;
+  feeCell.numFmt = NUMBER_FORMAT;
+  feeCell.alignment = { horizontal: 'right' };
+  applyInputStyle(feeCell);
+  applyAllBorders(feeCell);
+  applyAllBorders(feeR.getCell(1));
+
+  const lateTaxInputRow = row + 3;
+  const shortfallInputRow = row + 4;
+
+  const interest118Row = row++;
+  const int118R = ws.getRow(interest118Row);
+  int118R.getCell(1).value = 'Interest u/s 118';
+  int118R.getCell(4).value = { formula: `IF(D${lateTaxInputRow}>0,D${lateTaxInputRow}*0.15,0)`, result: 0 };
+  int118R.getCell(4).numFmt = NUMBER_FORMAT;
+  int118R.getCell(4).alignment = { horizontal: 'right' };
+  applyAllBorders(int118R.getCell(1));
+  applyAllBorders(int118R.getCell(4));
+
+  const interest119Row = row++;
+  const int119R = ws.getRow(interest119Row);
+  int119R.getCell(1).value = 'Interest u/s 119';
+  int119R.getCell(4).value = { formula: `IF(D${shortfallInputRow}>0,D${shortfallInputRow}*0.15,0)`, result: 0 };
+  int119R.getCell(4).numFmt = NUMBER_FORMAT;
+  int119R.getCell(4).alignment = { horizontal: 'right' };
+  applyAllBorders(int119R.getCell(1));
+  applyAllBorders(int119R.getCell(4));
+
+  const totalTaxLiabilityRow = row++;
+  const totalTaxR = ws.getRow(totalTaxLiabilityRow);
+  totalTaxR.getCell(1).value = 'Total Tax Liability';
+  totalTaxR.getCell(4).value = {
+    formula: `D${incomeTaxLiabilityRow}+D${feeRow}+D${interest118Row}+D${interest119Row}`,
+    result: 0,
+  };
+  totalTaxR.getCell(4).numFmt = NUMBER_FORMAT;
+  totalTaxR.getCell(4).alignment = { horizontal: 'right' };
+  applyTotalStyle(totalTaxR.getCell(4));
+  applyAllBorders(totalTaxR.getCell(1));
+  applyAllBorders(totalTaxR.getCell(4));
+
+  row = lateTaxInputRow;
+  const lateTaxR = ws.getRow(lateTaxInputRow);
+  lateTaxR.getCell(1).value = 'Tax paid late (input for s118)';
+  lateTaxR.getCell(1).font = { name: 'Arial', size: 9, italic: true, color: { argb: 'FF64748B' } };
+  const lateTaxCell = lateTaxR.getCell(4);
+  lateTaxCell.value = taxData.lateTaxPaidAmount ?? 0;
+  lateTaxCell.numFmt = NUMBER_FORMAT;
+  lateTaxCell.alignment = { horizontal: 'right' };
+  applyInputStyle(lateTaxCell);
+
+  const shortfallR = ws.getRow(shortfallInputRow);
+  shortfallR.getCell(1).value = 'Advance tax shortfall (input for s119)';
+  shortfallR.getCell(1).font = { name: 'Arial', size: 9, italic: true, color: { argb: 'FF64748B' } };
+  const shortfallCell = shortfallR.getCell(4);
+  shortfallCell.value = taxData.advanceTaxShortfall ?? 0;
+  shortfallCell.numFmt = NUMBER_FORMAT;
+  shortfallCell.alignment = { horizontal: 'right' };
+  applyInputStyle(shortfallCell);
+
+  SHEET_ROW_REGISTRY.taxCalcIncomeTaxRow = incomeTaxLiabilityRow;
+  SHEET_ROW_REGISTRY.taxCalcNetPayableRow = totalTaxLiabilityRow;
+  SHEET_ROW_REGISTRY.assessableIncomeRow = assessableIncomeRow;
+  SHEET_ROW_REGISTRY.totalTaxLiabilityRow = totalTaxLiabilityRow;
+
+  return {
+    assessableIncomeRow,
+    taxableIncomeRow,
+    taxCalcIncomeTaxRow: incomeTaxLiabilityRow,
+    taxCalcNetPayableRow: totalTaxLiabilityRow,
+    totalTaxLiabilityRow,
+    note314_incomeTaxRow: totalTaxLiabilityRow,
+  };
+}
+
+export function writeTaxProfitReconciliationSheet(
+  ws: ExcelJS.Worksheet,
+  data: TaxProfitReconciliationData,
+): { assessableIncomeRow: number; reconciliationCheckRow: number } {
+  ws.columns = [{ width: 50 }, { width: 20 }];
+
+  ws.mergeCells('A1:B1');
+  const titleCell = ws.getCell('A1');
+  titleCell.value = `TAX PROFIT RECONCILIATION FOR FY ${data.fiscalYear}`;
+  applyHeaderStyle(titleCell);
+  titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+  ws.getRow(1).height = 24;
+
+  const headerRow = ws.getRow(3);
+  ['Particulars', 'Amount'].forEach((h, i) => {
+    const c = headerRow.getCell(i + 1);
+    c.value = h;
+    applySubHeaderStyle(c);
+    applyAllBorders(c);
+  });
+
+  let row = 4;
+  writeSectionHeader(ws, row++, 'Book Profit to Assessable Income', 2);
+
+  const profitRow = row++;
+  ws.getRow(profitRow).getCell(1).value = 'Profit before tax per accounts (from IS)';
+  setAmountCell(ws.getRow(profitRow).getCell(2), data.profitBeforeTax || null);
+
+  const depnRow = row++;
+  ws.getRow(depnRow).getCell(1).value = 'Add: Depreciation as per books';
+  setAmountCell(ws.getRow(depnRow).getCell(2), data.bookDepreciation || null);
+
+  const disallowRow = row++;
+  ws.getRow(disallowRow).getCell(1).value = 'Add: Disallowed expenses';
+  const disallowCell = ws.getRow(disallowRow).getCell(2);
+  disallowCell.value = {
+    formula: cellRef(data.disallowSheetName, 'C', data.disallowTotalRow).replace(/^=/, ''),
+    result: 0,
+  };
+  disallowCell.numFmt = NUMBER_FORMAT;
+  disallowCell.alignment = { horizontal: 'right' };
+
+  const taxDepRow = row++;
+  ws.getRow(taxDepRow).getCell(1).value = 'Less: Tax depreciation';
+  const taxDepCell = ws.getRow(taxDepRow).getCell(2);
+  taxDepCell.value = {
+    formula: `-${cellRef(data.taxDepSheetName, 'G', data.taxDepTotalRow).replace(/^=/, '')}`,
+    result: 0,
+  };
+  taxDepCell.numFmt = NUMBER_FORMAT;
+  taxDepCell.alignment = { horizontal: 'right' };
+
+  const exemptRow = row++;
+  ws.getRow(exemptRow).getCell(1).value = 'Less: Exempt income (Dividend income)';
+  setAmountCell(ws.getRow(exemptRow).getCell(2), data.dividendExempt ? -data.dividendExempt : null);
+
+  const otherAdjRow = row++;
+  ws.getRow(otherAdjRow).getCell(1).value = 'Add/Less: Other adjustments';
+  const otherAdjCell = ws.getRow(otherAdjRow).getCell(2);
+  otherAdjCell.value = 0;
+  otherAdjCell.numFmt = NUMBER_FORMAT;
+  otherAdjCell.alignment = { horizontal: 'right' };
+  applyInputStyle(otherAdjCell);
+
+  const assessableIncomeRow = row++;
+  const assessableR = ws.getRow(assessableIncomeRow);
+  assessableR.getCell(1).value = 'Assessable Income';
+  assessableR.getCell(2).value = {
+    formula: `B${profitRow}+B${depnRow}+B${disallowRow}+B${taxDepRow}+B${exemptRow}+B${otherAdjRow}`,
+    result: 0,
+  };
+  assessableR.getCell(2).numFmt = NUMBER_FORMAT;
+  assessableR.getCell(2).alignment = { horizontal: 'right' };
+  applyTotalStyle(assessableR.getCell(2));
+
+  const reconciliationCheckRow = row + 1;
+  const checkR = ws.getRow(reconciliationCheckRow);
+  checkR.getCell(1).value = 'Reconciliation Check';
+  const taxCalcRef = cellRef(data.taxCalcSheetName, 'D', data.taxCalcAssessableRow).replace(/^=/, '');
+  checkR.getCell(2).value = {
+    formula: `IF(B${assessableIncomeRow}=${taxCalcRef},"RECONCILED ✓","DIFFERENCE: "&B${assessableIncomeRow}-${taxCalcRef})`,
+    result: 'RECONCILED ✓',
+  };
+  checkR.getCell(2).alignment = { horizontal: 'center' };
+  checkR.getCell(2).font = { name: 'Arial', size: 10, bold: true };
+
+  ws.addConditionalFormatting({
+    ref: `B${reconciliationCheckRow}`,
+    rules: [
+      {
+        type: 'expression',
+        formulae: [`B${assessableIncomeRow}=${taxCalcRef}`],
+        priority: 1,
+        style: {
+          fill: { type: 'pattern', pattern: 'solid', bgColor: { argb: `FF${COLORS.GREEN_INPUT}` } },
+          font: { color: { argb: 'FF166534' }, bold: true },
+        },
+      },
+      {
+        type: 'expression',
+        formulae: [`B${assessableIncomeRow}<>${taxCalcRef}`],
+        priority: 2,
+        style: {
+          fill: { type: 'pattern', pattern: 'solid', bgColor: { argb: `FF${COLORS.RED}` } },
+          font: { color: { argb: 'FFFFFFFF' }, bold: true },
+        },
+      },
+    ],
+  });
+
+  return { assessableIncomeRow, reconciliationCheckRow };
 }
 
 export function writeTaxCalculation(ws: ExcelJS.Worksheet, note323: NotesData['note323_incomeTax']): NoteRowMap {
@@ -1961,7 +2440,36 @@ export async function generateNFRSWorkbook(params: {
   const adminExpMap = writeGenericNoteRecord(addSheet('Note 3.22 - Admin Exp', '16A34A'), '3.22  Administrative Expenses', notes.note322_adminExpenses);
   noteRowMap.adminExpenseTotalRow = adminExpMap.cyTotalRow;
   SHEET_ROW_REGISTRY.adminExpenseTotalRow = adminExpMap.cyTotalRow;
-  const taxCalcMap = writeTaxCalculation(addSheet('Tax Calculation', COLORS.LIGHT_GRAY), taxNoteData);
+
+  const fiscalYearLabel = company.fiscalYear?.bsFY ?? '';
+  const taxDepPools = (
+    (adjustments as YearEndAdjustments & { taxDepPool?: Array<Record<string, unknown>> }).taxDepPool?.length
+      ? (adjustments as YearEndAdjustments & { taxDepPool?: Array<Record<string, unknown>> }).taxDepPool!
+      : (adjustments.taxDepreciationPools ?? []) as Array<Record<string, unknown>>
+  );
+  const disallowItems = adjustments.disallowedForTax ?? [];
+  const taxDepPoolCount = taxDepPools.length > 0 ? taxDepPools.length : 1;
+  const disallowItemCount = disallowItems.length > 0 ? disallowItems.length : 5;
+  const predictedTaxDepTotalRow = 4 + taxDepPoolCount;
+  const predictedDisallowTotalRow = 4 + disallowItemCount;
+
+  const repairExpense = (notes.note322_adminExpenses as { lineItems?: Array<{ label: string; cy: number }> } | undefined)
+    ?.lineItems?.find((li) => /repair/i.test(li.label))?.cy ?? 0;
+
+  const taxCalcMap = writeTaxCalculationSheet(
+    addSheet('Tax Calculation', COLORS.LIGHT_GRAY),
+    {
+      companyName: company.companyName ?? '',
+      address: company.address ?? '',
+      incomeStatement,
+      otherIncome: notes.note319_otherIncome as TaxCalculationSheetData['otherIncome'],
+      repairExpense,
+      taxRate: taxNoteData.taxRate ?? company.incomeTaxRate ?? 0.25,
+      taxDepSheetName: 'Tax Depreciation',
+      taxDepTotalRow: predictedTaxDepTotalRow,
+    },
+    fiscalYearLabel,
+  );
   Object.assign(noteRowMap, taxCalcMap);
   Object.assign(noteRowMap, writeNote323_Tax(
     addSheet('Note 3.23 - Tax', '16A34A'),
@@ -1975,12 +2483,6 @@ export async function generateNFRSWorkbook(params: {
   writeGenericNoteRecord(addSheet('Note 3.25 - Contingencies', '16A34A'), '3.25  Contingent Liabilities', {});
   writeGenericNoteRecord(addSheet('Note 3.26 - Subsequent Events', '16A34A'), '3.26  Events After Reporting Date', {});
   writeAdjustments(addSheet('Adjustments', COLORS.LIGHT_GRAY), adjustments);
-  const fiscalYearLabel = company.fiscalYear?.bsFY ?? '';
-  const taxDepPools = (
-    (adjustments as YearEndAdjustments & { taxDepPool?: Array<Record<string, unknown>> }).taxDepPool?.length
-      ? (adjustments as YearEndAdjustments & { taxDepPool?: Array<Record<string, unknown>> }).taxDepPool!
-      : (adjustments.taxDepreciationPools ?? []) as Array<Record<string, unknown>>
-  );
   const listedSharesData = (
     (adjustments as YearEndAdjustments & { listedShares?: Array<Record<string, unknown>> }).listedShares
     ?? (adjustments.investmentAdjustments ?? [])
@@ -2011,8 +2513,20 @@ export async function generateNFRSWorkbook(params: {
     fiscalYearLabel,
     adjustments.depreciationResults ?? [],
   );
-  writeTaxDepreciationSheet(addSheet('Tax Depreciation', '16A34A'), taxDepPools, fiscalYearLabel);
-  writeDisallowForTaxSheet(addSheet('Disallow for Tax', '16A34A'), adjustments.disallowedForTax ?? []);
+  const taxDepMap = writeTaxDepreciationSheet(addSheet('Tax Depreciation', '16A34A'), taxDepPools, fiscalYearLabel);
+  const disallowMap = writeDisallowForTaxSheet(addSheet('Disallow for Tax', '16A34A'), disallowItems);
+  writeTaxProfitReconciliationSheet(addSheet('Tax Profit Reconciliation', COLORS.LIGHT_GRAY), {
+    fiscalYear: fiscalYearLabel,
+    profitBeforeTax: incomeStatement.profitBeforeTax ?? 0,
+    bookDepreciation: incomeStatement.depreciation ?? 0,
+    dividendExempt: Number((notes.note319_otherIncome as { dividendReceived?: { cy: number } } | undefined)?.dividendReceived?.cy ?? 0),
+    disallowSheetName: 'Disallow for Tax',
+    disallowTotalRow: disallowMap.totalDisallowedRow,
+    taxDepSheetName: 'Tax Depreciation',
+    taxDepTotalRow: taxDepMap.totalTaxDepRow,
+    taxCalcSheetName: 'Tax Calculation',
+    taxCalcAssessableRow: taxCalcMap.assessableIncomeRow ?? 0,
+  });
   writeFairValueChangeSheet(addSheet('Fair Value Change', '16A34A'), listedSharesData);
   writeSundryDebtors(addSheet('Sundry Debtors', '16A34A'), { adjustments, trialBalance });
   writeSundryCreditors(addSheet('Sundry Creditors', '16A34A'), { adjustments, trialBalance });
@@ -2253,7 +2767,7 @@ function applyIncomeStatementCrossReferences(
     setFormula(rowMap.depreciationRow, cyCol, cellRef(noteSheetNames.ppe, 'E', noteRows.ppeDepreciationRow));
   }
   if (noteSheetNames.taxCalculation && noteRows.taxCalcIncomeTaxRow) {
-    setFormula(rowMap.taxRow, cyCol, cellRef(noteSheetNames.taxCalculation, 'B', noteRows.taxCalcIncomeTaxRow));
+    setFormula(rowMap.taxRow, cyCol, cellRef(noteSheetNames.taxCalculation, 'D', noteRows.taxCalcIncomeTaxRow));
   } else if (noteSheetNames.tax && noteRows.taxPayableRow) {
     setFormula(rowMap.taxRow, cyCol, cellRef(noteSheetNames.tax, 'B', noteRows.taxPayableRow));
   }
