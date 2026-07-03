@@ -2,8 +2,11 @@ services:
   - type: web
     name: nfrs-financials
     runtime: node
-    buildCommand: npm install && npm run build
+    repo: https://github.com/tapendraawasthi-sketch/Financials-as-per-NFRS
+    branch: main
+    buildCommand: npm ci && npm run build
     startCommand: npm start
+    autoDeployTrigger: commit
     envVars:
       - key: NODE_ENV
         value: production
@@ -14,4 +17,3 @@ services:
       - key: MAX_UPLOAD_SIZE_MB
         value: "25"
     healthCheckPath: /api/health
-    autoDeploy: true

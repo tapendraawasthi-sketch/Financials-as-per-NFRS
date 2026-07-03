@@ -7702,15 +7702,16 @@ app.use("/api/*", (req, res) => {
 });
 app.use(errorMiddleware);
 var server = http.createServer(app);
-server.listen(PORT, () => {
+var HOST = process.env.HOST ?? "0.0.0.0";
+server.listen(PORT, HOST, () => {
   console.log("\n" + "\u2550".repeat(50));
   console.log(`  \u{1F1F3}\u{1F1F5} NFRS Financial Reporter`);
   console.log("\u2550".repeat(50));
   console.log(`  \u{1F310} Mode:       ${isDev ? "Development" : "Production"}`);
-  console.log(`  \u{1F50C} API:        http://localhost:${PORT}/api`);
-  console.log(`  \u2764\uFE0F  Health:     http://localhost:${PORT}/api/health`);
+  console.log(`  \u{1F50C} API:        http://${HOST}:${PORT}/api`);
+  console.log(`  \u2764\uFE0F  Health:     http://${HOST}:${PORT}/api/health`);
   if (!isDev) {
-    console.log(`  \u{1F4C1} Frontend:   http://localhost:${PORT}`);
+    console.log(`  \u{1F4C1} Frontend:   http://${HOST}:${PORT}`);
   } else {
     console.log(`  \u{1F4C1} Frontend:   http://localhost:5173 (Vite)`);
   }

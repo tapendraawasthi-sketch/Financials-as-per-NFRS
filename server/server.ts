@@ -150,15 +150,17 @@ app.use(errorMiddleware);
 // ══════════════════════════════════════════════════════════════════════════
 const server = http.createServer(app);
 
-server.listen(PORT, () => {
+const HOST = process.env.HOST ?? '0.0.0.0';
+
+server.listen(PORT, HOST, () => {
   console.log('\n' + '═'.repeat(50));
   console.log(`  🇳🇵 NFRS Financial Reporter`);
   console.log('═'.repeat(50));
   console.log(`  🌐 Mode:       ${isDev ? 'Development' : 'Production'}`);
-  console.log(`  🔌 API:        http://localhost:${PORT}/api`);
-  console.log(`  ❤️  Health:     http://localhost:${PORT}/api/health`);
+  console.log(`  🔌 API:        http://${HOST}:${PORT}/api`);
+  console.log(`  ❤️  Health:     http://${HOST}:${PORT}/api/health`);
   if (!isDev) {
-    console.log(`  📁 Frontend:   http://localhost:${PORT}`);
+    console.log(`  📁 Frontend:   http://${HOST}:${PORT}`);
   } else {
     console.log(`  📁 Frontend:   http://localhost:5173 (Vite)`);
   }
