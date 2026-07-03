@@ -74,6 +74,7 @@ app.use('/api',                        standardLimiter);
 app.use('/api/trial-balance',          uploadLimiter);
 app.use('/api/output',                 outputLimiter);
 app.use('/api/trial-balance/:companyId/rematch-ai', aiLimiter);
+app.use('/api/trial-balance/:companyId/ai-convert', aiLimiter);
 
 // ══════════════════════════════════════════════════════════════════════════
 // HEALTH CHECK

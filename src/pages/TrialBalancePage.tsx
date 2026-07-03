@@ -3,9 +3,11 @@ import React, { useState } from 'react';
 import { useAppStore } from '../store/appStore';
 import Tabs from '../components/ui/Tabs';
 import TBUploadZone from '../components/trialBalance/TBUploadZone';
+import TBInputModeSelector from '../components/trialBalance/TBInputModeSelector';
 import TBDataGrid from '../components/trialBalance/TBDataGrid';
 import TBAccountMapper from '../components/trialBalance/TBAccountMapper';
 import TBValidationPanel from '../components/trialBalance/TBValidationPanel';
+import { tbApi, outputApi } from '../api/client';
 import { validateTrialBalanceTotals } from '../utils/validation';
 import type { NFRSCategory, CompanyProfile } from '../types';
 
@@ -16,7 +18,10 @@ export default function TrialBalancePage() {
   const [activeTab, setActiveTab] = useState<TabId>(
     state.currentStep === 'trial_balance_mapping' && state.trialBalance ? 'mapping' : 'upload'
   );
-  const [useAI, setUseAI] = useState(true);
+  const [importMode, setImportMode] = useState<'choice' | 'manual' | 'ai'>(
+    state.trialBalance ? 'manual' : 'choice',
+  );
+  const [downloadingTemplate, setDownloadingTemplate] = useState(false);
 
   const tb = state.trialBalance;
   const rows = tb?.rows ?? [];
@@ -41,6 +46,19 @@ export default function TrialBalancePage() {
 
   const handleUploadError = (msg: string) => {
     dispatch({ type: 'SET_ERROR', payload: msg });
+  };
+
+  const handleDownloadTemplate = async () => {
+    setDownloadingTemplate(true);
+    try {
+      const blob = await tbApi.downloadTemplate();
+      outputApi.triggerDownload(blob, 'NFRS_Trial_Balance_Template.xlsx');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to download template.';
+      dispatch({ type: 'SET_ERROR', payload: message });
+    } finally {
+      setDownloadingTemplate(false);
+    }
   };
 
   const handleMappingChange = (rowIndex: string, category: NFRSCategory) => {
@@ -115,16 +133,61 @@ export default function TrialBalancePage() {
 
       <div className="page-enter">
         {activeTab === 'upload' && (
-          <TBUploadZone
-            companyId={state.company?.id ?? ''}
-            company={state.company}
-            onCompanyResolved={handleCompanyResolved}
-            onUploadComplete={handleUploadComplete}
-            onError={handleUploadError}
-            useAI={useAI}
-            onAIToggle={setUseAI}
-            existingTB={tb}
-          />
+          <>
+            {importMode === 'choice' && (
+              <TBInputModeSelector
+                onSelectManual={() => setImportMode('manual')}
+                onSelectAI={() => setImportMode('ai')}
+                onDownloadTemplate={handleDownloadTemplate}
+                isDownloading={downloadingTemplate}
+              />
+            )}
+            {importMode === 'manual' && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setImportMode('choice')}
+                  className="text-xs text-blue-600 hover:text-blue-800 underline mb-3 transition-colors"
+                >
+                  ← Change import method
+                </button>
+                <TBUploadZone
+                  companyId={state.company?.id ?? ''}
+                  company={state.company}
+                  onCompanyResolved={handleCompanyResolved}
+                  onUploadComplete={handleUploadComplete}
+                  onError={handleUploadError}
+                  useAI={false}
+                  hideAIOption
+                  existingTB={tb}
+                />
+              </>
+            )}
+            {importMode === 'ai' && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setImportMode('choice')}
+                  className="text-xs text-blue-600 hover:text-blue-800 underline mb-3 transition-colors"
+                >
+                  ← Change import method
+                </button>
+                <TBUploadZone
+                  companyId={state.company?.id ?? ''}
+                  company={state.company}
+                  onCompanyResolved={handleCompanyResolved}
+                  onUploadComplete={handleUploadComplete}
+                  onError={handleUploadError}
+                  hideAIOption
+                  uploadingMessage="AI is reading and restructuring your trial balance — large files may take up to a minute…"
+                  onUpload={(id, file, onProgress, companySnapshot) =>
+                    tbApi.aiConvertUpload(id, file, onProgress, companySnapshot)
+                  }
+                  existingTB={tb}
+                />
+              </>
+            )}
+          </>
         )}
 
         {activeTab === 'review' && tb && validation && (

@@ -147,6 +147,62 @@ export const tbApi = {
       xhr.send(formData);
     }),
 
+  downloadTemplate: async (): Promise<Blob> => {
+    const response = await fetch('/api/trial-balance/template/download');
+    if (!response.ok) {
+      throw new Error(`Failed to download template: ${response.status}`);
+    }
+    const blob = await response.blob();
+    if (blob.size === 0) throw new Error('Downloaded template is empty.');
+    return blob;
+  },
+
+  aiConvertUpload: (
+    companyId: string,
+    file: File,
+    onProgress?: (pct: number) => void,
+    companySnapshot?: Partial<CompanyProfile>,
+  ): Promise<ParsedTrialBalance> =>
+    new Promise<ParsedTrialBalance>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      const formData = new FormData();
+      formData.append('trialbalance', file);
+      if (companySnapshot) {
+        formData.append('company', JSON.stringify(companySnapshot));
+      }
+
+      xhr.upload.onprogress = (e: ProgressEvent) => {
+        if (e.lengthComputable && onProgress) {
+          onProgress(Math.round((e.loaded / e.total) * 40));
+        }
+      };
+      xhr.upload.onloadend = () => { if (onProgress) onProgress(45); };
+
+      xhr.onload = () => {
+        if (onProgress) onProgress(100);
+        try {
+          const data = JSON.parse(xhr.responseText) as {
+            success?: boolean;
+            data?: ParsedTrialBalance;
+            error?: string;
+          };
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve(data.data ?? (data as unknown as ParsedTrialBalance));
+          } else {
+            reject(new Error(data.error || `AI import failed with status ${xhr.status}`));
+          }
+        } catch {
+          reject(new Error(`Failed to parse server response: ${xhr.responseText.slice(0, 200)}`));
+        }
+      };
+      xhr.onerror = () => reject(new Error('Network error during AI import. Please check your connection.'));
+      xhr.ontimeout = () => reject(new Error('AI import timed out. Please try again or use Manual Upload.'));
+      xhr.timeout = 300_000;
+
+      xhr.open('POST', `/api/trial-balance/${companyId}/ai-convert`);
+      xhr.send(formData);
+    }),
+
   getByCompany: (companyId: string): Promise<ParsedTrialBalance> =>
     apiRequest<ParsedTrialBalance>('GET', `/api/trial-balance/${companyId}`),
 

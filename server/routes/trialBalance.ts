@@ -10,8 +10,17 @@ import { applyMappingProfile, upsertMappingProfile } from '../services/mappingPr
 import { validateTrialBalanceTotals } from '../../src/utils/validation';
 import type { CompanyProfile, ParsedTrialBalance, NFRSCategory } from '../../src/types';
 import { getFiscalYear } from '../../src/data/fiscalYears';
+import { generateTrialBalanceTemplate } from '../services/tbTemplateWriter.js';
+import { convertRoughTrialBalance } from '../services/aiTbConverter.js';
 
 const router = Router();
+
+router.get('/template/download', asyncHandler(async (req: Request, res: Response) => {
+  const buffer = await generateTrialBalanceTemplate();
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', 'attachment; filename="NFRS_Trial_Balance_Template.xlsx"');
+  return res.send(buffer);
+}));
 
 // POST /:companyId/upload
 router.post('/:companyId/upload', tbUploadMiddleware, async (req: Request, res: Response, next) => {
@@ -149,6 +158,78 @@ router.post('/:companyId/upload', tbUploadMiddleware, async (req: Request, res: 
     res.json({ success: true, data: tb });
   } catch (err: any) {
     next(err); // passes to errorMiddleware
+  }
+});
+
+router.post('/:companyId/ai-convert', tbUploadMiddleware, async (req, res, next) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, error: 'No file uploaded. Please select a file and try again.' });
+    }
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      return res.status(503).json({ success: false, error: 'AI import is not configured on this server. Please use Manual Upload (Standard Format) instead.' });
+    }
+
+    let session = sessionStore.get(req.params.companyId);
+    if (!session) {
+      const companyRaw = req.body?.company;
+      if (typeof companyRaw === 'string') {
+        try {
+          const company = JSON.parse(companyRaw) as CompanyProfile;
+          sessionStore.set(req.params.companyId, { company: { ...company, id: req.params.companyId } });
+          session = sessionStore.get(req.params.companyId);
+        } catch { /* ignore malformed company snapshot */ }
+      }
+    }
+    if (!session) {
+      return res.status(404).json({
+        success: false,
+        error: 'Company session not found on server. Save company details first, then try again.',
+        code: 'SESSION_NOT_FOUND',
+      });
+    }
+
+    const parsed = await convertRoughTrialBalance(req.file.buffer, req.file.originalname, apiKey);
+
+    let rows = classifyAll(parsed.rows);
+    rows = applyMappingProfile(rows, session.mappingProfile);
+    try {
+      rows = await classifyWithAI(rows, apiKey);
+    } catch (aiErr) {
+      console.warn('[trialBalance.ai-convert] classification pass failed:', aiErr);
+    }
+
+    const tb: ParsedTrialBalance & Record<string, unknown> = {
+      rows,
+      companyName: session.company?.name ?? session.company?.companyName ?? '',
+      fiscalYear: session.company?.fiscalYearCurrent ?? session.company?.fiscalYear?.bsFY ?? '',
+      isBalanced: parsed.isBalanced,
+      totalAssets: 0,
+      totalLiabilities: 0,
+      totalEquity: 0,
+      warnings: parsed.warnings,
+      companyId: req.params.companyId,
+      uploadedAt: new Date().toISOString(),
+      uploadedFileName: req.file.originalname,
+      totalClosingDr: parsed.totalClosingDr,
+      totalClosingCr: parsed.totalClosingCr,
+      difference: parsed.difference,
+      detectedFormat: parsed.detectedFormat,
+      detectedColumns: parsed.detectedColumns,
+      headerRowIndex: parsed.headerRowIndex,
+      previousYearData: null,
+      leafAccountCount: rows.filter((r) => !r.isGroupRow).length,
+      groupRowCount: rows.filter((r) => r.isGroupRow).length,
+    };
+
+    const validation = validateTrialBalanceTotals(rows);
+    (tb as any).validation = validation;
+
+    sessionStore.set(req.params.companyId, { trialBalance: tb as any });
+    res.json({ success: true, data: tb });
+  } catch (err: any) {
+    next(err);
   }
 });
 

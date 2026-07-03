@@ -6,7 +6,7 @@ import Button      from '../ui/Button';
 import { SAMPLE_TRIAL_BALANCE_CSV } from '../../data/sampleData';
 import { tbApi } from '../../api/client';
 import { ensureServerSession } from '../../utils/ensureServerSession';
-import type { CompanyProfile } from '../../types';
+import type { CompanyProfile, ParsedTrialBalance } from '../../types';
 
 interface UploadResult {
   filename:       string;
@@ -27,6 +27,14 @@ interface TBUploadZoneProps {
   useAI?:       boolean;
   onAIToggle?:  (on: boolean) => void;
   existingTB?:  any;
+  hideAIOption?: boolean;
+  uploadingMessage?: string;
+  onUpload?: (
+    companyId: string,
+    file: File,
+    onProgress?: (pct: number) => void,
+    companySnapshot?: CompanyProfile,
+  ) => Promise<ParsedTrialBalance>;
 }
 
 const EXPORT_PATHS = [
@@ -63,6 +71,9 @@ export default function TBUploadZone({
   useAI = true,
   onAIToggle,
   existingTB,
+  hideAIOption = false,
+  uploadingMessage,
+  onUpload,
 }: TBUploadZoneProps) {
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -101,14 +112,16 @@ export default function TBUploadZone({
         onCompanyResolved?.(serverCompany);
       }
 
-      setProcessingPhase('Uploading and parsing trial balance…');
-      const payload = await tbApi.upload(
+      setProcessingPhase(uploadingMessage ?? 'Uploading and parsing trial balance…');
+      const uploadFn = onUpload ?? ((id, f, prog, snap) => tbApi.upload(id, f, aiOn, prog, snap));
+      const payload = await uploadFn(
         serverCompany.id,
         file,
-        aiOn,
         (pct) => {
-          setProgress(Math.max(pct, 75));
-          if (pct >= 75) setProcessingPhase('Classifying accounts…');
+          setProgress(Math.max(pct, onUpload ? 45 : 75));
+          if (pct >= (onUpload ? 45 : 75)) {
+            setProcessingPhase(uploadingMessage ?? 'Classifying accounts…');
+          }
         },
         serverCompany,
       );
@@ -140,7 +153,7 @@ export default function TBUploadZone({
       const message = err instanceof Error ? err.message : 'Upload failed.';
       onError(message);
     }
-  }, [company, companyId, aiOn, onUploadComplete, onCompanyResolved, onError]);
+  }, [company, companyId, aiOn, onUpload, uploadingMessage, onUploadComplete, onCompanyResolved, onError]);
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
@@ -303,6 +316,7 @@ export default function TBUploadZone({
           />
 
           {/* AI toggle */}
+          {!hideAIOption && (
           <div className="flex items-center justify-between py-2.5 border-t border-slate-100 mt-3">
             <div>
               <p className="text-xs text-slate-600 font-medium leading-none">
@@ -331,6 +345,7 @@ export default function TBUploadZone({
               />
             </button>
           </div>
+          )}
         </Card>
       </div>
 

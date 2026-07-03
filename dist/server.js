@@ -2859,10 +2859,10 @@ async function classifyWithAI(rows, apiKey) {
   const needsAI = rows.map((row, index) => ({ row, index })).filter(({ row }) => row.needsReview || row.nfrsCategory === "unclassified");
   if (needsAI.length === 0 || !apiKey) return rows;
   const result = [...rows];
-  const BATCH_SIZE = 50;
+  const BATCH_SIZE2 = 50;
   const client = new Anthropic({ apiKey });
-  for (let i = 0; i < needsAI.length; i += BATCH_SIZE) {
-    const batch = needsAI.slice(i, i + BATCH_SIZE);
+  for (let i = 0; i < needsAI.length; i += BATCH_SIZE2) {
+    const batch = needsAI.slice(i, i + BATCH_SIZE2);
     const uncached = [];
     const cachedResults = /* @__PURE__ */ new Map();
     for (const item of batch) {
@@ -2991,2479 +2991,8 @@ function upsertMappingProfile(profile, rows) {
   return next;
 }
 
-// server/routes/trialBalance.ts
-var router2 = Router2();
-router2.post("/:companyId/upload", tbUploadMiddleware, async (req, res, next) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ success: false, error: "No file uploaded. Please select a file and try again." });
-    }
-    if (req.file.size > 50 * 1024 * 1024) {
-      return res.status(413).json({
-        success: false,
-        error: "File size exceeds the 50 MB limit. Please reduce the file size by removing unnecessary sheets or rows."
-      });
-    }
-    const allowed = [
-      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      "application/vnd.ms-excel",
-      "text/csv",
-      "application/csv"
-    ];
-    const ext = (req.file.originalname ?? "").split(".").pop()?.toLowerCase();
-    if (!allowed.includes(req.file.mimetype) && !["xlsx", "xls", "csv"].includes(ext ?? "")) {
-      return res.status(415).json({
-        success: false,
-        error: "Unsupported file format. Please upload .xlsx, .xls, or .csv files exported from your accounting software."
-      });
-    }
-    let session = sessionStore.get(req.params.companyId);
-    if (!session) {
-      const companyRaw = req.body?.company;
-      if (typeof companyRaw === "string") {
-        try {
-          const company = JSON.parse(companyRaw);
-          sessionStore.set(req.params.companyId, { company: { ...company, id: req.params.companyId } });
-          session = sessionStore.get(req.params.companyId);
-        } catch {
-        }
-      }
-    }
-    if (!session) {
-      return res.status(404).json({
-        success: false,
-        error: "Company session not found on server. Save company details first, then upload again.",
-        code: "SESSION_NOT_FOUND"
-      });
-    }
-    const parsed = await parseTrialBalance(req.file.buffer, req.file.originalname);
-    if (parsed.workbookMetadata?.format === "mes_template") {
-      const meta = parsed.workbookMetadata;
-      const current = session.company ?? {};
-      const fiscalYear = meta.fiscalYear ? getFiscalYear(meta.fiscalYear) ?? current.fiscalYear : current.fiscalYear;
-      const enrichedCompany = {
-        ...current,
-        companyName: meta.companyName || current.companyName,
-        fullAddress: meta.fullAddress || current.fullAddress,
-        chairperson: meta.chairperson || current.chairperson,
-        director: meta.director || current.director,
-        accountsHead: meta.accountsHead || current.accountsHead,
-        fiscalYear,
-        auditorInfo: {
-          ...current.auditorInfo ?? { auditorName: "", auditorFirmName: "", position: "", icanRegNumber: "" },
-          auditorName: meta.auditorName || current.auditorInfo?.auditorName || "",
-          auditorFirmName: meta.auditFirmName || current.auditorInfo?.auditorFirmName || ""
-        }
-      };
-      sessionStore.set(req.params.companyId, { company: enrichedCompany });
-      session = sessionStore.get(req.params.companyId);
-    }
-    if (!parsed.rows || parsed.rows.length === 0) {
-      return res.status(422).json({
-        success: false,
-        error: "No data rows found in the uploaded file. Please check your export settings and ensure the file contains account entries."
-      });
-    }
-    let rows = classifyAll(parsed.rows);
-    rows = applyMappingProfile(rows, session.mappingProfile);
-    if (req.query.useAI === "true" && process.env.ANTHROPIC_API_KEY) {
-      try {
-        rows = await classifyWithAI(rows, process.env.ANTHROPIC_API_KEY);
-      } catch (aiErr) {
-        console.warn("[trialBalance.upload] AI matching failed:", aiErr);
-      }
-    }
-    const tb = {
-      rows,
-      companyName: session.company?.name ?? session.company?.companyName ?? "",
-      fiscalYear: session.company?.fiscalYearCurrent ?? session.company?.fiscalYear?.bsFY ?? "",
-      isBalanced: parsed.isBalanced,
-      totalAssets: 0,
-      totalLiabilities: 0,
-      totalEquity: 0,
-      warnings: parsed.warnings,
-      companyId: req.params.companyId,
-      uploadedAt: (/* @__PURE__ */ new Date()).toISOString(),
-      uploadedFileName: req.file.originalname,
-      totalClosingDr: parsed.totalClosingDr,
-      totalClosingCr: parsed.totalClosingCr,
-      difference: parsed.difference,
-      detectedFormat: parsed.detectedFormat,
-      detectedColumns: parsed.detectedColumns,
-      headerRowIndex: parsed.headerRowIndex,
-      previousYearData: parsed.previousYearData ?? null,
-      leafAccountCount: rows.filter((r) => !r.isGroupRow).length,
-      groupRowCount: rows.filter((r) => r.isGroupRow).length
-    };
-    const validation = validateTrialBalanceTotals(rows);
-    tb.validation = validation;
-    const diff = Math.abs(validation.totalClosingDr - validation.totalClosingCr);
-    if (diff > 1e3) {
-      return res.status(422).json({
-        success: false,
-        error: `Trial balance has a significant imbalance of NPR ${diff.toLocaleString("en-IN")}. Please check your accounting export before proceeding. Rounding differences up to NPR 1,000 are auto-adjusted.`,
-        data: tb
-        // still return data so user can review
-      });
-    }
-    sessionStore.set(req.params.companyId, { trialBalance: tb });
-    res.json({ success: true, data: tb });
-  } catch (err) {
-    next(err);
-  }
-});
-router2.get("/:companyId", asyncHandler(async (req, res) => {
-  const session = sessionStore.get(req.params.companyId);
-  if (!session?.trialBalance) return res.status(404).json({ error: "No trial balance loaded for this company." });
-  return res.json(session.trialBalance);
-}));
-router2.put("/:companyId/mapping", asyncHandler(async (req, res) => {
-  const session = sessionStore.get(req.params.companyId);
-  if (!session?.trialBalance) return res.status(404).json({ error: "No trial balance loaded." });
-  const updates = req.body.updates ?? [];
-  const updatedRows = [...session.trialBalance.rows];
-  for (const update of updates) {
-    const idx = updatedRows.findIndex((r) => r.rowIndex === update.rowIndex);
-    if (idx !== -1) {
-      updatedRows[idx] = {
-        ...updatedRows[idx],
-        nfrsCategory: update.nfrsCategory,
-        matchedLabel: update.matchedLabel,
-        confidence: 100,
-        matchMethod: "manual",
-        needsReview: false,
-        userOverride: true
-      };
-    }
-  }
-  const updatedTB = { ...session.trialBalance, rows: updatedRows };
-  const validation = validateTrialBalanceTotals(updatedRows);
-  updatedTB.validation = validation;
-  const mappingProfile = upsertMappingProfile(session.mappingProfile ?? {}, updatedRows);
-  sessionStore.set(req.params.companyId, { trialBalance: updatedTB, mappingProfile });
-  return res.json(updatedTB);
-}));
-router2.put("/:companyId/mapping/:rowIndex", asyncHandler(async (req, res) => {
-  const session = sessionStore.get(req.params.companyId);
-  if (!session?.trialBalance) return res.status(404).json({ error: "No trial balance loaded." });
-  const { nfrsCategory } = req.body;
-  if (!nfrsCategory) return res.status(400).json({ error: "nfrsCategory is required." });
-  const updatedRows = [...session.trialBalance.rows];
-  const idx = updatedRows.findIndex((r) => String(r.rowIndex) === req.params.rowIndex);
-  if (idx === -1) return res.status(404).json({ error: "Row not found." });
-  updatedRows[idx] = {
-    ...updatedRows[idx],
-    nfrsCategory,
-    confidence: 100,
-    matchMethod: "manual",
-    needsReview: false,
-    userOverride: true
-  };
-  const updatedTB = { ...session.trialBalance, rows: updatedRows };
-  const validation = validateTrialBalanceTotals(updatedRows);
-  updatedTB.validation = validation;
-  const mappingProfile = upsertMappingProfile(session.mappingProfile ?? {}, updatedRows);
-  sessionStore.set(req.params.companyId, { trialBalance: updatedTB, mappingProfile });
-  return res.json({ updated: true, row: updatedRows[idx] });
-}));
-router2.post("/:companyId/rematch-ai", asyncHandler(async (req, res) => {
-  const session = sessionStore.get(req.params.companyId);
-  if (!session?.trialBalance) return res.status(404).json({ error: "No trial balance loaded." });
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    return res.status(503).json({ error: "AI matching is not configured. Set ANTHROPIC_API_KEY on the server." });
-  }
-  const lowConfRows = session.trialBalance.rows.filter(
-    (r) => !r.isGroupRow && !r.userOverride && (r.confidence ?? 0) < 80
-  );
-  if (lowConfRows.length === 0) {
-    return res.json({ message: "All accounts already matched with high confidence.", updatedCount: 0, trialBalance: session.trialBalance });
-  }
-  const aiInput = lowConfRows.map((r) => ({
-    rowIndex: r.rowIndex,
-    rawLabel: r.rawLabel,
-    parentGroup: r.parentGroup ?? "",
-    closingDr: r.closingDr ?? 0,
-    closingCr: r.closingCr ?? 0
-  }));
-  const aiResults = await aiMatchUnresolved(aiInput, session.company, apiKey);
-  const aiByRowIndex = new Map(aiResults.map((r) => [r.rowIndex, r]));
-  let updatedCount = 0;
-  const updatedRows = session.trialBalance.rows.map((row) => {
-    if (row.isGroupRow || row.userOverride) return row;
-    const ai = aiByRowIndex.get(row.rowIndex);
-    if (!ai) return row;
-    updatedCount += 1;
-    return {
-      ...row,
-      nfrsCategory: ai.nfrsCategory,
-      matchedLabel: null,
-      confidence: ai.confidence,
-      matchMethod: "ai",
-      needsReview: ai.confidence < 80,
-      displayLabel: row.displayLabel ?? row.rawLabel
-    };
-  });
-  const updatedTB = { ...session.trialBalance, rows: updatedRows };
-  const validation = validateTrialBalanceTotals(updatedRows);
-  updatedTB.validation = validation;
-  sessionStore.set(req.params.companyId, { trialBalance: updatedTB });
-  return res.json({ updatedCount, trialBalance: updatedTB });
-}));
-router2.get("/:companyId/validation", asyncHandler(async (req, res) => {
-  const session = sessionStore.get(req.params.companyId);
-  if (!session?.trialBalance) return res.status(404).json({ error: "No trial balance loaded." });
-  const validation = validateTrialBalanceTotals(session.trialBalance.rows);
-  return res.json(validation);
-}));
-var trialBalance_default = router2;
-
-// server/routes/adjustments.ts
-import { Router as Router3 } from "express";
-
-// server/store/subledgerStore.ts
-import crypto2 from "crypto";
-var store = /* @__PURE__ */ new Map();
-function emptySubledger(sessionId) {
-  return {
-    sessionId,
-    debtors: [],
-    creditors: [],
-    bankAccounts: [],
-    relatedParties: [],
-    lastUpdatedAt: /* @__PURE__ */ new Date()
-  };
-}
-function getSubledger(sessionId) {
-  return store.get(sessionId) ?? emptySubledger(sessionId);
-}
-function upsertDebtors(sessionId, debtors) {
-  const existing = store.get(sessionId) ?? emptySubledger(sessionId);
-  const normalised = debtors.map((d) => ({
-    ...d,
-    id: d.id || crypto2.randomUUID(),
-    debitBalance: Math.max(0, d.debitBalance ?? 0),
-    creditBalance: Math.max(0, d.creditBalance ?? 0)
-  }));
-  const updated = {
-    ...existing,
-    debtors: normalised,
-    lastUpdatedAt: /* @__PURE__ */ new Date()
-  };
-  store.set(sessionId, updated);
-  return updated;
-}
-function upsertCreditors(sessionId, creditors) {
-  const existing = store.get(sessionId) ?? emptySubledger(sessionId);
-  const normalised = creditors.map((c) => ({
-    ...c,
-    id: c.id || crypto2.randomUUID(),
-    creditBalance: Math.max(0, c.creditBalance ?? 0),
-    debitBalance: Math.max(0, c.debitBalance ?? 0)
-  }));
-  const updated = {
-    ...existing,
-    creditors: normalised,
-    lastUpdatedAt: /* @__PURE__ */ new Date()
-  };
-  store.set(sessionId, updated);
-  return updated;
-}
-function upsertBankAccounts(sessionId, bankAccounts) {
-  const existing = store.get(sessionId) ?? emptySubledger(sessionId);
-  const normalised = bankAccounts.map((b) => ({
-    ...b,
-    id: b.id || crypto2.randomUUID()
-  }));
-  const updated = {
-    ...existing,
-    bankAccounts: normalised,
-    lastUpdatedAt: /* @__PURE__ */ new Date()
-  };
-  store.set(sessionId, updated);
-  return updated;
-}
-function upsertRelatedParties(sessionId, relatedParties) {
-  const existing = store.get(sessionId) ?? emptySubledger(sessionId);
-  const normalised = relatedParties.map((rp) => ({
-    ...rp,
-    id: rp.id || crypto2.randomUUID(),
-    transactionsCurrentYear: (rp.transactionsCurrentYear ?? []).map((t) => ({
-      ...t,
-      id: t.id || crypto2.randomUUID()
-    }))
-  }));
-  const updated = {
-    ...existing,
-    relatedParties: normalised,
-    lastUpdatedAt: /* @__PURE__ */ new Date()
-  };
-  store.set(sessionId, updated);
-  return updated;
-}
-function deleteSubledger(sessionId) {
-  return store.delete(sessionId);
-}
-function validateSubledger(sessionId, tbDebtorTotal, tbCreditorTotal) {
-  const data = getSubledger(sessionId);
-  const warnings = [];
-  const debtorTotal = data.debtors.reduce((s, d) => s + d.debitBalance, 0);
-  const creditorTotal = data.creditors.reduce((s, c) => s + c.creditBalance, 0);
-  const bankAssetTotal = data.bankAccounts.filter((b) => b.balance > 0).reduce((s, b) => s + b.balance, 0);
-  const bankLiabilityTotal = data.bankAccounts.filter((b) => b.balance < 0).reduce((s, b) => s + Math.abs(b.balance), 0);
-  const debtorDiff = Math.abs(debtorTotal - tbDebtorTotal);
-  if (data.debtors.length > 0 && debtorDiff > 1) {
-    warnings.push(
-      `Debtor subledger total (NPR ${debtorTotal.toLocaleString("en-IN")}) does not match trial balance trade receivables (NPR ${tbDebtorTotal.toLocaleString("en-IN")}). Difference: NPR ${debtorDiff.toLocaleString("en-IN")}.`
-    );
-  }
-  const creditorDiff = Math.abs(creditorTotal - tbCreditorTotal);
-  if (data.creditors.length > 0 && creditorDiff > 1) {
-    warnings.push(
-      `Creditor subledger total (NPR ${creditorTotal.toLocaleString("en-IN")}) does not match trial balance trade payables (NPR ${tbCreditorTotal.toLocaleString("en-IN")}). Difference: NPR ${creditorDiff.toLocaleString("en-IN")}.`
-    );
-  }
-  return {
-    debtorTotal,
-    creditorTotal,
-    bankAssetTotal,
-    bankLiabilityTotal,
-    isValid: warnings.length === 0,
-    warnings
-  };
-}
-function cleanupSubledger(maxAgeHours) {
-  const cutoff = Date.now() - maxAgeHours * 60 * 60 * 1e3;
-  let removed = 0;
-  for (const [id, data] of store.entries()) {
-    if (data.lastUpdatedAt.getTime() < cutoff) {
-      store.delete(id);
-      removed++;
-    }
-  }
-  return removed;
-}
-var subledgerStore = {
-  get: getSubledger,
-  upsertDebtors,
-  upsertCreditors,
-  upsertBankAccounts,
-  upsertRelatedParties,
-  delete: deleteSubledger,
-  validate: validateSubledger,
-  cleanup: cleanupSubledger,
-  size: () => store.size
-};
-
-// server/services/ppeCategoryMap.ts
-var PPE_CLASSES = [
-  { categoryId: "Land", label: "Land", tbCategories: ["ppe_land"] },
-  { categoryId: "Building", label: "Buildings", tbCategories: ["ppe_buildings"] },
-  {
-    categoryId: "OfficeEquipment",
-    label: "Furniture, Computers & Office Equipment",
-    tbCategories: ["ppe_office_equipment", "ppe_furniture", "ppe_computers"]
-  },
-  { categoryId: "Vehicle", label: "Vehicles", tbCategories: ["ppe_vehicles"] },
-  { categoryId: "PlantMachinery", label: "Plant & Machinery", tbCategories: ["ppe_plant_machinery"] },
-  { categoryId: "Intangible", label: "Intangibles / Software", tbCategories: ["ppe_intangibles"] },
-  { categoryId: "UnderConstruction", label: "Capital Work in Progress", tbCategories: ["ppe_cwip"] }
-];
-var PPE_CLASS_ALIASES = {
-  land: "Land",
-  building: "Building",
-  buildings: "Building",
-  ppe_buildings: "Building",
-  ppe_land: "Land",
-  officeequipment: "OfficeEquipment",
-  office_equipment: "OfficeEquipment",
-  ppe_office_equipment: "OfficeEquipment",
-  ppe_furniture: "OfficeEquipment",
-  ppe_computers: "OfficeEquipment",
-  furniture: "OfficeEquipment",
-  computers: "OfficeEquipment",
-  vehicle: "Vehicle",
-  vehicles: "Vehicle",
-  ppe_vehicles: "Vehicle",
-  plantmachinery: "PlantMachinery",
-  plant_machinery: "PlantMachinery",
-  ppe_plant_machinery: "PlantMachinery",
-  intangible: "Intangible",
-  intangibles: "Intangible",
-  ppe_intangibles: "Intangible",
-  underconstruction: "UnderConstruction",
-  cwip: "UnderConstruction",
-  ppe_cwip: "UnderConstruction",
-  wip: "UnderConstruction"
-};
-function normalizePPEClassId(value) {
-  if (!value) return "OfficeEquipment";
-  const direct = PPE_CLASSES.find((c) => c.categoryId === value);
-  if (direct) return direct.categoryId;
-  const key = value.toLowerCase().replace(/[\s_-]/g, "");
-  return PPE_CLASS_ALIASES[key] ?? PPE_CLASS_ALIASES[value.toLowerCase()] ?? "OfficeEquipment";
-}
-function ppeClassLabel(categoryId) {
-  return PPE_CLASSES.find((c) => c.categoryId === categoryId)?.label ?? categoryId;
-}
-function ppeTbCategories(categoryId) {
-  const normalized = normalizePPEClassId(categoryId);
-  return PPE_CLASSES.find((c) => c.categoryId === normalized)?.tbCategories ?? [];
-}
-
-// server/services/depreciationEngine.ts
-var DEFAULT_RATES = {
-  Land: { rate: 0, method: "SLM" },
-  Building: { rate: 0.04, method: "SLM" },
-  OfficeEquipment: { rate: 0.25, method: "WDV" },
-  Vehicle: { rate: 0.2, method: "WDV" },
-  PlantMachinery: { rate: 0.15, method: "WDV" },
-  Intangible: { rate: 0.2, method: "SLM" },
-  UnderConstruction: { rate: 0, method: "SLM" }
-};
-var TAX_POOLS = [
-  { poolName: "Pool A (Building 5%)", rate: 0.05, classes: ["Building"] },
-  { poolName: "Pool B (Computers & Software 25%)", rate: 0.25, classes: ["Intangible", "OfficeEquipment"] },
-  { poolName: "Pool C (Office Equipment & Furniture 25%)", rate: 0.25, classes: ["OfficeEquipment"] },
-  { poolName: "Pool D (Vehicles 20%)", rate: 0.2, classes: ["Vehicle"] },
-  { poolName: "Pool E (Plant & Machinery 15%)", rate: 0.15, classes: ["PlantMachinery"] }
-];
-function parseBSMonth(dateStr) {
-  const months = {
-    shrawan: 1,
-    bhadra: 2,
-    aswin: 3,
-    kartik: 4,
-    mangsir: 5,
-    poush: 6,
-    magh: 7,
-    falgun: 8,
-    chaitra: 9,
-    baisakh: 10,
-    jestha: 11,
-    ashadh: 12
-  };
-  const parts = dateStr.trim().split(/\s+/);
-  return months[(parts[1] ?? "").toLowerCase()] ?? 1;
-}
-function monthsHeldInFY(purchaseDate) {
-  if (typeof purchaseDate === "number") {
-    return 12;
-  }
-  const month = parseBSMonth(purchaseDate);
-  if (month <= 6) return 12;
-  if (month <= 9) return 12 - (month - 6) * 2;
-  return Math.max(1, 12 - month + 1);
-}
-function getRateAndMethod(asset, policies) {
-  if (asset.depreciationMethodOverride) {
-    return {
-      rate: asset.rateOverride ?? DEFAULT_RATES[asset.assetClass]?.rate ?? 0.1,
-      method: asset.depreciationMethodOverride
-    };
-  }
-  const policyRate = policies?.depreciationRates?.[asset.assetClass];
-  const defaults = DEFAULT_RATES[asset.assetClass] ?? { rate: 0.1, method: "SLM" };
-  return {
-    rate: policyRate ?? defaults.rate,
-    method: policies?.depreciationMethod ?? defaults.method
-  };
-}
-function computeAccountingDepreciation(asset, policies) {
-  const raw = asset;
-  const assetLabel = asset.assetName ?? raw.name ?? asset.id;
-  let purchaseDateForCalc;
-  if (raw.purchaseDateBS) {
-    purchaseDateForCalc = raw.purchaseDateBS;
-  } else if (typeof raw.purchaseDate === "number") {
-    purchaseDateForCalc = raw.purchaseDate;
-  } else if (raw.purchaseDate) {
-    purchaseDateForCalc = raw.purchaseDate;
-  } else {
-    throw new Error(`Asset '${assetLabel}': purchaseDate or purchaseDateBS required.`);
-  }
-  const { rate, method } = getRateAndMethod(asset, policies);
-  const costBase = asset.originalCost + asset.additionsCY;
-  const months = monthsHeldInFY(purchaseDateForCalc);
-  const fraction = asset.disposalDate ? months / 12 : months / 12;
-  const accumulatedDepnPY = raw.accumDepn ?? asset.accumulatedDepnPY ?? raw.accumulatedDepreciation ?? 0;
-  let depreciationCY = 0;
-  if (asset.assetClass === "Land" || rate === 0) {
-    depreciationCY = 0;
-  } else if (method === "SLM") {
-    depreciationCY = costBase * rate * fraction;
-  } else {
-    const wdv = costBase - accumulatedDepnPY;
-    depreciationCY = wdv * rate * fraction;
-  }
-  if (asset.disposalDate && asset.disposalValue !== void 0) {
-    const nbv = costBase - accumulatedDepnPY - depreciationCY;
-    const gainLoss = asset.disposalValue - nbv;
-    void gainLoss;
-  }
-  const accumulatedDepnCY = accumulatedDepnPY + depreciationCY;
-  const netBookValueCY = costBase - accumulatedDepnCY;
-  const netBookValuePY = asset.originalCost - accumulatedDepnPY;
-  return {
-    ...asset,
-    depreciationCY: Math.round(depreciationCY * 100) / 100,
-    accumulatedDepnCY: Math.round(accumulatedDepnCY * 100) / 100,
-    netBookValueCY: Math.round(netBookValueCY * 100) / 100,
-    netBookValuePY: Math.round(netBookValuePY * 100) / 100
-  };
-}
-function buildPPENote(assets, policies) {
-  const classMap = /* @__PURE__ */ new Map();
-  for (const asset of assets) {
-    const name = asset.assetClass;
-    if (!classMap.has(name)) {
-      classMap.set(name, {
-        name,
-        costOpeningDr: 0,
-        costOpeningCr: 0,
-        additions: 0,
-        disposals: 0,
-        costClosing: 0,
-        accumDepnOpening: 0,
-        depreciationCharged: 0,
-        impairmentLosses: 0,
-        disposalDepn: 0,
-        accumDepnClosing: 0,
-        carryingAmountOpening: 0,
-        carryingAmountClosing: 0
-      });
-    }
-    const cls = classMap.get(name);
-    cls.costOpeningDr += asset.originalCost;
-    cls.additions += asset.additionsCY;
-    cls.disposals += asset.disposalValue ?? 0;
-    cls.accumDepnOpening += asset.accumulatedDepnPY;
-    cls.depreciationCharged += asset.depreciationCY ?? 0;
-    cls.accumDepnClosing += asset.accumulatedDepnCY ?? 0;
-    cls.carryingAmountOpening += asset.netBookValuePY ?? 0;
-    cls.carryingAmountClosing += asset.netBookValueCY ?? 0;
-    cls.costClosing = cls.costOpeningDr + cls.additions - cls.disposals;
-  }
-  const classes = Array.from(classMap.values());
-  const totals = classes.reduce(
-    (acc, c) => ({
-      name: "Total",
-      costOpeningDr: acc.costOpeningDr + c.costOpeningDr,
-      costOpeningCr: 0,
-      additions: acc.additions + c.additions,
-      disposals: acc.disposals + c.disposals,
-      costClosing: acc.costClosing + c.costClosing,
-      accumDepnOpening: acc.accumDepnOpening + c.accumDepnOpening,
-      depreciationCharged: acc.depreciationCharged + c.depreciationCharged,
-      impairmentLosses: acc.impairmentLosses + c.impairmentLosses,
-      disposalDepn: acc.disposalDepn + c.disposalDepn,
-      accumDepnClosing: acc.accumDepnClosing + c.accumDepnClosing,
-      carryingAmountOpening: acc.carryingAmountOpening + c.carryingAmountOpening,
-      carryingAmountClosing: acc.carryingAmountClosing + c.carryingAmountClosing
-    }),
-    {
-      name: "Total",
-      costOpeningDr: 0,
-      costOpeningCr: 0,
-      additions: 0,
-      disposals: 0,
-      costClosing: 0,
-      accumDepnOpening: 0,
-      depreciationCharged: 0,
-      impairmentLosses: 0,
-      disposalDepn: 0,
-      accumDepnClosing: 0,
-      carryingAmountOpening: 0,
-      carryingAmountClosing: 0
-    }
-  );
-  const depreciationRates = {};
-  for (const [cls, def] of Object.entries(DEFAULT_RATES)) {
-    depreciationRates[cls] = policies?.depreciationRates?.[cls] ?? def.rate;
-  }
-  return {
-    classes,
-    totals,
-    depreciationRates,
-    depreciationMethod: policies?.depreciationMethod ?? "SLM",
-    securityNote: "",
-    WIPNote: ""
-  };
-}
-function computeTaxDepPool(assets, openingBases, taxableIncome, repairExpenses = {}) {
-  return TAX_POOLS.map((pool) => {
-    const poolAssets = assets.filter((a) => pool.classes.includes(a.assetClass));
-    let additions = 0;
-    let disposals = 0;
-    for (const a of poolAssets) {
-      additions += a.additionsCY + a.originalCost;
-      disposals += a.disposalValue ?? 0;
-    }
-    const openingBasis = openingBases[pool.poolName] ?? 0;
-    let repairExpense = repairExpenses[pool.poolName] ?? 0;
-    const repairThreshold = openingBasis * 0.07;
-    const capitalizedRepairs = Math.max(0, repairExpense - repairThreshold);
-    additions += capitalizedRepairs;
-    const depreciationBasis = openingBasis + additions - disposals;
-    const absorbed = additions;
-    const depreciation = depreciationBasis * pool.rate;
-    const netDepreciation = depreciation;
-    const unabsorbed = Math.max(0, netDepreciation - taxableIncome * (2 / 3));
-    const taxableDepreciation = netDepreciation - unabsorbed;
-    const nextYearBasis = depreciationBasis - taxableDepreciation;
-    return {
-      poolName: pool.poolName,
-      rate: pool.rate,
-      openingBasis,
-      additions,
-      disposals,
-      absorbed,
-      unabsorbed: Math.round(unabsorbed * 100) / 100,
-      nextYearBasis: Math.round(Math.max(0, nextYearBasis) * 100) / 100,
-      repairExpense
-    };
-  });
-}
-function computeDepreciation(assetRegister, policies, options) {
-  const assetRegisterComputed = assetRegister.map(
-    (a) => computeAccountingDepreciation(a, policies)
-  );
-  const totalDepreciationExpense = assetRegisterComputed.reduce(
-    (s, a) => s + (a.depreciationCY ?? 0),
-    0
-  );
-  const ppeTotals = buildPPENote(assetRegisterComputed, policies);
-  const taxDepSchedule = computeTaxDepPool(
-    assetRegisterComputed,
-    options?.taxOpeningBases ?? {},
-    options?.taxableIncome ?? 0,
-    options?.repairExpenses
-  );
-  return {
-    assetRegisterComputed,
-    ppeTotals,
-    taxDepSchedule,
-    totalDepreciationExpense: Math.round(totalDepreciationExpense * 100) / 100
-  };
-}
-function calculateDepreciationSummary(assets, _categories, _fiscalYear) {
-  const result = computeDepreciation(assets);
-  const summary = result.ppeTotals.classes.map((cls) => {
-    const categoryId = normalizePPEClassId(cls.name);
-    const classAssets = result.assetRegisterComputed.filter(
-      (asset) => normalizePPEClassId(asset.assetClass) === categoryId
-    );
-    return {
-      categoryId,
-      categoryName: ppeClassLabel(categoryId),
-      openingCost: cls.costOpeningDr,
-      additions: cls.additions,
-      disposals: cls.disposals,
-      closingCost: cls.costClosing,
-      openingAccumDepn: cls.accumDepnOpening,
-      depnForYear: cls.depreciationCharged,
-      depnOnDisposal: cls.disposalDepn,
-      closingAccumDepn: cls.accumDepnClosing,
-      netBookValueClosing: cls.carryingAmountClosing,
-      assets: classAssets
-    };
-  });
-  return {
-    results: result.assetRegisterComputed,
-    summary
-  };
-}
-function calculateTaxDepreciation(assets, _categories, openingPoolBases) {
-  return computeDepreciation(assets, void 0, { taxOpeningBases: openingPoolBases }).taxDepSchedule;
-}
-
-// server/routes/adjustments.ts
-function toDepreciationAssets(assets) {
-  return assets.map((asset) => ({
-    id: asset.id,
-    assetClass: normalizePPEClassId(asset.categoryId),
-    assetName: asset.assetName,
-    purchaseDate: asset.purchaseDateBS,
-    purchaseDateBS: asset.purchaseDateBS,
-    originalCost: asset.originalCost,
-    additionsCY: asset.additionalCost ?? 0,
-    accumulatedDepnPY: asset.accumDepreciationOpening ?? 0,
-    depreciationMethodOverride: asset.depreciationMethod === "WrittenDownValue" || asset.depreciationMethod === "WDV" ? "WDV" : "SLM",
-    rateOverride: asset.wdvRate,
-    disposed: asset.disposed,
-    disposalDate: asset.disposalDateBS,
-    disposalValue: asset.disposalValue
-  }));
-}
-var router3 = Router3();
-var emptyAdj = (companyId, fiscalYear) => ({
-  companyId,
-  fiscalYear,
-  assets: [],
-  depreciationResults: [],
-  depreciationSummary: [],
-  taxDepreciationPools: [],
-  inventoryAdjustments: [],
-  investmentAdjustments: [],
-  provisions: [],
-  journalEntries: [],
-  totalDepreciationExpense: 0,
-  totalInventoryImpairment: 0,
-  totalInvestmentFVAdjustment: 0,
-  totalProvisions: 0,
-  gainOnDisposals: 0,
-  lossOnDisposals: 0
-});
-router3.post("/:companyId/assets", asyncHandler(async (req, res) => {
-  const session = sessionStore.get(req.params.companyId);
-  if (!session) return res.status(404).json({ error: "Company not found." });
-  const assets = req.body.assets ?? [];
-  const adj = session.adjustments ?? emptyAdj(req.params.companyId, session.company?.fiscalYear?.bsFY ?? "");
-  sessionStore.set(req.params.companyId, { adjustments: { ...adj, assets } });
-  return res.json({ message: "Asset register saved.", count: assets.length });
-}));
-router3.post("/:companyId/calculate-depreciation", asyncHandler(async (req, res) => {
-  const session = sessionStore.get(req.params.companyId);
-  if (!session?.company) return res.status(404).json({ error: "Company not found." });
-  const adj = session.adjustments ?? emptyAdj(req.params.companyId, session.company.fiscalYear?.bsFY ?? "");
-  const assetCategories = session.company.accountingPolicies?.assetCategories ?? [];
-  const fiscalYear = session.company.fiscalYear?.bsFY ?? "2081/82";
-  const { results, summary } = calculateDepreciationSummary(
-    toDepreciationAssets(adj.assets ?? []),
-    assetCategories,
-    fiscalYear
-  );
-  const totalDepreciation = results.reduce((s, r) => s + (r.depreciationCY ?? r.depnForYear ?? 0), 0);
-  const gainOnDisposals = results.filter((r) => (r.gainLossOnDisposal ?? 0) > 0).reduce((s, r) => s + (r.gainLossOnDisposal ?? 0), 0);
-  const lossOnDisposals = results.filter((r) => (r.gainLossOnDisposal ?? 0) < 0).reduce((s, r) => s + Math.abs(r.gainLossOnDisposal ?? 0), 0);
-  const openingPoolBases = req.body.openingPoolBases ?? {};
-  const taxPools = calculateTaxDepreciation(toDepreciationAssets(adj.assets ?? []), assetCategories, openingPoolBases);
-  const updatedAdj = {
-    ...adj,
-    depreciationResults: results,
-    depreciationSummary: summary,
-    taxDepreciationPools: taxPools,
-    totalDepreciationExpense: totalDepreciation,
-    gainOnDisposals,
-    lossOnDisposals
-  };
-  sessionStore.set(req.params.companyId, { adjustments: updatedAdj });
-  return res.json({
-    results,
-    summary,
-    taxPools,
-    totalDepreciationExpense: totalDepreciation,
-    gainOnDisposals,
-    lossOnDisposals
-  });
-}));
-router3.post("/:companyId/provisions", asyncHandler(async (req, res) => {
-  const session = sessionStore.get(req.params.companyId);
-  if (!session) return res.status(404).json({ error: "Company not found." });
-  const provisions = req.body.provisions ?? [];
-  const adj = session.adjustments ?? emptyAdj(req.params.companyId, session.company?.fiscalYear?.bsFY ?? "");
-  const totalProvisions = provisions.reduce((s, p) => s + p.additionForYear, 0);
-  sessionStore.set(req.params.companyId, { adjustments: { ...adj, provisions, totalProvisions } });
-  return res.json({ message: "Provisions saved.", count: provisions.length, total: totalProvisions });
-}));
-router3.post("/:companyId/inventory", asyncHandler(async (req, res) => {
-  const session = sessionStore.get(req.params.companyId);
-  if (!session) return res.status(404).json({ error: "Company not found." });
-  const items = req.body.items ?? [];
-  const adj = session.adjustments ?? emptyAdj(req.params.companyId, session.company?.fiscalYear?.bsFY ?? "");
-  const totalInventoryImpairment = items.reduce((s, i) => s + i.impairmentAmount, 0);
-  sessionStore.set(req.params.companyId, { adjustments: { ...adj, inventoryAdjustments: items, totalInventoryImpairment } });
-  return res.json({ message: "Inventory adjustments saved.", totalImpairment: totalInventoryImpairment });
-}));
-router3.post("/:companyId/investments", asyncHandler(async (req, res) => {
-  const session = sessionStore.get(req.params.companyId);
-  if (!session) return res.status(404).json({ error: "Company not found." });
-  const items = req.body.items ?? [];
-  const adj = session.adjustments ?? emptyAdj(req.params.companyId, session.company?.fiscalYear?.bsFY ?? "");
-  const totalFV = items.reduce((s, i) => s + (i.fairValueGainLoss ?? 0), 0);
-  sessionStore.set(req.params.companyId, { adjustments: { ...adj, investmentAdjustments: items, totalInvestmentFVAdjustment: totalFV } });
-  return res.json({ message: "Investment adjustments saved.", totalFVAdjustment: totalFV });
-}));
-router3.get("/:companyId", asyncHandler(async (req, res) => {
-  const session = sessionStore.get(req.params.companyId);
-  if (!session) return res.status(404).json({ error: "Company not found." });
-  return res.json(session.adjustments ?? emptyAdj(req.params.companyId, session.company?.fiscalYear?.bsFY ?? ""));
-}));
-router3.post("/:companyId/calculate-all", asyncHandler(async (req, res) => {
-  const session = sessionStore.get(req.params.companyId);
-  if (!session?.adjustments) return res.status(400).json({ error: "No adjustments data found. Add assets, provisions, and inventory first." });
-  const adj = session.adjustments;
-  const journalTotal = adj.journalEntries.reduce((s, j) => s + j.amount, 0);
-  return res.json({ adjustments: adj, journalEntryCount: adj.journalEntries.length, totalDebitCredit: journalTotal });
-}));
-router3.get("/subledger/:companyId", asyncHandler(async (req, res) => {
-  const { companyId } = req.params;
-  const session = sessionStore.get(companyId);
-  if (!session) return res.status(404).json({ error: "Company session not found." });
-  const data = subledgerStore.get(companyId);
-  return res.json(data);
-}));
-router3.post("/subledger/debtors", asyncHandler(async (req, res) => {
-  const { companyId, debtors } = req.body;
-  if (!companyId) {
-    return res.status(400).json({ error: "companyId is required." });
-  }
-  const session = sessionStore.get(companyId);
-  if (!session) {
-    return res.status(404).json({ error: "Company session not found." });
-  }
-  if (!Array.isArray(debtors)) {
-    return res.status(400).json({ error: "debtors must be an array." });
-  }
-  const updated = subledgerStore.upsertDebtors(companyId, debtors);
-  const tbRows = session.trialBalance?.rows ?? [];
-  const tbDebtorTotal = tbRows.filter((r) => r.nfrsCategory === "trade_receivables" && !r.isGroupRow).reduce((s, r) => s + (r.closingDr ?? 0), 0);
-  const validation = subledgerStore.validate(companyId, tbDebtorTotal, 0);
-  return res.json({
-    message: "Debtor subledger saved.",
-    count: updated.debtors.length,
-    debtorTotal: updated.debtors.reduce((s, d) => s + d.debitBalance, 0),
-    tbDebtorTotal,
-    validation
-  });
-}));
-router3.post("/subledger/creditors", asyncHandler(async (req, res) => {
-  const { companyId, creditors } = req.body;
-  if (!companyId) return res.status(400).json({ error: "companyId is required." });
-  const session = sessionStore.get(companyId);
-  if (!session) return res.status(404).json({ error: "Company session not found." });
-  if (!Array.isArray(creditors)) return res.status(400).json({ error: "creditors must be an array." });
-  const updated = subledgerStore.upsertCreditors(companyId, creditors);
-  const tbRows = session.trialBalance?.rows ?? [];
-  const tbCreditorTotal = tbRows.filter((r) => r.nfrsCategory === "trade_payables_creditors" && !r.isGroupRow).reduce((s, r) => s + (r.closingCr ?? 0), 0);
-  const validation = subledgerStore.validate(companyId, 0, tbCreditorTotal);
-  return res.json({
-    message: "Creditor subledger saved.",
-    count: updated.creditors.length,
-    creditorTotal: updated.creditors.reduce((s, c) => s + c.creditBalance, 0),
-    tbCreditorTotal,
-    validation
-  });
-}));
-router3.post("/subledger/bank-accounts", asyncHandler(async (req, res) => {
-  const { companyId, bankAccounts } = req.body;
-  if (!companyId) return res.status(400).json({ error: "companyId is required." });
-  const session = sessionStore.get(companyId);
-  if (!session) return res.status(404).json({ error: "Company session not found." });
-  if (!Array.isArray(bankAccounts)) {
-    return res.status(400).json({ error: "bankAccounts must be an array." });
-  }
-  const invalid = bankAccounts.filter((b) => !b.bankName?.trim());
-  if (invalid.length > 0) {
-    return res.status(400).json({
-      error: `${invalid.length} bank account row(s) are missing a bank name.`
-    });
-  }
-  const updated = subledgerStore.upsertBankAccounts(companyId, bankAccounts);
-  const assetTotal = updated.bankAccounts.filter((b) => b.balance >= 0).reduce((s, b) => s + b.balance, 0);
-  const liabilityTotal = updated.bankAccounts.filter((b) => b.balance < 0).reduce((s, b) => s + Math.abs(b.balance), 0);
-  return res.json({
-    message: "Bank accounts saved.",
-    count: updated.bankAccounts.length,
-    assetTotal,
-    liabilityTotal
-  });
-}));
-router3.post("/subledger/related-parties", asyncHandler(async (req, res) => {
-  const { companyId, relatedParties } = req.body;
-  if (!companyId) return res.status(400).json({ error: "companyId is required." });
-  const session = sessionStore.get(companyId);
-  if (!session) return res.status(404).json({ error: "Company session not found." });
-  if (!Array.isArray(relatedParties)) {
-    return res.status(400).json({ error: "relatedParties must be an array." });
-  }
-  const updated = subledgerStore.upsertRelatedParties(companyId, relatedParties);
-  return res.json({
-    message: "Related parties saved.",
-    count: updated.relatedParties.length
-  });
-}));
-var adjustments_default = router3;
-
-// server/routes/financials.ts
-import { Router as Router4 } from "express";
-
-// server/services/taxEngine.ts
-function computeStaffBonus(profitBeforeBonus, rate = 0.1) {
-  return Math.max(0, Math.round(profitBeforeBonus * rate * 100) / 100);
-}
-function computePrivateFirmTax(taxableIncome) {
-  if (taxableIncome <= 5e5) return 0;
-  if (taxableIncome <= 7e5) return (taxableIncome - 5e5) * 0.15;
-  return 5e4 * 0.15 + (taxableIncome - 7e5) * 0.25;
-}
-function computeTax(input) {
-  const {
-    accountingProfit,
-    accountingDepreciation,
-    taxDepreciation,
-    disallowedForTax,
-    staffBonus,
-    profitBeforeBonus,
-    donations = 0,
-    researchDevelopment = 0,
-    advanceTaxPaid,
-    incomeTaxRate,
-    entityType
-  } = input;
-  const reconciliation = [];
-  reconciliation.push({ label: "Accounting profit before tax", amount: accountingProfit });
-  reconciliation.push({ label: "Add: Accounting depreciation", amount: accountingDepreciation });
-  reconciliation.push({ label: "Less: Tax depreciation (ITA pools)", amount: -taxDepreciation });
-  const totalDisallowed = disallowedForTax.reduce((s, d) => s + d.amount, 0);
-  if (totalDisallowed > 0) {
-    reconciliation.push({ label: "Add: Disallowed expenses", amount: totalDisallowed });
-  }
-  const maxBonusAllowed = profitBeforeBonus * 0.1;
-  const staffBonusAllowed = Math.min(staffBonus, maxBonusAllowed);
-  let adjustedProfit = accountingProfit + accountingDepreciation - taxDepreciation + totalDisallowed;
-  const donationAllowed = Math.min(donations, adjustedProfit * 0.05);
-  adjustedProfit -= donationAllowed;
-  const rdAllowance = researchDevelopment * 0.5;
-  adjustedProfit -= rdAllowance;
-  const taxableIncome = Math.max(0, Math.round(adjustedProfit * 100) / 100);
-  reconciliation.push({ label: "Taxable income", amount: taxableIncome });
-  let currentTaxExpense;
-  if (entityType === "Sole Proprietorship" || entityType === "Partnership") {
-    currentTaxExpense = computePrivateFirmTax(taxableIncome);
-  } else {
-    currentTaxExpense = Math.round(taxableIncome * incomeTaxRate * 100) / 100;
-  }
-  const netTaxPayable = Math.max(0, Math.round((currentTaxExpense - advanceTaxPaid) * 100) / 100);
-  reconciliation.push({
-    label: `Income tax at ${(incomeTaxRate * 100).toFixed(0)}%`,
-    amount: currentTaxExpense
-  });
-  return {
-    taxableIncome,
-    currentTaxExpense,
-    netTaxPayable,
-    staffBonusAllowed,
-    bookTaxReconciliation: reconciliation
-  };
-}
-function computeIncomeTax(params) {
-  const result = computeTax({
-    accountingProfit: params.bookProfit,
-    accountingDepreciation: 0,
-    taxDepreciation: 0,
-    disallowedForTax: Object.entries(params.disallowableExpenses).map(([description, amount]) => ({
-      description,
-      amount,
-      section: "Section 21 ITA"
-    })),
-    staffBonus: 0,
-    profitBeforeBonus: params.bookProfit,
-    advanceTaxPaid: params.advanceTaxPaid + params.tdsCredit,
-    incomeTaxRate: params.taxRate / 100,
-    entityType: "Company"
-  });
-  const netAfterCredits = result.currentTaxExpense - params.advanceTaxPaid - params.tdsCredit;
-  return {
-    taxableIncome: result.taxableIncome,
-    currentTaxExpense: result.currentTaxExpense,
-    taxPayable: netAfterCredits > 0 ? netAfterCredits : 0,
-    taxRecoverable: netAfterCredits < 0 ? -netAfterCredits : 0,
-    effectiveTaxRate: params.bookProfit > 0 ? Math.round(result.currentTaxExpense / params.bookProfit * 1e4) / 100 : 0
-  };
-}
-
-// server/services/notesEngine.ts
-function sumTB(rows, categories, field = "closingDr") {
-  const cats = Array.isArray(categories) ? categories : [categories];
-  return rows.filter((r) => cats.includes(r.nfrsCategory) && !r.isGroupRow).reduce((s, r) => s + (r[field] ?? 0), 0);
-}
-function netClosing(rows, categories) {
-  const cats = Array.isArray(categories) ? categories : [categories];
-  return rows.filter((r) => cats.includes(r.nfrsCategory) && !r.isGroupRow).reduce((s, r) => s + (r.closingDr ?? 0) - (r.closingCr ?? 0), 0);
-}
-function rowsByCategory(rows, category) {
-  return rows.filter((r) => r.nfrsCategory === category && !r.isGroupRow);
-}
-function safeSum(...vals) {
-  return vals.reduce((a, v) => a + (v ?? 0), 0);
-}
-var round = (n) => Math.round(n * 100) / 100;
-function debtorDaysOutstanding(d) {
-  if (typeof d.daysOutstanding === "number") return d.daysOutstanding;
-  if (typeof d.agingDays === "number") return d.agingDays;
-  const cat = String(d.ageCategory ?? "");
-  if (cat === "<30days") return 15;
-  if (cat === "31-60days") return 45;
-  if (cat === "61-90days") return 75;
-  if (cat === ">90days") return 120;
-  return 0;
-}
-function debtorAmount(d) {
-  return Number(d.debitBalance ?? d.balanceCY ?? d.amount ?? 0);
-}
-function buildAgingAnalysis(debtors, grossReceivables) {
-  const buckets = [
-    { bucket: "0-30 days", min: 0, max: 30, amount: 0 },
-    { bucket: "31-60 days", min: 31, max: 60, amount: 0 },
-    { bucket: "61-90 days", min: 61, max: 90, amount: 0 },
-    { bucket: ">90 days", min: 91, max: Number.POSITIVE_INFINITY, amount: 0 }
-  ];
-  for (const d of debtors) {
-    const amt = debtorAmount(d);
-    if (amt <= 0) continue;
-    const days = debtorDaysOutstanding(d);
-    const bucket = buckets.find((b) => days >= b.min && days <= b.max) ?? buckets[3];
-    bucket.amount += amt;
-  }
-  const total = buckets.reduce((s, b) => s + b.amount, 0);
-  if (total > 0 && grossReceivables > 0 && Math.abs(total - grossReceivables) > 1) {
-    const factor = grossReceivables / total;
-    buckets.forEach((b) => {
-      b.amount = round(b.amount * factor);
-    });
-  }
-  return buckets.map(({ bucket, amount }) => ({ bucket, amount: round(amount) }));
-}
-function mapSubledgerBankType(accountType) {
-  const t = accountType.toLowerCase();
-  if (t === "savings") return "Savings";
-  if (t === "fixed_deposit") return "Fixed Deposit (\u22643 months)";
-  return "Current";
-}
-function isLoanBankType(accountType) {
-  const t = accountType.toLowerCase();
-  return t === "loan" || t === "overdraft" || t === "cash_credit" || t === "working_capital";
-}
-var TAX_DEPN_RATES = {
-  ppe_buildings: 0.05,
-  ppe_furniture: 0.25,
-  ppe_vehicles: 0.2,
-  ppe_plant_machinery: 0.15,
-  ppe_intangibles: 0.15,
-  ppe_computers: 0.25,
-  ppe_office_equipment: 0.15
-};
-function sumTBForPPEClass(rows, classId, field) {
-  return ppeTbCategories(classId).reduce((total, category) => total + sumTB(rows, category, field), 0);
-}
-function normalizeDepreciationSummary(adj) {
-  return (adj.depreciationSummary ?? []).map((raw) => {
-    const item = raw;
-    const categoryId = normalizePPEClassId(item.categoryId ?? item.name ?? item.assetClass);
-    return {
-      categoryId,
-      categoryName: item.categoryName ?? item.name ?? categoryId,
-      openingCost: item.openingCost ?? item.costOpeningDr ?? 0,
-      additions: item.additions ?? 0,
-      disposals: item.disposals ?? 0,
-      closingCost: item.closingCost ?? item.costClosing ?? 0,
-      openingAccumDepn: item.openingAccumDepn ?? item.accumDepnOpening ?? 0,
-      depnForYear: item.depnForYear ?? item.depreciationCharged ?? 0,
-      depnOnDisposal: item.depnOnDisposal ?? item.disposalDepn ?? 0,
-      closingAccumDepn: item.closingAccumDepn ?? item.accumDepnClosing ?? 0,
-      netBookValueClosing: item.netBookValueClosing ?? item.carryingAmountClosing ?? Math.max(0, (item.closingCost ?? item.costClosing ?? 0) - (item.closingAccumDepn ?? item.accumDepnClosing ?? 0)),
-      assets: item.assets ?? []
-    };
-  });
-}
-function buildNotesData(params) {
-  const { tb, adj, bs, is: IS, company } = params;
-  const rows = tb.rows ?? [];
-  const provisions = adj.provisions ?? [];
-  const subledger = company.id ? subledgerStore.get(company.id) : null;
-  const taxRate = (company.accountingPolicies?.incomeTaxRatePercent ?? 25) / 100;
-  const roundingLevel = company.accountingPolicies?.roundingLevel ?? 1;
-  const normalizedDepSummary = normalizeDepreciationSummary(adj);
-  const depnSummaryMap = new Map(
-    normalizedDepSummary.map((d) => [d.categoryId, d])
-  );
-  const note31_ppe = PPE_CLASSES.map((cls) => {
-    const d = depnSummaryMap.get(cls.categoryId);
-    const tbGross = sumTBForPPEClass(rows, cls.categoryId, "closingDr");
-    const tbOpenGross = sumTBForPPEClass(rows, cls.categoryId, "openingDr");
-    const openingCost = d?.openingCost ?? tbOpenGross;
-    const additions = d?.additions ?? 0;
-    const disposals = d?.disposals ?? 0;
-    const closingCost = d?.closingCost ?? openingCost + additions - disposals;
-    const openingAccumDepn = d?.openingAccumDepn ?? 0;
-    const depnForYear = d?.depnForYear ?? 0;
-    const depnOnDisposal = d?.depnOnDisposal ?? 0;
-    const closingAccumDepn = d?.closingAccumDepn ?? openingAccumDepn + depnForYear - depnOnDisposal;
-    const nbvClosing = d?.netBookValueClosing ?? Math.max(0, closingCost - closingAccumDepn);
-    const nbvOpening = Math.max(0, openingCost - openingAccumDepn);
-    const assetsSecured = (adj.assets ?? []).filter((a) => normalizePPEClassId(a.categoryId) === cls.categoryId && a.isMortgaged).reduce((s, a) => s + a.originalCost, 0);
-    return {
-      categoryId: cls.categoryId,
-      categoryName: cls.label,
-      // Cost movement
-      openingCost,
-      additions,
-      disposals,
-      closingCost,
-      // Accumulated depreciation movement
-      openingAccumDepn,
-      depnForYear,
-      impairmentLosses: 0,
-      depnOnDisposal,
-      closingAccumDepn,
-      // NBV
-      netBookValueClosing: nbvClosing,
-      nbvClosing,
-      nbvOpening,
-      // Assets pledged
-      securedAmount: assetsSecured,
-      hasSecuredAssets: assetsSecured > 0,
-      // Individual assets
-      assets: normalizedDepSummary.find((ds) => ds.categoryId === cls.categoryId)?.assets ?? []
-    };
-  }).filter(
-    (item) => (
-      // Only include categories that have any balance or movement
-      item.openingCost > 0 || item.additions > 0 || item.closingCost > 0
-    )
-  );
-  const investmentAdjs = adj.investmentAdjustments ?? [];
-  const listedShares = investmentAdjs.filter(
-    (i) => i.investmentType === "listed_trading" || i.investmentType === "listed_ats"
-  ).map((inv) => ({
-    companyName: inv.investmentName,
-    openingUnits: inv.units ?? 0,
-    purchasesDuringYear: 0,
-    salesDuringYear: 0,
-    closingUnits: inv.units ?? 0,
-    costPerUnit: inv.totalCost && inv.units ? inv.totalCost / inv.units : 0,
-    totalCost: inv.totalCost ?? 0,
-    ltp: inv.ltp ?? 0,
-    marketValue: inv.marketValue ?? (inv.units ?? 0) * (inv.ltp ?? 0),
-    fairValueGainLoss: inv.fairValueGainLoss ?? 0,
-    impairmentAmount: inv.impairmentAmount ?? 0,
-    carryingAmount: inv.carryingAmount ?? 0
-  }));
-  const unlistedShares = investmentAdjs.filter(
-    (i) => i.investmentType === "unlisted"
-  ).map((inv) => ({
-    companyName: inv.investmentName,
-    openingCost: inv.totalCost ?? 0,
-    additions: 0,
-    disposals: 0,
-    impairmentAmount: inv.impairmentAmount ?? 0,
-    closingCarrying: inv.carryingAmount ?? 0
-  }));
-  const fdrNonCurrent = sumTB(rows, "investment_fixed_deposit_noncurrent", "closingDr");
-  const fdrCurrent = sumTB(rows, "bank_fixed_deposit_current", "closingDr");
-  const note32_investments = {
-    listedShares,
-    unlistedShares,
-    fdrNonCurrent,
-    fdrCurrent,
-    totalNonCurrent: listedShares.reduce((s, i) => s + i.carryingAmount, 0) + unlistedShares.reduce((s, i) => s + i.closingCarrying, 0) + fdrNonCurrent,
-    totalCurrent: listedShares.reduce((s, i) => s + i.marketValue, 0) + fdrCurrent
-  };
-  const grossReceivables = sumTB(rows, "trade_receivables", "closingDr");
-  const grossReceivablesOpen = sumTB(rows, "trade_receivables", "openingDr");
-  const provisionBadDebt = provisions.find((p) => p.provisionType === "doubtful_debts");
-  const provisionImpairment = Math.abs(safeSum(
-    sumTB(rows, "provision_impairment_debtors", "closingCr"),
-    provisionBadDebt?.closingBalance ?? 0
-  ));
-  const provisionImpairmentOpen = Math.abs(safeSum(
-    sumTB(rows, "provision_impairment_debtors", "openingCr"),
-    provisionBadDebt?.openingBalance ?? 0
-  ));
-  const provisionAdditions = provisionBadDebt?.additionForYear ?? 0;
-  const provisionWriteOffs = provisionBadDebt?.utilisedDuringYear ?? 0;
-  const provisionReversals = 0;
-  const debtorRows = subledger?.debtors?.length ? subledger.debtors : adj.debtors ?? [];
-  const agingAnalysis = debtorRows.length > 0 ? buildAgingAnalysis(debtorRows, grossReceivables) : [];
-  const note33_tradeReceivables = {
-    grossReceivables_cy: grossReceivables,
-    grossReceivables_py: grossReceivablesOpen,
-    provisionMovement: {
-      opening: provisionImpairmentOpen,
-      additions: provisionAdditions,
-      writeOffs: provisionWriteOffs,
-      reversals: provisionReversals,
-      closing: provisionImpairment
-    },
-    provisionForImpairment_cy: provisionImpairment,
-    provisionForImpairment_py: provisionImpairmentOpen,
-    netReceivables_cy: round(grossReceivables - provisionImpairment),
-    netReceivables_py: round(grossReceivablesOpen - provisionImpairmentOpen),
-    relatedPartyReceivables: sumTB(rows, "related_party_receivable", "closingDr"),
-    prepayments: sumTB(rows, "other_receivables_prepayments", "closingDr"),
-    tdsReceivable: sumTB(rows, "other_receivables_tds", "closingDr"),
-    staffAdvances: sumTB(rows, "other_receivables_staff_advance", "closingDr"),
-    advanceToSuppliers: sumTB(rows, "other_receivables_advance_supplier", "closingDr"),
-    otherLoansAdvances: sumTB(rows, "other_receivables_loans", "closingDr"),
-    nonCurrentPortion: safeSum(
-      sumTB(rows, "nca_loans_advances", "closingDr"),
-      sumTB(rows, "nca_deposits", "closingDr")
-    ),
-    currentPortion: round(
-      grossReceivables - provisionImpairment + sumTB(rows, "other_receivables_prepayments", "closingDr") + sumTB(rows, "other_receivables_tds", "closingDr") + sumTB(rows, "other_receivables_staff_advance", "closingDr") + sumTB(rows, "other_receivables_advance_supplier", "closingDr") + sumTB(rows, "other_receivables_loans", "closingDr")
-    ),
-    agingAnalysis
-  };
-  const note34_otherCurrentAssets = {
-    securityDeposits: sumTB(rows, "nca_deposits", "closingDr"),
-    // current portion
-    guaranteeMargins: 0,
-    advanceIncomeTax: sumTB(rows, "advance_tax_paid", "closingDr"),
-    otherPrepaidExpenses: sumTB(rows, "other_receivables_other", "closingDr"),
-    total: round(
-      sumTB(rows, "nca_deposits", "closingDr") + sumTB(rows, "advance_tax_paid", "closingDr") + sumTB(rows, "other_receivables_other", "closingDr")
-    )
-  };
-  const bioOpeningBalance = sumTB(rows, "biological_assets", "openingDr");
-  const bioClosingBalance = sumTB(rows, "biological_assets", "closingDr");
-  const note35_biologicalAssets = {
-    hasBalance: bioClosingBalance > 0 || bioOpeningBalance > 0,
-    openingCarrying: bioOpeningBalance,
-    additionsPurchases: Math.max(0, sumTB(rows, "biological_assets", "duringDr")),
-    disposalsSales: Math.max(0, sumTB(rows, "biological_assets", "duringCr")),
-    fairValueAdjustment: 0,
-    closingCarrying: bioClosingBalance
-  };
-  const hfsBalance = sumTB(rows, "nca_held_for_sale", "closingDr");
-  const note36_heldForSale = {
-    hasBalance: hfsBalance > 0,
-    assets: hfsBalance > 0 ? [{
-      description: "Non-Current Assets Held for Sale",
-      carryingAmount: hfsBalance,
-      expectedSaleDate: null
-    }] : [],
-    total: hfsBalance
-  };
-  const invAdjs = adj.inventoryAdjustments ?? [];
-  const rmClosing = round(sumTB(rows, "inventory_raw_materials", "closingDr") - (invAdjs.find((i) => i.category === "raw_materials")?.impairmentAmount ?? 0));
-  const wipClosing = round(sumTB(rows, "inventory_wip", "closingDr") - (invAdjs.find((i) => i.category === "wip")?.impairmentAmount ?? 0));
-  const fgClosing = round(sumTB(rows, "inventory_finished_goods", "closingDr") - (invAdjs.find((i) => i.category === "finished_goods")?.impairmentAmount ?? 0));
-  const rmOpening = sumTB(rows, "inventory_raw_materials", "openingDr");
-  const wipOpening = sumTB(rows, "inventory_wip", "openingDr");
-  const fgOpening = sumTB(rows, "inventory_finished_goods", "openingDr");
-  const note37_inventories = {
-    rawMaterials: { opening: rmOpening, closing: rmClosing },
-    wip: { opening: wipOpening, closing: wipClosing },
-    finishedGoods: { opening: fgOpening, closing: fgClosing },
-    totalOpening: round(rmOpening + wipOpening + fgOpening),
-    totalClosing: round(rmClosing + wipClosing + fgClosing),
-    impairmentRecognised: invAdjs.reduce((s, i) => s + (i.impairmentAmount ?? 0), 0),
-    inventoryAtNRV: invAdjs.filter((i) => i.writtenDownTo !== void 0).reduce((s, i) => s + (i.writtenDownTo ?? 0), 0),
-    pledgedAsSecurityAmt: 0,
-    costFormula: company.accountingPolicies?.inventoryCostMethod ?? "WeightedAverage"
-  };
-  const cashRows = rowsByCategory(rows, "cash_in_hand");
-  const bankCurrentRows = rowsByCategory(rows, "bank_current_account");
-  const bankSavingsRows = rowsByCategory(rows, "bank_savings_account");
-  const fdCurrentRows = rowsByCategory(rows, "bank_fixed_deposit_current");
-  const subledgerCashAssetBanks = (subledger?.bankAccounts ?? []).filter((b) => b.balance >= 0 && !isLoanBankType(b.accountType));
-  const subledgerBankRows = subledgerCashAssetBanks.map((b) => ({
-    accountName: b.bankName,
-    bankName: b.bankName,
-    accountType: mapSubledgerBankType(b.accountType),
-    closingBalance: round(b.balance),
-    openingBalance: 0
-  }));
-  const note38_cashEquivalents = {
-    cashInHand_cy: cashRows.reduce((s, r) => s + (r.closingDr ?? 0), 0),
-    cashInHand_py: cashRows.reduce((s, r) => s + (r.openingDr ?? 0), 0),
-    bankAccounts: subledgerBankRows.length > 0 ? subledgerBankRows : [
-      ...bankCurrentRows.map((r) => ({
-        accountName: r.rawLabel,
-        bankName: r.rawLabel,
-        accountType: "Current",
-        closingBalance: round((r.closingDr ?? 0) - (r.closingCr ?? 0)),
-        openingBalance: round((r.openingDr ?? 0) - (r.openingCr ?? 0))
-      })),
-      ...bankSavingsRows.map((r) => ({
-        accountName: r.rawLabel,
-        bankName: r.rawLabel,
-        accountType: "Savings",
-        closingBalance: round((r.closingDr ?? 0) - (r.closingCr ?? 0)),
-        openingBalance: round((r.openingDr ?? 0) - (r.openingCr ?? 0))
-      })),
-      ...fdCurrentRows.map((r) => ({
-        accountName: r.rawLabel,
-        bankName: r.rawLabel,
-        accountType: "Fixed Deposit (\u22643 months)",
-        closingBalance: round(r.closingDr ?? 0),
-        openingBalance: round(r.openingDr ?? 0)
-      }))
-    ],
-    totalCash_cy: round(
-      cashRows.reduce((s, r) => s + (r.closingDr ?? 0), 0) + (subledgerBankRows.length > 0 ? subledgerBankRows.reduce((s, b) => s + b.closingBalance, 0) : bankCurrentRows.reduce((s, r) => s + (r.closingDr ?? 0) - (r.closingCr ?? 0), 0) + bankSavingsRows.reduce((s, r) => s + (r.closingDr ?? 0) - (r.closingCr ?? 0), 0) + fdCurrentRows.reduce((s, r) => s + (r.closingDr ?? 0), 0))
-    ),
-    totalCash_py: round(
-      cashRows.reduce((s, r) => s + (r.openingDr ?? 0), 0) + (subledgerBankRows.length > 0 ? subledgerBankRows.reduce((s, b) => s + b.openingBalance, 0) : bankCurrentRows.reduce((s, r) => s + (r.openingDr ?? 0) - (r.openingCr ?? 0), 0) + bankSavingsRows.reduce((s, r) => s + (r.openingDr ?? 0) - (r.openingCr ?? 0), 0) + fdCurrentRows.reduce((s, r) => s + (r.openingDr ?? 0), 0))
-    )
-  };
-  const paidUpCapital = Math.abs(netClosing(rows, "share_capital"));
-  const paidUpCapitalOpen = Math.abs(
-    rows.filter((r) => r.nfrsCategory === "share_capital" && !r.isGroupRow).reduce((s, r) => s + (r.openingCr ?? 0) - (r.openingDr ?? 0), 0)
-  );
-  const sharesIssued = Math.round(paidUpCapital / 100);
-  const note39_shareCapital = {
-    ordinaryShares: {
-      authorizedAmount: paidUpCapital,
-      authorizedShares: sharesIssued,
-      parValuePerShare: 100,
-      openingIssuedShares: Math.round(paidUpCapitalOpen / 100),
-      openingPaidUp: paidUpCapitalOpen,
-      issuedDuringYear: 0,
-      issuedForCash: 0,
-      closingIssuedShares: sharesIssued,
-      closingPaidUp: paidUpCapital
-    },
-    preferenceShares: null,
-    restrictionsOnDistribution: null,
-    sharesReservedForOptions: 0
-  };
-  const sharePremiumClose = Math.abs(netClosing(rows, "share_premium"));
-  const sharePremiumOpen = Math.abs(
-    rows.filter((r) => r.nfrsCategory === "share_premium" && !r.isGroupRow).reduce((s, r) => s + (r.openingCr ?? 0) - (r.openingDr ?? 0), 0)
-  );
-  const genReserveClose = Math.abs(netClosing(rows, "general_reserve"));
-  const genReserveOpen = Math.abs(
-    rows.filter((r) => r.nfrsCategory === "general_reserve" && !r.isGroupRow).reduce((s, r) => s + (r.openingCr ?? 0) - (r.openingDr ?? 0), 0)
-  );
-  const retainedClose = Math.abs(netClosing(rows, "retained_earnings"));
-  const retainedOpen = Math.abs(
-    rows.filter((r) => r.nfrsCategory === "retained_earnings" && !r.isGroupRow).reduce((s, r) => s + (r.openingCr ?? 0) - (r.openingDr ?? 0), 0)
-  );
-  const note310_reserves = {
-    sharePremium: {
-      opening: sharePremiumOpen,
-      additions: round(sharePremiumClose - sharePremiumOpen),
-      closing: sharePremiumClose
-    },
-    generalReserve: {
-      opening: genReserveOpen,
-      transferFromProfit: round(genReserveClose - genReserveOpen),
-      closing: genReserveClose
-    },
-    retainedEarnings: {
-      opening: retainedOpen,
-      netProfitForYear: IS.netProfit ?? 0,
-      dividendsDeclared: 0,
-      transferToReserve: round(genReserveClose - genReserveOpen),
-      closing: retainedClose
-    },
-    otherReserves: Math.abs(netClosing(rows, "other_reserves"))
-  };
-  const ltBankRows = rowsByCategory(rows, "borrowings_noncurrent_bank");
-  const ltOtherRows = rowsByCategory(rows, "borrowings_noncurrent_other");
-  const stOdRows = rowsByCategory(rows, "borrowings_current_od");
-  const stCcRows = rowsByCategory(rows, "borrowings_current_cc");
-  const stWcRows = rowsByCategory(rows, "borrowings_current_wc");
-  const stPortionRows = rowsByCategory(rows, "borrowings_current_portion_lt");
-  const rpPayableRows = rowsByCategory(rows, "related_party_payable");
-  const subledgerLoanBanks = (subledger?.bankAccounts ?? []).filter(
-    (b) => isLoanBankType(b.accountType) || b.balance < 0
-  );
-  const subledgerLoanCurrent = subledgerLoanBanks.filter((b) => ["overdraft", "cash_credit", "working_capital"].includes(b.accountType)).map((b) => ({
-    lenderName: b.bankName,
-    type: b.accountType === "overdraft" ? "Bank Overdraft" : b.accountType === "cash_credit" ? "Cash Credit" : "Working Capital Loan",
-    secured: !!b.securedBy,
-    balance_cy: Math.abs(b.balance),
-    balance_py: 0
-  }));
-  const subledgerLoanNonCurrent = subledgerLoanBanks.filter((b) => b.accountType === "loan").map((b) => ({
-    lenderName: b.bankName,
-    type: "Bank Term Loan",
-    secured: !!b.securedBy,
-    interestRate: b.interestRate ?? 0,
-    maturityDate: b.maturityDate ?? null,
-    balance_cy: Math.abs(b.balance),
-    balance_py: 0
-  }));
-  const subledgerRpPayableLoans = (subledger?.relatedParties ?? []).filter((rp) => rp.balanceType === "payable").map((rp) => ({
-    lenderName: rp.partyName,
-    type: "Related Party Loan",
-    secured: false,
-    balance_cy: Math.abs(rp.outstandingBalance),
-    balance_py: 0
-  }));
-  const note311_borrowings = {
-    nonCurrent: [
-      ...ltBankRows.map((r) => ({
-        lenderName: r.rawLabel,
-        type: "Bank Term Loan",
-        secured: true,
-        interestRate: 0,
-        maturityDate: null,
-        balance_cy: Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)),
-        balance_py: Math.abs((r.openingCr ?? 0) - (r.openingDr ?? 0))
-      })),
-      ...ltOtherRows.map((r) => ({
-        lenderName: r.rawLabel,
-        type: "Other Loan",
-        secured: false,
-        interestRate: 0,
-        maturityDate: null,
-        balance_cy: Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)),
-        balance_py: Math.abs((r.openingCr ?? 0) - (r.openingDr ?? 0))
-      })),
-      ...subledgerLoanNonCurrent
-    ],
-    current: [
-      ...stOdRows.map((r) => ({
-        lenderName: r.rawLabel,
-        type: "Bank Overdraft",
-        secured: true,
-        balance_cy: Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)),
-        balance_py: Math.abs((r.openingCr ?? 0) - (r.openingDr ?? 0))
-      })),
-      ...stCcRows.map((r) => ({
-        lenderName: r.rawLabel,
-        type: "Cash Credit",
-        secured: true,
-        balance_cy: Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)),
-        balance_py: Math.abs((r.openingCr ?? 0) - (r.openingDr ?? 0))
-      })),
-      ...stWcRows.map((r) => ({
-        lenderName: r.rawLabel,
-        type: "Working Capital Loan",
-        secured: true,
-        balance_cy: Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)),
-        balance_py: Math.abs((r.openingCr ?? 0) - (r.openingDr ?? 0))
-      })),
-      ...stPortionRows.map((r) => ({
-        lenderName: r.rawLabel,
-        type: "Current Portion of Long-Term Loan",
-        secured: true,
-        balance_cy: Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)),
-        balance_py: Math.abs((r.openingCr ?? 0) - (r.openingDr ?? 0))
-      })),
-      ...rpPayableRows.map((r) => ({
-        lenderName: r.rawLabel,
-        type: "Related Party Loan",
-        secured: false,
-        balance_cy: Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)),
-        balance_py: Math.abs((r.openingCr ?? 0) - (r.openingDr ?? 0))
-      })),
-      ...subledgerLoanCurrent,
-      ...subledgerRpPayableLoans
-    ],
-    totalNonCurrent_cy: ltBankRows.reduce((s, r) => s + Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)), 0) + ltOtherRows.reduce((s, r) => s + Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)), 0) + subledgerLoanNonCurrent.reduce((s, r) => s + r.balance_cy, 0),
-    totalCurrent_cy: [stOdRows, stCcRows, stWcRows, stPortionRows, rpPayableRows].flat().reduce((s, r) => s + Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)), 0) + subledgerLoanCurrent.reduce((s, r) => s + r.balance_cy, 0) + subledgerRpPayableLoans.reduce((s, r) => s + r.balance_cy, 0)
-  };
-  const gratuityProv = provisions.find((p) => p.provisionType === "gratuity");
-  const leaveProv = provisions.find((p) => p.provisionType === "leave_encashment");
-  const bonusProv = provisions.find((p) => p.provisionType === "bonus");
-  const note312_employeeBenefits = {
-    definedBenefit: {
-      description: "Gratuity (as per Labour Act 2074)",
-      openingBalance: gratuityProv?.openingBalance ?? 0,
-      expenseForYear: gratuityProv?.additionForYear ?? 0,
-      paidDuringYear: gratuityProv?.utilisedDuringYear ?? 0,
-      closingBalance: gratuityProv?.closingBalance ?? sumTB(rows, "employee_benefit_gratuity", "closingCr"),
-      nonCurrentPortion: gratuityProv?.closingBalance ?? 0,
-      currentPortion: 0
-    },
-    definedContribution: {
-      pfContribution: sumTB(rows, "employee_payables_pf", "closingCr"),
-      ssfContribution: 0
-    },
-    leaveEncashment: {
-      openingBalance: leaveProv?.openingBalance ?? 0,
-      expenseForYear: leaveProv?.additionForYear ?? 0,
-      paidDuringYear: leaveProv?.utilisedDuringYear ?? 0,
-      closingBalance: leaveProv?.closingBalance ?? 0
-    },
-    salaryPayable: sumTB(rows, "employee_payables_salary", "closingCr"),
-    bonusPayable: bonusProv?.closingBalance ?? sumTB(rows, "employee_payables_bonus", "closingCr"),
-    totalCurrentEmployeeLiabilities: round(
-      sumTB(rows, "employee_payables_salary", "closingCr") + (bonusProv?.closingBalance ?? sumTB(rows, "employee_payables_bonus", "closingCr")) + sumTB(rows, "employee_payables_pf", "closingCr")
-    ),
-    totalNonCurrentEmployeeLiabilities: gratuityProv?.closingBalance ?? 0
-  };
-  const creditorRows = rowsByCategory(rows, "trade_payables_creditors");
-  const advFromCustRows = rowsByCategory(rows, "trade_payables_advance_customers");
-  const auditFeeRows = rowsByCategory(rows, "audit_fee_payable");
-  const vatRows = rowsByCategory(rows, "other_payables");
-  const tdsPayRows = rowsByCategory(rows, "tds_payable");
-  const note313_tradePayables = {
-    tradeCreditors: creditorRows.reduce((s, r) => s + Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)), 0),
-    advanceFromCustomers: advFromCustRows.reduce((s, r) => s + Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)), 0),
-    auditFeePayable: auditFeeRows.reduce((s, r) => s + Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)), 0),
-    vatPayable: vatRows.reduce((s, r) => s + Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)), 0),
-    tdsPayableBreakdown: tdsPayRows.map((r) => ({
-      ledgerName: r.rawLabel,
-      amount: Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0))
-    })),
-    tdsPayableTotal: tdsPayRows.reduce((s, r) => s + Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)), 0),
-    otherAccruals: 0,
-    total: round(
-      creditorRows.reduce((s, r) => s + Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)), 0) + advFromCustRows.reduce((s, r) => s + Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)), 0) + auditFeeRows.reduce((s, r) => s + Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)), 0) + vatRows.reduce((s, r) => s + Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)), 0) + tdsPayRows.reduce((s, r) => s + Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)), 0)
-    ),
-    // Previous year
-    tradeCreditors_py: creditorRows.reduce((s, r) => s + Math.abs((r.openingCr ?? 0) - (r.openingDr ?? 0)), 0),
-    auditFeePayable_py: auditFeeRows.reduce((s, r) => s + Math.abs((r.openingCr ?? 0) - (r.openingDr ?? 0)), 0),
-    vatPayable_py: vatRows.reduce((s, r) => s + Math.abs((r.openingCr ?? 0) - (r.openingDr ?? 0)), 0),
-    tdsPayableTotal_py: tdsPayRows.reduce((s, r) => s + Math.abs((r.openingCr ?? 0) - (r.openingDr ?? 0)), 0)
-  };
-  const advanceTaxPaid = sumTB(rows, "advance_tax_paid", "closingDr");
-  const tdsCredit = sumTB(rows, "other_receivables_tds", "closingDr");
-  const taxPayable = Math.abs(sumTB(rows, "income_tax_payable", "closingCr"));
-  const currentTaxExpense = IS.incomeTaxExpense ?? 0;
-  const note314_taxComputation = {
-    advanceTaxPaid,
-    tdsCreditAvailable: tdsCredit,
-    incomeTaxForYear: currentTaxExpense,
-    netTaxLiability: Math.max(0, currentTaxExpense - advanceTaxPaid - tdsCredit),
-    taxRecoverable: Math.max(0, advanceTaxPaid + tdsCredit - currentTaxExpense)
-  };
-  const saleOfGoods = sumTB(rows, "revenue_sales", "closingCr");
-  const saleOfServices = sumTB(rows, "revenue_services", "closingCr");
-  const note315_revenue = {
-    saleOfGoods_cy: saleOfGoods,
-    saleOfServices_cy: saleOfServices,
-    totalRevenue_cy: round(saleOfGoods + saleOfServices),
-    saleOfGoods_py: sumTB(rows, "revenue_sales", "openingCr"),
-    saleOfServices_py: sumTB(rows, "revenue_services", "openingCr"),
-    totalRevenue_py: round(
-      sumTB(rows, "revenue_sales", "openingCr") + sumTB(rows, "revenue_services", "openingCr")
-    )
-  };
-  const dividendPayableBalance = Math.abs(
-    sumTB(rows, "dividend_payable", "closingCr")
-  );
-  const paidUpForDividend = note39_shareCapital.ordinaryShares.closingPaidUp;
-  const declaredRate = paidUpForDividend > 0 && dividendPayableBalance > 0 ? round(dividendPayableBalance / paidUpForDividend * 100) : 0;
-  const note316_dividendPayable = {
-    hasDividend: dividendPayableBalance > 0,
-    paidUpCapital: paidUpForDividend,
-    declaredRatePercent: declaredRate,
-    amountPerShare: note39_shareCapital.ordinaryShares.closingIssuedShares > 0 ? round(dividendPayableBalance / note39_shareCapital.ordinaryShares.closingIssuedShares) : 0,
-    totalDividendDeclared: dividendPayableBalance,
-    tdsOnDividend: round(dividendPayableBalance * 0.05),
-    netDividendPayable: round(dividendPayableBalance * 0.95)
-  };
-  const otherIncomeRows = [
-    "other_income_interest",
-    "other_income_dividend",
-    "other_income_rental",
-    "other_income_disposal_gain",
-    "other_income_misc"
-  ];
-  const note317_revenueDetailed = {
-    saleOfGoods: {
-      cy: sumTB(rows, "revenue_sales", "closingCr"),
-      py: sumTB(rows, "revenue_sales", "openingCr")
-    },
-    renderingOfServices: {
-      cy: sumTB(rows, "revenue_services", "closingCr"),
-      py: sumTB(rows, "revenue_services", "openingCr")
-    },
-    interestIncome: {
-      cy: sumTB(rows, "other_income_interest", "closingCr"),
-      py: sumTB(rows, "other_income_interest", "openingCr")
-    },
-    dividendIncome: {
-      cy: sumTB(rows, "other_income_dividend", "closingCr"),
-      py: sumTB(rows, "other_income_dividend", "openingCr")
-    },
-    otherIncome: {
-      cy: otherIncomeRows.reduce((s, c) => s + sumTB(rows, c, "closingCr"), 0),
-      py: otherIncomeRows.reduce((s, c) => s + sumTB(rows, c, "openingCr"), 0)
-    },
-    totalIncome: {
-      cy: IS.totalIncome ?? 0,
-      py: IS.totalIncome_py ?? 0
-    }
-  };
-  const rmOpenForConsumed = sumTB(rows, "inventory_raw_materials", "openingDr");
-  const purchases = sumTB(rows, "cogs_purchases", "closingDr");
-  const rmCloseForConsumed = sumTB(rows, "inventory_raw_materials", "closingDr");
-  const materialConsumed = round(rmOpenForConsumed + purchases - rmCloseForConsumed);
-  const fgWipOpenForChange = round(fgOpening + wipOpening);
-  const fgWipCloseForChange = round(fgClosing + wipClosing);
-  const changeInInventories = round(fgWipOpenForChange - fgWipCloseForChange);
-  const directWages = sumTB(rows, "direct_wages", "closingDr");
-  const directOther = sumTB(rows, "direct_expenses_other", "closingDr");
-  const note318_materialConsumed = {
-    openingRawMaterial: rmOpenForConsumed,
-    purchasesDuringYear: purchases,
-    closingRawMaterial: rmCloseForConsumed,
-    rawMaterialConsumed: materialConsumed,
-    changeInInventoriesFGWIP: changeInInventories,
-    openingFGWIP: fgWipOpenForChange,
-    closingFGWIP: fgWipCloseForChange,
-    directWages,
-    otherDirectExpenses: directOther,
-    totalCostOfProduction: round(materialConsumed + changeInInventories + directWages + directOther)
-  };
-  const note319_otherIncome = {
-    interestIncome: { cy: sumTB(rows, "other_income_interest", "closingCr"), py: 0 },
-    commissionIncome: { cy: 0, py: 0 },
-    rentalIncome: { cy: sumTB(rows, "other_income_rental", "closingCr"), py: 0 },
-    dividendReceived: { cy: sumTB(rows, "other_income_dividend", "closingCr"), py: 0 },
-    gainOnDisposalAssets: { cy: sumTB(rows, "other_income_disposal_gain", "closingCr"), py: 0 },
-    insuranceClaims: { cy: 0, py: 0 },
-    fairValueGainOnInvestments: {
-      cy: investmentAdjs.filter((i) => (i.fairValueGainLoss ?? 0) > 0).reduce((s, i) => s + (i.fairValueGainLoss ?? 0), 0),
-      py: 0
-    },
-    miscellaneousIncome: { cy: sumTB(rows, "other_income_misc", "closingCr"), py: 0 },
-    total: {
-      cy: round(
-        sumTB(rows, "other_income_interest", "closingCr") + sumTB(rows, "other_income_rental", "closingCr") + sumTB(rows, "other_income_dividend", "closingCr") + sumTB(rows, "other_income_disposal_gain", "closingCr") + sumTB(rows, "other_income_misc", "closingCr") + investmentAdjs.filter((i) => (i.fairValueGainLoss ?? 0) > 0).reduce((s, i) => s + (i.fairValueGainLoss ?? 0), 0)
-      ),
-      py: 0
-    }
-  };
-  const salariesExp = sumTB(rows, "emp_expense_salaries", "closingDr");
-  const pfExp = sumTB(rows, "emp_expense_pf", "closingDr");
-  const gratuityExp = gratuityProv?.additionForYear ?? sumTB(rows, "emp_expense_gratuity", "closingDr");
-  const welfareExp = sumTB(rows, "emp_expense_welfare", "closingDr");
-  const bonusExp = IS.staffBonus ?? bonusProv?.additionForYear ?? 0;
-  const leaveExp = leaveProv?.additionForYear ?? sumTB(rows, "emp_expense_leave", "closingDr");
-  const otherEmpExp = sumTB(rows, "emp_expense_other", "closingDr");
-  const note320_employeeExpenses = {
-    salariesWages: { cy: salariesExp, py: 0 },
-    allowances: { cy: 0, py: 0 },
-    pfSsfContribution: { cy: pfExp, py: 0 },
-    gratuityExpense: { cy: gratuityExp, py: 0 },
-    leaveEncashment: { cy: leaveExp, py: 0 },
-    staffBonusExpense: { cy: bonusExp, py: 0 },
-    staffWelfare: { cy: welfareExp, py: 0 },
-    otherEmployeeCosts: { cy: otherEmpExp, py: 0 },
-    totalEmployeeExpenses: { cy: round(salariesExp + pfExp + gratuityExp + welfareExp + bonusExp + leaveExp + otherEmpExp), py: 0 },
-    kmpCompensation: {
-      description: "Key Management Personnel Compensation",
-      salary: 0,
-      bonus: 0,
-      otherBenefits: 0,
-      total: 0
-    }
-  };
-  const note321_depreciation = {
-    byClass: note31_ppe.map((item) => ({
-      categoryName: item.categoryName,
-      depreciationForYear: item.depnForYear
-    })),
-    totalDepreciation: round(note31_ppe.reduce((s, item) => s + item.depnForYear, 0)),
-    totalDepreciation_py: 0
-  };
-  const ADMIN_CATEGORIES2 = [
-    { cat: "admin_rent", label: "Rent / Lease Rentals" },
-    { cat: "admin_communication", label: "Communication Expenses" },
-    { cat: "admin_printing", label: "Printing & Stationery" },
-    { cat: "admin_traveling", label: "Travel & Conveyance" },
-    { cat: "admin_advertisement", label: "Advertisement & Promotion" },
-    { cat: "admin_audit_fee", label: "Audit Fees" },
-    { cat: "admin_legal_professional", label: "Professional & Legal Fees" },
-    { cat: "admin_rates_taxes", label: "Board & AGM / Rates & Taxes" },
-    { cat: "admin_repairs", label: "Repairs & Maintenance" },
-    { cat: "admin_insurance", label: "Insurance Premium" },
-    { cat: "finance_cost_bank_charges", label: "Bank Charges" },
-    { cat: "admin_other", label: "CSR & Other Miscellaneous" }
-  ];
-  const note322_adminExpenses = {
-    lineItems: ADMIN_CATEGORIES2.map((ac) => ({
-      label: ac.label,
-      cy: sumTB(rows, ac.cat, "closingDr"),
-      py: 0
-    })).filter((li) => li.cy > 0),
-    total_cy: round(ADMIN_CATEGORIES2.reduce((s, ac) => s + sumTB(rows, ac.cat, "closingDr"), 0)),
-    total_py: 0
-  };
-  const bookProfit = IS.profitBeforeTax ?? 0;
-  const bookDepreciation = adj.depreciationSummary?.reduce((s, d) => s + d.depnForYear, 0) ?? 0;
-  const taxDepreciation = (adj.depreciationSummary ?? []).reduce((total, d) => {
-    const rate = TAX_DEPN_RATES[d.categoryId] ?? 0.1;
-    const basis = d.openingCost + d.additions - d.disposals - d.openingAccumDepn;
-    return total + Math.max(0, basis) * rate;
-  }, 0);
-  const disallowableExpenses = {
-    "Accounting Depreciation": bookDepreciation,
-    "Provisions (non-deductible)": provisions.reduce((s, p) => s + (p.closingBalance ?? 0), 0)
-  };
-  const allowableDeductions = {
-    "Tax Depreciation (ITA 2058)": taxDepreciation
-  };
-  const taxResult = computeIncomeTax({
-    bookProfit,
-    taxRate,
-    disallowableExpenses,
-    allowableExpenses: allowableDeductions,
-    advanceTaxPaid: advanceTaxPaid + tdsCredit,
-    tdsCredit: 0,
-    previousYearLoss: 0
-  });
-  const note323_taxExpense = {
-    currentTaxExpense: round(taxResult.currentTaxExpense),
-    deferredTaxExpense: 0,
-    priorYearAdjustment: 0,
-    totalTaxExpense: round(taxResult.currentTaxExpense),
-    effectiveTaxRate: taxResult.effectiveTaxRate,
-    reconciliation: {
-      profitBeforeTax: bookProfit,
-      disallowableExpenses,
-      allowableDeductions,
-      taxableProfit: round(taxResult.taxableIncome),
-      taxAtStatutoryRate: round(taxResult.taxableIncome * taxRate),
-      taxAdjustments: 0,
-      totalCurrentTax: round(taxResult.currentTaxExpense)
-    },
-    taxDepreciationByPool: (adj.taxDepreciationPools ?? []).map((pool) => ({
-      poolName: pool.poolName,
-      rate: pool.rate,
-      openingBasis: pool.openingBasis,
-      additions: pool.additionsFullYear + pool.additionsTwoThirds + pool.additionsOneThird,
-      disposals: pool.disposals,
-      depreciationBasis: pool.depreciationBasis,
-      taxDepreciation: pool.taxDepreciation,
-      closingBasis: pool.closingBasis
-    })),
-    advanceTaxPaid,
-    tdsCreditAvailable: tdsCredit,
-    netTaxPayable: round(taxResult.taxPayable)
-  };
-  const rpReceivableRows = rowsByCategory(rows, "related_party_receivable");
-  const rpPayRows = rowsByCategory(rows, "related_party_payable");
-  const subledgerRelatedParties = subledger?.relatedParties?.length ? subledger.relatedParties : adj.relatedParties ?? [];
-  const note324_relatedParty = {
-    relatedParties: subledgerRelatedParties.length > 0 ? subledgerRelatedParties.map((rp) => {
-      const row = rp;
-      const balanceType = String(row.balanceType ?? "receivable");
-      const txns = row.transactionsCurrentYear ?? [];
-      return {
-        partyName: String(row.partyName ?? row.name ?? ""),
-        relationship: String(row.relationshipType ?? row.relationship ?? "Related Party"),
-        natureOfTransaction: balanceType === "payable" ? "Loan Received" : "Loan Given",
-        transactionAmount: txns.reduce((s, t) => s + (t.amount ?? 0), 0),
-        outstandingBalance: Math.abs(Number(row.outstandingBalance ?? row.balanceCY ?? 0)),
-        balanceType: balanceType === "payable" ? "Payable" : "Receivable",
-        atArmSLength: Boolean(row.isArmLength ?? false)
-      };
-    }) : [
-      ...rpPayRows.map((r) => ({
-        partyName: r.rawLabel,
-        relationship: "Director / Related Party",
-        natureOfTransaction: "Loan Received",
-        transactionAmount: 0,
-        outstandingBalance: Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)),
-        balanceType: "Payable",
-        atArmSLength: false
-      })),
-      ...rpReceivableRows.map((r) => ({
-        partyName: r.rawLabel,
-        relationship: "Director / Related Party",
-        natureOfTransaction: "Loan Given",
-        transactionAmount: 0,
-        outstandingBalance: Math.abs((r.closingDr ?? 0) - (r.closingCr ?? 0)),
-        balanceType: "Receivable",
-        atArmSLength: false
-      }))
-    ],
-    kmpCompensationTotal: 0,
-    noRelatedPartyTransactions: subledgerRelatedParties.length === 0 && rpPayRows.length === 0 && rpReceivableRows.length === 0
-  };
-  const nas = company.nasCompliance ?? {};
-  const hasContingencies = Boolean(nas.contingentLiabilities || nas.leaseArrangements);
-  const contingencyParts = [];
-  if (nas.contingentLiabilities) {
-    contingencyParts.push(
-      "Management has confirmed the existence of contingent liabilities that require disclosure in accordance with NAS for MEs."
-    );
-  }
-  if (nas.leaseArrangements) {
-    contingencyParts.push(
-      "The Company has lease arrangements (finance or operating) that may give rise to commitments requiring disclosure."
-    );
-  }
-  const note325_contingencies = {
-    hasContingencies,
-    bankGuaranteesIssued: 0,
-    lcOpened: 0,
-    legalCasesPending: [],
-    capitalCommitments: 0,
-    operatingLeaseCommitments: nas.leaseArrangements ? 1 : 0,
-    defaultText: hasContingencies ? contingencyParts.join(" ") : "The Company has no contingent liabilities or commitments as at the reporting date."
-  };
-  const hasSubsequentEvents = Boolean(nas.eventsAfterDate);
-  const note326_subsequentEvents = {
-    hasSubsequentEvents,
-    events: [],
-    defaultText: hasSubsequentEvents ? "Management has identified material events after the reporting date that require disclosure in these financial statements. Details are provided in the accompanying schedules." : "There are no significant events after the reporting date that require adjustment to or disclosure in these financial statements."
-  };
-  return {
-    note31_ppe,
-    note32_investments,
-    note33_tradeReceivables,
-    note34_otherCurrentAssets,
-    note35_biologicalAssets,
-    note36_heldForSale,
-    note37_inventories,
-    note38_cashEquivalents,
-    note39_shareCapital,
-    note310_reserves,
-    note311_borrowings,
-    note312_employeeBenefits,
-    note313_tradePayables,
-    note314_taxComputation,
-    note315_revenue,
-    note316_dividendPayable,
-    note317_revenueDetailed,
-    note318_materialConsumed,
-    note319_otherIncome,
-    note320_employeeExpenses,
-    note321_depreciation,
-    note322_adminExpenses,
-    note323_taxExpense,
-    note324_relatedParty,
-    note325_contingencies,
-    note326_subsequentEvents
-  };
-}
-
-// server/services/financialEngine.ts
-function rowMatchesCategory(rowCategory, categories) {
-  if (!rowCategory) return false;
-  const rowNorm = normalizeCategoryAlias(rowCategory);
-  for (const cat of categories) {
-    const catNorm = normalizeCategoryAlias(cat);
-    if (rowCategory === cat || rowNorm === catNorm || rowCategory === catNorm || rowNorm === cat) {
-      return true;
-    }
-  }
-  return false;
-}
-function sumDr(rows, ...categories) {
-  return rows.filter((r) => !r.isGroupRow && rowMatchesCategory(r.nfrsCategory, categories)).reduce((acc, r) => acc + (r.closingDr ?? 0), 0);
-}
-function sumCr(rows, ...categories) {
-  return rows.filter((r) => !r.isGroupRow && rowMatchesCategory(r.nfrsCategory, categories)).reduce((acc, r) => acc + (r.closingCr ?? 0), 0);
-}
-function sumOpeningDr(rows, ...categories) {
-  return rows.filter((r) => !r.isGroupRow && rowMatchesCategory(r.nfrsCategory, categories)).reduce((acc, r) => acc + (r.openingDr ?? 0), 0);
-}
-function sumOpeningCr(rows, ...categories) {
-  return rows.filter((r) => !r.isGroupRow && rowMatchesCategory(r.nfrsCategory, categories)).reduce((acc, r) => acc + (r.openingCr ?? 0), 0);
-}
-function netBalance(rows, ...categories) {
-  return sumDr(rows, ...categories) - sumCr(rows, ...categories);
-}
-var round2 = (n) => Math.round(n * 100) / 100;
-function splitCashAndOverdrafts(rows) {
-  const cashCats = /* @__PURE__ */ new Set(["cash_in_hand", "bank_current_account", "bank_fixed_deposit_current"]);
-  let cash = 0;
-  let overdrafts = 0;
-  for (const row of rows) {
-    if (!cashCats.has(row.nfrsCategory) || row.isGroupRow) continue;
-    const net = (row.closingDr ?? 0) - (row.closingCr ?? 0);
-    if (net >= 0) cash += net;
-    else overdrafts += -net;
-  }
-  return { cash: round2(cash), overdrafts: round2(overdrafts) };
-}
-var ADMIN_CATEGORIES = CHART_OF_ACCOUNTS.filter((e) => e.statementLine === "IS Admin" && !e.isGroup).map((e) => e.category).concat([
-  "admin_electricity",
-  "admin_printing",
-  "admin_legal_professional",
-  "admin_other",
-  "admin_traveling",
-  "admin_repairs",
-  "admin_rates_taxes"
-]);
-function inventoryFromAdj(adj, rows) {
-  const inv = adj.inventoryDetails;
-  const openingPY = inv ? inv.rawMaterialsPY + inv.wipPY + inv.finishedGoodsPY : sumOpeningDr(rows, "inventory_raw_materials", "inventory_wip", "inventory_finished_goods");
-  const closingCY = inv ? inv.rawMaterialsCY + inv.wipCY + inv.finishedGoodsCY : sumDr(rows, "inventory_raw_materials", "inventory_wip", "inventory_finished_goods");
-  return { openingPY, closingCY };
-}
-function computeIncomeStatement(tb, adj, company, previousYearIS = {}) {
-  const rows = tb.rows;
-  const revenue = round2(sumCr(rows, "revenue_sales", "revenue_services"));
-  const interestIncome = round2(
-    sumCr(rows, "other_income_interest", "interest_income")
-  );
-  const otherIncome = round2(
-    sumCr(rows, "other_income_dividend", "other_income_rental", "other_income_misc", "other_income_disposal_gain", "commission_income", "insurance_claim_income") + (adj.gainOnDisposals ?? 0) + (adj.investmentAdjustments ?? []).filter((i) => (i.fairValueGainLoss ?? 0) > 0).reduce((s, i) => s + (i.fairValueGainLoss ?? 0), 0)
-  );
-  const totalIncome = round2(revenue + interestIncome + otherIncome);
-  const { openingPY, closingCY } = inventoryFromAdj(adj, rows);
-  const materialConsumed = round2(
-    openingPY + sumDr(rows, "cogs_purchases", "cogs_opening_stock", "materials_consumed", "purchase") - closingCY
-  );
-  const directExpenses = round2(sumDr(rows, "direct_wages", "direct_expenses_other"));
-  const staffBonusProvision = adj.staffBonusProvision ?? round2(sumDr(rows, "emp_expense_bonus"));
-  const employeeBenefitExpense = round2(
-    sumDr(rows, "emp_expense_salaries", "emp_expense_welfare", "allowances_expense") + sumDr(rows, "emp_expense_pf", "emp_expense_gratuity", "emp_expense_other") + staffBonusProvision + sumDr(rows, "emp_expense_leave")
-  );
-  const financeCharges = round2(sumDr(rows, "finance_cost_interest", "finance_cost_bank_charges"));
-  const depreciation = round2(adj.totalDepreciationExpense ?? 0);
-  const impairment = round2(
-    sumDr(rows, "impairment_expense") + (adj.investmentAdjustments ?? []).reduce((s, i) => s + (i.impairmentAmount ?? 0), 0) + (adj.investmentAdjustments ?? []).filter((i) => (i.fairValueGainLoss ?? 0) < 0).reduce((s, i) => s + Math.abs(i.fairValueGainLoss ?? 0), 0)
-  );
-  const adminAndOtherExpenses = round2(
-    ADMIN_CATEGORIES.reduce((s, cat) => s + sumDr(rows, cat), 0)
-  );
-  const totalExpenses = round2(
-    materialConsumed + directExpenses + employeeBenefitExpense + financeCharges + depreciation + impairment + adminAndOtherExpenses
-  );
-  const profitBeforeStaffBonus = round2(totalIncome - (totalExpenses - staffBonusProvision));
-  const staffBonus = round2(staffBonusProvision);
-  const profitBeforeTax = round2(profitBeforeStaffBonus - staffBonus);
-  const incomeTaxExpense = round2(
-    adj.incomeTaxProvision ?? adj.currentTaxExpense ?? sumDr(rows, "income_tax_expense")
-  );
-  const netProfit = round2(profitBeforeTax - incomeTaxExpense);
-  return {
-    revenue,
-    interestIncome,
-    otherIncome,
-    totalIncome,
-    materialConsumed,
-    directExpenses,
-    employeeBenefitExpense,
-    financeCharges,
-    depreciation,
-    impairment,
-    adminAndOtherExpenses,
-    totalExpenses,
-    profitBeforeStaffBonus,
-    staffBonus,
-    profitBeforeTax,
-    incomeTaxExpense,
-    netProfit,
-    revenue_py: previousYearIS.revenue ?? 0,
-    interestIncome_py: previousYearIS.interestIncome ?? 0,
-    otherIncome_py: previousYearIS.otherIncome ?? 0,
-    totalIncome_py: previousYearIS.totalIncome ?? 0,
-    materialConsumed_py: previousYearIS.materialConsumed ?? 0,
-    directExpenses_py: previousYearIS.directExpenses ?? 0,
-    employeeBenefitExpense_py: previousYearIS.employeeBenefitExpense ?? 0,
-    financeCharges_py: previousYearIS.financeCharges ?? 0,
-    depreciation_py: previousYearIS.depreciation ?? 0,
-    impairment_py: previousYearIS.impairment ?? 0,
-    adminAndOtherExpenses_py: previousYearIS.adminAndOtherExpenses ?? 0,
-    totalExpenses_py: previousYearIS.totalExpenses ?? 0,
-    profitBeforeStaffBonus_py: previousYearIS.profitBeforeStaffBonus ?? 0,
-    staffBonus_py: previousYearIS.staffBonus ?? 0,
-    profitBeforeTax_py: previousYearIS.profitBeforeTax ?? 0,
-    incomeTaxExpense_py: previousYearIS.incomeTaxExpense ?? 0,
-    netProfit_py: previousYearIS.netProfit ?? 0
-  };
-}
-function computeBalanceSheet(tb, adj, is, company, previousYearBS = {}) {
-  const rows = tb.rows;
-  const grossPPE = sumDr(
-    rows,
-    "ppe_land",
-    "ppe_buildings",
-    "ppe_vehicles",
-    "ppe_office_equipment",
-    "ppe_computers",
-    "ppe_furniture",
-    "ppe_plant_machinery",
-    "ppe_intangibles",
-    "ppe_cwip"
-  );
-  const accumDepn = sumCr(rows, "accum_depreciation");
-  const depnInTB = round2(sumCr(rows, "accum_depreciation") - sumOpeningCr(rows, "accum_depreciation"));
-  const totalAccumDepn = depnInTB >= adj.totalDepreciationExpense * 0.99 ? accumDepn : accumDepn + adj.totalDepreciationExpense;
-  const nca_ppe = round2(Math.max(0, grossPPE - totalAccumDepn));
-  const listedFVAdj = (adj.investmentAdjustments ?? []).filter((i) => i.investmentType === "listed_trading" || i.investmentType === "listed_ats").reduce((s, i) => s + (i.fairValueGainLoss ?? 0), 0);
-  const unlistedImpair = (adj.investmentAdjustments ?? []).filter((i) => i.investmentType === "unlisted").reduce((s, i) => s + (i.impairmentAmount ?? 0), 0);
-  const invImpairmentProvision = sumCr(
-    rows,
-    "provision_impairment_investment",
-    "provision_impairment_investments"
-  );
-  const investmentListedTrading = round2(Math.max(0, sumDr(rows, "investment_listed_trading") + listedFVAdj));
-  const investmentUnlisted = sumDr(rows, "investment_unlisted") - unlistedImpair;
-  const investmentFD_NC = sumDr(rows, "investment_fixed_deposit_noncurrent");
-  const nca_investments = round2(Math.max(
-    0,
-    investmentUnlisted + investmentFD_NC - invImpairmentProvision
-  ));
-  const nca_receivables = round2(
-    sumDr(rows, "nca_deposits", "nca_loans_advances")
-  );
-  const nca_other = round2(
-    sumDr(rows, "biological_assets", "other_noncurrent_assets", "nca_other")
-  );
-  const totalNonCurrentAssets = round2(nca_ppe + nca_investments + nca_receivables + nca_other);
-  const ca_investments = investmentListedTrading;
-  const { closingCY } = inventoryFromAdj(adj, rows);
-  const ca_inventories = round2(Math.max(0, closingCY - (adj.totalInventoryImpairment ?? 0)));
-  const tradeRec = sumDr(rows, "trade_receivables");
-  const impairmentOnRec = sumCr(rows, "provision_impairment_debtors");
-  const ca_tradeReceivables = round2(Math.max(
-    0,
-    tradeRec - impairmentOnRec + sumDr(rows, "related_party_receivable") + sumDr(
-      rows,
-      "other_receivables_advance_supplier",
-      "other_receivables_prepayments",
-      "other_receivables_staff_advance",
-      "other_receivables_tds",
-      "other_receivables_loans"
-    )
-  ));
-  const { cash: cashNet, overdrafts: bankOverdrafts } = splitCashAndOverdrafts(rows);
-  const ca_cashAndEquivalents = cashNet;
-  const ca_other = round2(sumDr(rows, "lc_bg_margin", "other_current_assets", "nca_held_for_sale"));
-  const totalCurrentAssets = round2(
-    ca_investments + ca_inventories + ca_tradeReceivables + ca_cashAndEquivalents + ca_other
-  );
-  const totalAssets = round2(totalNonCurrentAssets + totalCurrentAssets);
-  const shareCapital = round2(sumCr(rows, "share_capital"));
-  const sharePremium = round2(sumCr(rows, "share_premium"));
-  const reserves = round2(sumCr(rows, "capital_reserve", "revaluation_reserve"));
-  const dividendDeclared = adj.dividendPayable ?? sumCr(rows, "dividend_payable") ?? round2((company.dividendDeclaredPercent ?? 0) / 100 * shareCapital);
-  const openingRE = round2(
-    sumOpeningCr(rows, "retained_earnings", "general_reserve") - sumOpeningDr(rows, "retained_earnings", "general_reserve")
-  );
-  const eq_retainedEarnings = round2(openingRE + is.netProfit - dividendDeclared);
-  const eq_shareCapital = round2(shareCapital + sharePremium);
-  const eq_reserves = round2(reserves);
-  const totalEquity = round2(eq_shareCapital + eq_reserves + eq_retainedEarnings);
-  const ncl_borrowings = round2(
-    sumCr(rows, "borrowings_noncurrent_bank", "borrowings_noncurrent_other", "borrowings_noncurrent_related")
-  );
-  const ncl_employeeBenefits = round2(sumCr(rows, "employee_benefit_noncurrent", "employee_benefit_gratuity"));
-  const ncl_provisions = 0;
-  const ncl_deferredTax = 0;
-  const totalNonCurrentLiabilities = round2(
-    ncl_borrowings + ncl_employeeBenefits + ncl_provisions + ncl_deferredTax
-  );
-  const cl_borrowings = round2(
-    sumCr(
-      rows,
-      "borrowings_current_od",
-      "borrowings_current_cc",
-      "borrowings_current_wc",
-      "borrowings_current_portion_lt",
-      "borrowings_related_current",
-      "related_party_payable"
-    ) + bankOverdrafts
-  );
-  const cl_tradePayables = round2(
-    sumCr(
-      rows,
-      "trade_payables_creditors",
-      "trade_payables",
-      "audit_fee_payable",
-      "tds_payable",
-      "other_payables",
-      "trade_payables_advance_customers",
-      "vat_payable"
-    )
-  );
-  const incomeTaxPayable = round2(sumCr(rows, "income_tax_payable"));
-  const advanceTax = round2(sumDr(rows, "advance_tax_paid", "other_receivables_tds"));
-  const cl_incomeTaxPayable = round2(Math.max(
-    0,
-    incomeTaxPayable - advanceTax - (adj.incomeTaxPaidPY ?? 0) + Math.max(0, (adj.incomeTaxProvision ?? 0) - sumDr(rows, "income_tax_expense"))
-  ));
-  const cl_provisions = round2(
-    sumCr(
-      rows,
-      "provisions_csr",
-      "provisions_current",
-      "employee_payables_pf",
-      "employee_payables_salary",
-      "employee_payables_bonus"
-    )
-  );
-  const cl_other = round2(sumCr(rows, "advance_from_customers", "dividend_payable"));
-  const totalCurrentLiabilities = round2(
-    cl_borrowings + cl_tradePayables + cl_incomeTaxPayable + cl_provisions + cl_other
-  );
-  const totalEquityAndLiabilities = round2(totalEquity + totalNonCurrentLiabilities + totalCurrentLiabilities);
-  const checkDifference = round2(totalAssets - totalEquityAndLiabilities);
-  return {
-    nca_ppe,
-    nca_investments,
-    nca_receivables,
-    nca_other,
-    totalNonCurrentAssets,
-    ca_investments,
-    ca_inventories,
-    ca_tradeReceivables,
-    ca_cashAndEquivalents,
-    ca_other,
-    totalCurrentAssets,
-    totalAssets,
-    eq_shareCapital,
-    eq_reserves,
-    eq_retainedEarnings,
-    totalEquity,
-    ncl_borrowings,
-    ncl_employeeBenefits,
-    ncl_provisions,
-    ncl_deferredTax,
-    totalNonCurrentLiabilities,
-    cl_borrowings,
-    cl_tradePayables,
-    cl_incomeTaxPayable,
-    cl_provisions,
-    cl_other,
-    totalCurrentLiabilities,
-    totalEquityAndLiabilities,
-    checkDifference,
-    nca_ppe_py: previousYearBS.nca_ppe ?? 0,
-    nca_investments_py: previousYearBS.nca_investments ?? 0,
-    nca_receivables_py: previousYearBS.nca_receivables ?? 0,
-    nca_other_py: previousYearBS.nca_other ?? 0,
-    totalNonCurrentAssets_py: previousYearBS.totalNonCurrentAssets ?? 0,
-    ca_investments_py: previousYearBS.ca_investments ?? 0,
-    ca_inventories_py: previousYearBS.ca_inventories ?? 0,
-    ca_tradeReceivables_py: previousYearBS.ca_tradeReceivables ?? 0,
-    ca_cashAndEquivalents_py: previousYearBS.ca_cashAndEquivalents ?? 0,
-    ca_other_py: previousYearBS.ca_other ?? 0,
-    totalCurrentAssets_py: previousYearBS.totalCurrentAssets ?? 0,
-    totalAssets_py: previousYearBS.totalAssets ?? 0,
-    eq_shareCapital_py: previousYearBS.eq_shareCapital ?? 0,
-    eq_reserves_py: previousYearBS.eq_reserves ?? 0,
-    eq_retainedEarnings_py: previousYearBS.eq_retainedEarnings ?? 0,
-    totalEquity_py: previousYearBS.totalEquity ?? 0,
-    ncl_borrowings_py: previousYearBS.ncl_borrowings ?? 0,
-    ncl_employeeBenefits_py: previousYearBS.ncl_employeeBenefits ?? 0,
-    ncl_provisions_py: previousYearBS.ncl_provisions ?? 0,
-    ncl_deferredTax_py: previousYearBS.ncl_deferredTax ?? 0,
-    totalNonCurrentLiabilities_py: previousYearBS.totalNonCurrentLiabilities ?? 0,
-    cl_borrowings_py: previousYearBS.cl_borrowings ?? 0,
-    cl_tradePayables_py: previousYearBS.cl_tradePayables ?? 0,
-    cl_incomeTaxPayable_py: previousYearBS.cl_incomeTaxPayable ?? 0,
-    cl_provisions_py: previousYearBS.cl_provisions ?? 0,
-    cl_other_py: previousYearBS.cl_other ?? 0,
-    totalCurrentLiabilities_py: previousYearBS.totalCurrentLiabilities ?? 0,
-    totalEquityAndLiabilities_py: previousYearBS.totalEquityAndLiabilities ?? 0,
-    checkDifference_py: previousYearBS.checkDifference ?? 0
-  };
-}
-function computeChangesInEquity(tb, adj, is, company, previousCIE) {
-  const rows = tb.rows;
-  const shareCapital = sumCr(rows, "share_capital");
-  const sharePremium = sumCr(rows, "share_premium");
-  const otherReserves = sumCr(rows, "general_reserve", "capital_reserve", "revaluation_reserve");
-  const openingShareCapital = sumOpeningCr(rows, "share_capital");
-  const openingSharePremium = sumOpeningCr(rows, "share_premium");
-  const openingOtherReserves = sumOpeningCr(rows, "general_reserve", "capital_reserve", "revaluation_reserve");
-  const openingRetained = round2(
-    sumOpeningCr(rows, "retained_earnings", "general_reserve") - sumOpeningDr(rows, "retained_earnings", "general_reserve")
-  );
-  const shareIssued = company.shareIssuedDuringYear ? round2(company.shareIssuedDuringYear * 100) : round2(shareCapital - openingShareCapital);
-  const dividendDeclared = adj.dividendPayable ?? sumCr(rows, "dividend_payable") ?? round2((company.dividendDeclaredPercent ?? 0) / 100 * openingShareCapital);
-  const closingRetained = round2(openingRetained + is.netProfit - dividendDeclared);
-  return {
-    cyOpeningShareCapital: round2(openingShareCapital),
-    cyOpeningSharePremium: round2(openingSharePremium),
-    cyOpeningGeneralReserve: round2(openingOtherReserves),
-    cyOpeningRetainedEarnings: round2(openingRetained),
-    cyOpeningTotal: round2(openingShareCapital + openingSharePremium + openingOtherReserves + openingRetained),
-    cyNetProfit: round2(is.netProfit),
-    cyShareCapitalIssued: shareIssued,
-    cySharePremiumReceived: round2(sharePremium - openingSharePremium),
-    cyTransferToReserve: 0,
-    cyDividends: round2(dividendDeclared),
-    cyClosingShareCapital: round2(shareCapital),
-    cyClosingSharePremium: round2(sharePremium),
-    cyClosingGeneralReserve: round2(otherReserves),
-    cyClosingRetainedEarnings: closingRetained,
-    cyClosingTotal: round2(shareCapital + sharePremium + otherReserves + closingRetained),
-    ...previousCIE
-  };
-}
-function computeCashFlow(tb, adj, is, bs, previousCF) {
-  const rows = tb.rows;
-  const profitBeforeTax = is.profitBeforeTax;
-  const addDepreciation = adj.totalDepreciationExpense ?? 0;
-  const addImpairment = is.impairment;
-  const lessInterestIncome = -is.interestIncome;
-  const lessDividendIncome = -sumCr(rows, "other_income_dividend");
-  const addInterestExpense = is.financeCharges;
-  const addLossOnDisposal = adj.lossOnDisposals ?? 0;
-  const lessGainOnDisposal = -(adj.gainOnDisposals ?? 0);
-  const fvLoss = (adj.investmentAdjustments ?? []).filter((i) => (i.fairValueGainLoss ?? 0) < 0).reduce((s, i) => s - (i.fairValueGainLoss ?? 0), 0);
-  const fvGain = (adj.investmentAdjustments ?? []).filter((i) => (i.fairValueGainLoss ?? 0) > 0).reduce((s, i) => s + (i.fairValueGainLoss ?? 0), 0);
-  const addFVLossOnInvestment = fvLoss;
-  const lessFVGainOnInvestment = -fvGain;
-  const prevTradeRec = previousCF?.decreaseIncreaseReceivables !== void 0 ? bs.ca_tradeReceivables + previousCF.decreaseIncreaseReceivables : round2(
-    sumOpeningDr(
-      rows,
-      "trade_receivables",
-      "other_receivables_advance_supplier",
-      "other_receivables_prepayments",
-      "other_receivables_staff_advance",
-      "other_receivables_loans",
-      "related_party_receivable"
-    ) - sumOpeningCr(rows, "provision_impairment_debtors")
-  );
-  const decreaseIncreaseReceivables = round2(prevTradeRec - bs.ca_tradeReceivables);
-  const { openingPY, closingCY } = inventoryFromAdj(adj, rows);
-  const prevInv = previousCF?.decreaseIncreaseInventory !== void 0 ? bs.ca_inventories + previousCF.decreaseIncreaseInventory : openingPY;
-  const decreaseIncreaseInventory = round2(prevInv - bs.ca_inventories);
-  const prevOtherCA = sumOpeningDr(rows, "other_current_assets", "nca_held_for_sale");
-  const decreaseIncreaseOtherCurrentAssets = round2(prevOtherCA - bs.ca_other);
-  const prevPayables = sumOpeningCr(
-    rows,
-    "trade_payables_creditors",
-    "tds_payable",
-    "other_payables",
-    "audit_fee_payable",
-    "trade_payables_advance_customers"
-  );
-  const increaseDecreasePayables = round2(bs.cl_tradePayables - prevPayables);
-  const prevTaxPayable = sumOpeningCr(rows, "income_tax_payable");
-  const increaseDecreaseIncomeTaxPayable = round2(bs.cl_incomeTaxPayable - prevTaxPayable);
-  const prevEmpLiab = sumOpeningCr(
-    rows,
-    "employee_payables_pf",
-    "employee_payables_bonus",
-    "employee_payables_salary",
-    "employee_benefit_noncurrent"
-  );
-  const currentEmpLiab = round2(
-    sumCr(rows, "employee_payables_pf", "employee_payables_bonus", "employee_payables_salary") + (adj.staffBonusProvision ?? is.staffBonus)
-  );
-  const increaseDecreaseEmployeeLiability = round2(currentEmpLiab - prevEmpLiab);
-  const prevProvisions = sumOpeningCr(rows, "provisions_csr", "provisions_current");
-  const increaseDecreaseProvisions = round2(bs.cl_provisions - prevProvisions - (adj.staffBonusProvision ?? 0));
-  const cashGeneratedFromOperations = round2(
-    profitBeforeTax + addDepreciation + addImpairment + lessInterestIncome + lessDividendIncome + addInterestExpense + addLossOnDisposal + lessGainOnDisposal + addFVLossOnInvestment + lessFVGainOnInvestment + decreaseIncreaseReceivables + decreaseIncreaseInventory + decreaseIncreaseOtherCurrentAssets + increaseDecreasePayables + increaseDecreaseIncomeTaxPayable + increaseDecreaseEmployeeLiability + increaseDecreaseProvisions
-  );
-  const interestPaid = -Math.abs(is.financeCharges);
-  const incomeTaxPaid = -Math.abs(
-    sumDr(rows, "advance_tax_paid") + (adj.incomeTaxPaidPY ?? 0)
-  );
-  const netCashFromOperating = round2(cashGeneratedFromOperations + interestPaid + incomeTaxPaid);
-  const proceedsFromPPEDisposal = (adj.depreciationResults ?? []).reduce((s, r) => s + (r.disposalProceeds ?? 0), 0);
-  const proceedsFromInvestmentDisposal = 0;
-  const interestReceived = is.interestIncome;
-  const dividendReceived = sumCr(rows, "other_income_dividend");
-  const purchaseOfPPE = -(adj.assets ?? []).reduce((s, a) => s + (a.additionalCost ?? 0), 0);
-  const purchaseOfInvestments = -Math.max(
-    0,
-    netBalance(rows, "investment_listed_trading", "investment_unlisted", "investment_fixed_deposit_noncurrent") - (sumOpeningDr(rows, "investment_listed_trading", "investment_unlisted", "investment_fixed_deposit_noncurrent") - sumOpeningCr(rows, "investment_listed_trading", "investment_unlisted", "investment_fixed_deposit_noncurrent"))
-  );
-  const netCashFromInvesting = round2(
-    proceedsFromPPEDisposal + proceedsFromInvestmentDisposal + interestReceived + dividendReceived + purchaseOfPPE + purchaseOfInvestments
-  );
-  const proceedsFromShareIssue = round2(
-    sumCr(rows, "share_capital") - sumOpeningCr(rows, "share_capital") + (sumCr(rows, "share_premium") - sumOpeningCr(rows, "share_premium"))
-  );
-  const ncBorrowChange = sumCr(rows, "borrowings_noncurrent_bank", "borrowings_noncurrent_other") - sumOpeningCr(rows, "borrowings_noncurrent_bank", "borrowings_noncurrent_other");
-  const proceedsFromBorrowingsNonCurrent = round2(Math.max(0, ncBorrowChange));
-  const repaymentOfBorrowingsNonCurrent = round2(Math.min(0, ncBorrowChange));
-  const cBorrowChange = sumCr(rows, "borrowings_current_od", "borrowings_current_cc", "borrowings_current_wc") - sumOpeningCr(rows, "borrowings_current_od", "borrowings_current_cc", "borrowings_current_wc");
-  const proceedsFromBorrowingsCurrent = round2(Math.max(0, cBorrowChange));
-  const repaymentOfBorrowingsCurrent = round2(Math.min(0, cBorrowChange));
-  const dividendPaid = -round2(adj.incomeTaxPaidPY ? 0 : adj.dividendPayable ?? sumCr(rows, "dividend_payable"));
-  const netCashFromFinancing = round2(
-    proceedsFromShareIssue + proceedsFromBorrowingsNonCurrent + repaymentOfBorrowingsNonCurrent + proceedsFromBorrowingsCurrent + repaymentOfBorrowingsCurrent + dividendPaid
-  );
-  const netIncreaseDecrease = round2(netCashFromOperating + netCashFromInvesting + netCashFromFinancing);
-  const openingCash = round2(
-    sumOpeningDr(rows, "cash_in_hand", "bank_current_account", "bank_fixed_deposit_current") - sumOpeningCr(rows, "bank_current_account")
-  );
-  const closingCash = bs.ca_cashAndEquivalents;
-  const reconciliationDifference = round2(closingCash - (openingCash + netIncreaseDecrease));
-  return {
-    profitBeforeTax,
-    addDepreciation,
-    addImpairment,
-    lessInterestIncome,
-    lessDividendIncome,
-    addInterestExpense,
-    addLossOnDisposal,
-    lessGainOnDisposal,
-    addFVLossOnInvestment,
-    lessFVGainOnInvestment,
-    decreaseIncreaseReceivables,
-    decreaseIncreaseInventory,
-    decreaseIncreaseOtherCurrentAssets,
-    increaseDecreasePayables,
-    increaseDecreaseIncomeTaxPayable,
-    increaseDecreaseEmployeeLiability,
-    increaseDecreaseProvisions,
-    cashGeneratedFromOperations,
-    interestPaid,
-    incomeTaxPaid,
-    netCashFromOperating,
-    proceedsFromPPEDisposal,
-    proceedsFromInvestmentDisposal,
-    interestReceived,
-    dividendReceived,
-    purchaseOfPPE,
-    purchaseOfInvestments,
-    netCashFromInvesting,
-    proceedsFromShareIssue,
-    proceedsFromBorrowingsNonCurrent,
-    proceedsFromBorrowingsCurrent,
-    repaymentOfBorrowingsNonCurrent,
-    repaymentOfBorrowingsCurrent,
-    dividendPaid,
-    netCashFromFinancing,
-    netIncreaseDecrease,
-    openingCash,
-    closingCash,
-    reconciliationDifference,
-    ...previousCF
-  };
-}
-function computeAllFinancials(tb, adj, company, previousYearData) {
-  const enrichedAdj = { ...adj };
-  const pyBS = previousYearData ? {
-    nca_ppe: previousYearData.ppe,
-    nca_investments: previousYearData.investments,
-    ca_cashAndEquivalents: previousYearData.cashAndEquivalents,
-    totalCurrentAssets: previousYearData.currentAssets,
-    eq_shareCapital: previousYearData.shareCapital,
-    eq_reserves: previousYearData.reserves,
-    ncl_borrowings: previousYearData.borrowingsNonCurrent,
-    cl_borrowings: previousYearData.borrowingsCurrent,
-    cl_tradePayables: previousYearData.tradePayables,
-    cl_provisions: previousYearData.provisions
-  } : {};
-  const pyIS = previousYearData ? {
-    revenue: previousYearData.revenue,
-    materialConsumed: previousYearData.costOfSales,
-    otherIncome: previousYearData.otherIncome,
-    adminAndOtherExpenses: previousYearData.adminExpenses,
-    financeCharges: previousYearData.financeCosts,
-    depreciation: previousYearData.depreciation,
-    incomeTaxExpense: previousYearData.incomeTaxExpense
-  } : {};
-  const incomeStatement = computeIncomeStatement(tb, enrichedAdj, company, pyIS);
-  if (enrichedAdj.staffBonusProvision == null && incomeStatement.profitBeforeStaffBonus > 0) {
-    enrichedAdj.staffBonusProvision = computeStaffBonus(incomeStatement.profitBeforeStaffBonus);
-    incomeStatement.staffBonus = enrichedAdj.staffBonusProvision;
-    incomeStatement.profitBeforeTax = round2(incomeStatement.profitBeforeStaffBonus - incomeStatement.staffBonus);
-  }
-  if (enrichedAdj.incomeTaxProvision == null && incomeStatement.profitBeforeTax > 0) {
-    const taxRate = (company.accountingPolicies?.incomeTaxRatePercent ?? 25) / 100;
-    const taxResult = computeTax({
-      accountingProfit: incomeStatement.profitBeforeTax,
-      accountingDepreciation: enrichedAdj.totalDepreciationExpense ?? incomeStatement.depreciation ?? 0,
-      taxDepreciation: enrichedAdj.taxDepreciationPools?.reduce((s, p) => s + (p.taxDepreciation ?? 0), 0) ?? 0,
-      disallowedForTax: enrichedAdj.disallowedForTax ?? [],
-      staffBonus: enrichedAdj.staffBonusProvision ?? 0,
-      profitBeforeBonus: incomeStatement.profitBeforeStaffBonus,
-      advanceTaxPaid: sumDr(tb.rows, "advance_tax_paid"),
-      incomeTaxRate: taxRate,
-      entityType: company.entityType ?? "Company"
-    });
-    enrichedAdj.incomeTaxProvision = taxResult.currentTaxExpense;
-    enrichedAdj.currentTaxExpense = taxResult.currentTaxExpense;
-    incomeStatement.incomeTaxExpense = taxResult.currentTaxExpense;
-    incomeStatement.netProfit = round2(incomeStatement.profitBeforeTax - incomeStatement.incomeTaxExpense);
-  }
-  const balanceSheet = computeBalanceSheet(tb, enrichedAdj, incomeStatement, company, pyBS);
-  const changesInEquity = computeChangesInEquity(tb, enrichedAdj, incomeStatement, company);
-  const cashFlow = computeCashFlow(tb, enrichedAdj, incomeStatement, balanceSheet);
-  const notes = buildNotesData({ tb, adj: enrichedAdj, bs: balanceSheet, is: incomeStatement, company });
-  return { balanceSheet, incomeStatement, changesInEquity, cashFlow, notes };
-}
-
-// server/routes/financials.ts
-var router4 = Router4();
-function getSessionId(req) {
-  return req.params.companyId || req.cookies?.sessionId || "";
-}
-function requireSession(req, res) {
-  const sessionId = getSessionId(req);
-  const session = sessionStore.get(sessionId);
-  if (!session) {
-    res.status(404).json({ success: false, error: "Session not found" });
-    return null;
-  }
-  return { session, sessionId };
-}
-router4.post("/compute", asyncHandler(async (req, res) => {
-  const ctx = requireSession(req, res);
-  if (!ctx) return;
-  const { session } = ctx;
-  const missing = [];
-  if (!session.company) missing.push("company profile");
-  if (!session.trialBalance) missing.push("trial balance");
-  if (!session.adjustments) missing.push("year-end adjustments");
-  if (missing.length > 0) {
-    return res.status(400).json({ success: false, error: `Missing data: ${missing.join(", ")}.` });
-  }
-  const result = computeAllFinancials(
-    session.trialBalance,
-    session.adjustments,
-    session.company,
-    session.company?.previousYearData
-  );
-  sessionStore.set(ctx.sessionId, {
-    financials: result,
-    statements: result,
-    notes: result.notes
-  });
-  return res.json({ success: true, data: result });
-}));
-router4.post("/:companyId/generate", asyncHandler(async (req, res) => {
-  const ctx = requireSession(req, res);
-  if (!ctx) return;
-  const { session } = ctx;
-  const missing = [];
-  if (!session.company) missing.push("company profile");
-  if (!session.trialBalance) missing.push("trial balance");
-  if (!session.adjustments) missing.push("year-end adjustments");
-  if (missing.length > 0) return res.status(400).json({ success: false, error: `Missing data: ${missing.join(", ")}.` });
-  const result = computeAllFinancials(session.trialBalance, session.adjustments, session.company, session.company?.previousYearData);
-  sessionStore.set(ctx.sessionId, { financials: result, statements: result, notes: result.notes });
-  return res.json({ success: true, data: result });
-}));
-router4.get("/validation", asyncHandler(async (req, res) => {
-  const ctx = requireSession(req, res);
-  if (!ctx) return;
-  const financials = ctx.session.financials;
-  if (!financials?.balanceSheet) {
-    return res.status(404).json({ success: false, error: "Financial statements not computed yet." });
-  }
-  const bs = financials.balanceSheet;
-  const cf = financials.cashFlow;
-  const errors = [];
-  if (Math.abs(bs.checkDifference ?? 0) > 1) errors.push(`Balance sheet difference: NPR ${bs.checkDifference}`);
-  if (Math.abs(cf.reconciliationDifference ?? 0) > 1) errors.push(`Cash flow reconciliation difference: NPR ${cf.reconciliationDifference}`);
-  return res.json({ success: true, data: { isValid: errors.length === 0, errors, warnings: [] } });
-}));
-router4.get("/:companyId/balance-sheet", asyncHandler(async (req, res) => {
-  const ctx = requireSession(req, res);
-  if (!ctx) return;
-  const bs = ctx.session.financials?.balanceSheet;
-  if (!bs) return res.status(404).json({ success: false, error: "Not generated yet." });
-  return res.json({ success: true, data: bs });
-}));
-router4.get("/:companyId/income-statement", asyncHandler(async (req, res) => {
-  const ctx = requireSession(req, res);
-  if (!ctx) return;
-  const is = ctx.session.financials?.incomeStatement;
-  if (!is) return res.status(404).json({ success: false, error: "Not generated yet." });
-  return res.json({ success: true, data: is });
-}));
-router4.get("/:companyId/cash-flow", asyncHandler(async (req, res) => {
-  const ctx = requireSession(req, res);
-  if (!ctx) return;
-  const cf = ctx.session.financials?.cashFlow;
-  if (!cf) return res.status(404).json({ success: false, error: "Not generated yet." });
-  return res.json({ success: true, data: cf });
-}));
-router4.get("/:companyId/changes-in-equity", asyncHandler(async (req, res) => {
-  const ctx = requireSession(req, res);
-  if (!ctx) return;
-  const cie = ctx.session.financials?.changesInEquity;
-  if (!cie) return res.status(404).json({ success: false, error: "Not generated yet." });
-  return res.json({ success: true, data: cie });
-}));
-router4.get("/:companyId/notes", asyncHandler(async (req, res) => {
-  const ctx = requireSession(req, res);
-  if (!ctx) return;
-  const notes = ctx.session.financials?.notes;
-  if (!notes) return res.status(404).json({ success: false, error: "Not generated yet." });
-  return res.json({ success: true, data: notes });
-}));
-var financials_default = router4;
-
-// server/routes/output.ts
-import { Router as Router5 } from "express";
+// server/services/tbTemplateWriter.ts
+import ExcelJS3 from "exceljs";
 
 // server/services/excelWriter.ts
 import ExcelJS2 from "exceljs";
@@ -5593,8 +3122,8 @@ function writeSumTotalRow(ws, row, labelCol, sumCols, fromRow, toRow, label = "T
   exRow.getCell(labelCol).font = FONTS.TOTAL;
   sumCols.forEach((col) => {
     const cell = exRow.getCell(col);
-    const colLetter = ws.getColumn(col).letter ?? String.fromCharCode(64 + col);
-    cell.value = { formula: `SUM(${colLetter}${fromRow}:${colLetter}${toRow})`, result: 0 };
+    const colLetter2 = ws.getColumn(col).letter ?? String.fromCharCode(64 + col);
+    cell.value = { formula: `SUM(${colLetter2}${fromRow}:${colLetter2}${toRow})`, result: 0 };
     cell.numFmt = NUMBER_FORMAT;
     cell.alignment = { horizontal: "right" };
     cell.font = FONTS.TOTAL;
@@ -8426,7 +5955,2856 @@ function appendComplianceStatement(ws, params, startRow) {
   );
 }
 
+// server/services/tbTemplateWriter.ts
+var TOTAL_COLS = 19;
+var CY_AMOUNT_COLS = [2, 3, 4, 5, 6, 7, 8, 9];
+var PY_AMOUNT_COLS = [12, 13, 14, 15, 16, 17, 18, 19];
+var SECTION_MAP = [
+  { prefixes: ["BS Equity"], header: "CAPITAL ACCOUNT & RESERVES" },
+  { prefixes: ["BS NCL Borrowings"], header: "NON-CURRENT LIABILITIES - LOANS & BORROWINGS" },
+  { prefixes: ["BS NCL Employee Benefits"], header: "NON-CURRENT LIABILITIES - EMPLOYEE BENEFITS" },
+  { prefixes: ["BS NCL Provisions"], header: "NON-CURRENT LIABILITIES - PROVISIONS" },
+  { prefixes: ["BS NCL"], header: "NON-CURRENT LIABILITIES - OTHER" },
+  { prefixes: ["BS CL Trade Payables"], header: "CURRENT LIABILITIES - TRADE PAYABLES" },
+  { prefixes: ["BS CL Borrowings"], header: "CURRENT LIABILITIES - LOANS & BORROWINGS" },
+  { prefixes: ["BS CL Tax"], header: "CURRENT LIABILITIES - TAX PAYABLE" },
+  { prefixes: ["BS CL Employee"], header: "CURRENT LIABILITIES - EMPLOYEE PAYABLES" },
+  { prefixes: ["BS CL Provisions"], header: "CURRENT LIABILITIES - PROVISIONS" },
+  { prefixes: ["BS CL Other"], header: "CURRENT LIABILITIES - OTHER" },
+  { prefixes: ["BS CA Tax"], header: "CURRENT ASSETS - ADVANCE TAX" },
+  { prefixes: ["BS NCA PPE"], header: "PROPERTY, PLANT & EQUIPMENT" },
+  { prefixes: ["BS NCA/CA Investments", "BS NCA Investments"], header: "INVESTMENTS" },
+  { prefixes: ["BS NCA"], header: "OTHER NON-CURRENT ASSETS" },
+  { prefixes: ["BS CA Inventory"], header: "CURRENT ASSETS - INVENTORY" },
+  { prefixes: ["BS CA Receivables"], header: "CURRENT ASSETS - TRADE RECEIVABLES" },
+  { prefixes: ["BS CA Other Receivables"], header: "CURRENT ASSETS - OTHER RECEIVABLES" },
+  { prefixes: ["BS CA Cash"], header: "CURRENT ASSETS - CASH & BANK" },
+  { prefixes: ["BS CA"], header: "CURRENT ASSETS - OTHER" },
+  { prefixes: ["IS Revenue"], header: "DIRECT INCOME" },
+  { prefixes: ["IS Other Income"], header: "INDIRECT INCOME" },
+  { prefixes: ["IS COGS"], header: "DIRECT EXPENSES" },
+  { prefixes: ["IS Employee Benefits"], header: "EMPLOYEE BENEFIT EXPENSES" },
+  { prefixes: ["IS Finance Costs"], header: "FINANCE COSTS" },
+  { prefixes: ["IS Depreciation"], header: "DEPRECIATION" },
+  { prefixes: ["IS Impairment"], header: "IMPAIRMENT EXPENSES" },
+  { prefixes: ["IS Admin"], header: "ADMINISTRATIVE EXPENSES" },
+  { prefixes: ["IS Tax"], header: "INCOME TAX EXPENSE" }
+];
+function resolveSectionHeader(statementLine) {
+  for (const { prefixes, header } of SECTION_MAP) {
+    for (const prefix of prefixes) {
+      if (statementLine.startsWith(prefix)) return header;
+    }
+  }
+  return null;
+}
+function buildSectionAccounts() {
+  const sectionAccounts = /* @__PURE__ */ new Map();
+  const sectionOrder = [];
+  for (const entry of CHART_OF_ACCOUNTS) {
+    if (entry.isGroup || entry.statementLine === "N/A") continue;
+    const header = resolveSectionHeader(entry.statementLine);
+    if (!header) continue;
+    if (!sectionAccounts.has(header)) {
+      sectionAccounts.set(header, []);
+      sectionOrder.push(header);
+    }
+    sectionAccounts.get(header).push({ displayLabel: entry.displayLabel });
+  }
+  return SECTION_MAP.map(({ header }) => header).filter((header) => sectionAccounts.has(header)).map((header) => ({ header, accounts: sectionAccounts.get(header) }));
+}
+function colLetter(col) {
+  let letter = "";
+  let n = col;
+  while (n > 0) {
+    const rem = (n - 1) % 26;
+    letter = String.fromCharCode(65 + rem) + letter;
+    n = Math.floor((n - 1) / 26);
+  }
+  return letter;
+}
+async function generateTrialBalanceTemplate() {
+  try {
+    const wb = new ExcelJS3.Workbook();
+    wb.creator = "NFRS Reporter";
+    wb.created = /* @__PURE__ */ new Date();
+    const ws = wb.addWorksheet("Trial Balance");
+    ws.getColumn(1).width = 40;
+    for (const col of [...CY_AMOUNT_COLS, ...PY_AMOUNT_COLS]) {
+      ws.getColumn(col).width = 14;
+    }
+    ws.mergeCells(1, 1, 1, TOTAL_COLS);
+    const titleCell = ws.getCell(1, 1);
+    titleCell.value = "[COMPANY NAME]";
+    titleCell.alignment = { horizontal: "center", vertical: "middle" };
+    applyHeaderStyle(titleCell);
+    ws.getRow(1).height = 26;
+    ws.mergeCells(2, 1, 2, TOTAL_COLS);
+    const subtitleCell = ws.getCell(2, 1);
+    subtitleCell.value = "NAS FOR MEs \u2014 TRIAL BALANCE TEMPLATE";
+    subtitleCell.alignment = { horizontal: "center", vertical: "middle" };
+    applyHeaderStyle(subtitleCell);
+    ws.mergeCells(3, 1, 3, TOTAL_COLS);
+    const noteCell = ws.getCell(3, 1);
+    noteCell.value = "Fill in GREEN cells only. Do not rename or delete account labels or section headers. You may insert extra rows within a section to add accounts not listed here.";
+    noteCell.font = { name: "Arial", size: 10, italic: true };
+    noteCell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
+    ws.getRow(3).height = 36;
+    const cyHeaders = [
+      "Particulars",
+      "Opening Dr.",
+      "Opening Cr.",
+      "During Dr.",
+      "During Cr.",
+      "Adjustment Dr.",
+      "Adjustment Cr.",
+      "Closing Dr.",
+      "Closing Cr."
+    ];
+    const headerRow = ws.getRow(5);
+    cyHeaders.forEach((h, i) => {
+      const c = headerRow.getCell(i + 1);
+      c.value = h;
+      applySubHeaderStyle(c);
+      c.alignment = { horizontal: i === 0 ? "left" : "center", vertical: "middle" };
+    });
+    cyHeaders.forEach((h, i) => {
+      const c = headerRow.getCell(11 + i);
+      c.value = h;
+      applySubHeaderStyle(c);
+      c.alignment = { horizontal: i === 0 ? "left" : "center", vertical: "middle" };
+    });
+    let currentRow = 6;
+    const sections = buildSectionAccounts();
+    for (const { header, accounts } of sections) {
+      ws.mergeCells(currentRow, 1, currentRow, TOTAL_COLS);
+      const sectionCell = ws.getRow(currentRow).getCell(1);
+      sectionCell.value = header;
+      sectionCell.font = { name: "Arial", size: 10, bold: true };
+      sectionCell.fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: `FF${COLORS.SUBHEADER_BG}` }
+      };
+      sectionCell.alignment = { horizontal: "left", vertical: "middle" };
+      currentRow++;
+      for (const account of accounts) {
+        const row = ws.getRow(currentRow);
+        row.getCell(1).value = account.displayLabel;
+        row.getCell(1).font = { name: "Arial", size: 10 };
+        for (const col of [...CY_AMOUNT_COLS, ...PY_AMOUNT_COLS]) {
+          const cell = row.getCell(col);
+          cell.value = null;
+          applyInputStyle(cell);
+          cell.numFmt = NUMBER_FORMAT;
+          cell.alignment = { horizontal: "right" };
+        }
+        currentRow++;
+      }
+    }
+    const dataStartRow = 6;
+    const dataEndRow = currentRow - 1;
+    const totalRow = ws.getRow(currentRow);
+    totalRow.getCell(1).value = "GRAND TOTAL";
+    totalRow.getCell(1).font = { name: "Arial", size: 10, bold: true };
+    const doubleTop = { style: "double", color: { argb: "FF1E40AF" } };
+    for (const col of [...CY_AMOUNT_COLS, ...PY_AMOUNT_COLS]) {
+      const cell = totalRow.getCell(col);
+      const letter = colLetter(col);
+      cell.value = { formula: `SUM(${letter}${dataStartRow}:${letter}${dataEndRow})`, result: 0 };
+      cell.numFmt = NUMBER_FORMAT;
+      cell.alignment = { horizontal: "right" };
+      cell.font = { name: "Arial", size: 10, bold: true };
+      cell.border = { top: doubleTop };
+    }
+    ws.views = [{ state: "frozen", ySplit: 5 }];
+    const buffer = await wb.xlsx.writeBuffer();
+    return Buffer.from(buffer);
+  } catch (error) {
+    console.error("[tbTemplateWriter] Error generating trial balance template:", error);
+    throw error;
+  }
+}
+
+// server/services/aiTbConverter.ts
+import Anthropic2 from "@anthropic-ai/sdk";
+import ExcelJS4 from "exceljs";
+var BATCH_SIZE = 100;
+var SYSTEM_PROMPT2 = "You are an expert Nepali chartered accountant assistant. You will be given raw rows extracted from a messy, unstructured, or non-standard trial balance export from Nepali accounting software (Tally, Swastik, Busy, or similar). Identify every genuine LEAF ledger account line that has a numeric balance. IGNORE: company name/address rows, titles, date ranges, blank rows, section/group header rows with no amount, and any 'Total'/'Grand Total'/subtotal rows. Balances are sometimes shown as a single combined value like '1,43,51,552.00 Cr' or '9,664.55 Dr' \u2014 split these correctly into the Dr or Cr field based on the suffix and remove commas. If a row has separate Opening/Debit/Credit/Closing columns, map them precisely. If only a closing balance exists, populate closingDr or closingCr only, leave all other fields 0. Never invent numbers you do not see. Respond with ONLY a raw JSON array, no markdown fences, no commentary, no explanation.";
+function parseAIResponse2(text) {
+  const cleaned = text.replace(/```json\s*/gi, "").replace(/```\s*/gi, "").trim();
+  const start = cleaned.indexOf("[");
+  const end = cleaned.lastIndexOf("]");
+  if (start === -1 || end === -1) return [];
+  const parsed = JSON.parse(cleaned.slice(start, end + 1));
+  return Array.isArray(parsed) ? parsed : [];
+}
+function isRowEmpty(row) {
+  return row.every((cell) => cell === null || cell === void 0 || String(cell).trim() === "");
+}
+async function convertRoughTrialBalance(buffer, filename, apiKey) {
+  const ext = filename.toLowerCase().slice(filename.lastIndexOf("."));
+  let matrix;
+  if (ext === ".csv") {
+    matrix = parseCSVText(buffer.toString("utf-8"));
+  } else {
+    const workbook = new ExcelJS4.Workbook();
+    await workbook.xlsx.load(buffer);
+    const primaryWs = workbook.getWorksheet("Trial Balance") ?? workbook.getWorksheet("TB") ?? workbook.worksheets[0];
+    if (!primaryWs) {
+      throw new Error("The uploaded workbook has no worksheets.");
+    }
+    matrix = worksheetToMatrix(primaryWs);
+  }
+  const nonEmptyRows = matrix.filter((row) => !isRowEmpty(row));
+  const warnings = [];
+  const merged = [];
+  const client = new Anthropic2({ apiKey });
+  for (let i = 0; i < nonEmptyRows.length; i += BATCH_SIZE) {
+    const chunk = nonEmptyRows.slice(i, i + BATCH_SIZE);
+    const batchNum = Math.floor(i / BATCH_SIZE) + 1;
+    try {
+      const response = await client.messages.create({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 8192,
+        system: SYSTEM_PROMPT2,
+        messages: [
+          {
+            role: "user",
+            content: `Extract ledger rows from this raw data. Return a JSON array where each element is exactly: {"rawLabel": string, "openingDr": number, "openingCr": number, "duringDr": number, "duringCr": number, "closingDr": number, "closingCr": number}.
+
+Raw rows:
+` + JSON.stringify(chunk)
+          }
+        ]
+      });
+      const text = response.content.filter((c) => c.type === "text").map((c) => c.type === "text" ? c.text : "").join("");
+      const parsed = parseAIResponse2(text);
+      merged.push(...parsed);
+    } catch (err) {
+      console.warn(`[aiTbConverter] batch ${batchNum} failed:`, err);
+      warnings.push(
+        `AI could not process ${chunk.length} raw rows in batch ${batchNum}; skipped.`
+      );
+    }
+  }
+  const elements = merged.map((el) => ({
+    rawLabel: String(el.rawLabel ?? "").trim(),
+    openingDr: Number(el.openingDr) || 0,
+    openingCr: Number(el.openingCr) || 0,
+    duringDr: Number(el.duringDr) || 0,
+    duringCr: Number(el.duringCr) || 0,
+    closingDr: Number(el.closingDr) || 0,
+    closingCr: Number(el.closingCr) || 0
+  })).filter(
+    (el) => el.rawLabel && !(el.openingDr === 0 && el.openingCr === 0 && el.duringDr === 0 && el.duringCr === 0 && el.closingDr === 0 && el.closingCr === 0)
+  );
+  const rows = elements.map((el, idx) => ({
+    rowIndex: idx,
+    rawLabel: el.rawLabel,
+    openingDr: el.openingDr,
+    openingCr: el.openingCr,
+    duringDr: el.duringDr,
+    duringCr: el.duringCr,
+    adjustmentDr: 0,
+    adjustmentCr: 0,
+    closingDr: el.closingDr,
+    closingCr: el.closingCr,
+    rowLevel: 2,
+    isGroupRow: false,
+    parentGroup: "",
+    rawIndentSpaces: 0
+  }));
+  if (rows.length === 0) {
+    throw Object.assign(
+      new Error(
+        "AI could not extract any account balances from this file. Please try Manual Upload (Standard Format) instead."
+      ),
+      { status: 422 }
+    );
+  }
+  let totalOpeningDr = 0, totalOpeningCr = 0, totalDuringDr = 0, totalDuringCr = 0;
+  let totalClosingDr = 0, totalClosingCr = 0;
+  for (const row of rows) {
+    totalOpeningDr += row.openingDr;
+    totalOpeningCr += row.openingCr;
+    totalDuringDr += row.duringDr;
+    totalDuringCr += row.duringCr;
+    totalClosingDr += row.closingDr;
+    totalClosingCr += row.closingCr;
+  }
+  const round22 = (n) => Math.round(n * 100) / 100;
+  totalClosingDr = round22(totalClosingDr);
+  totalClosingCr = round22(totalClosingCr);
+  const difference = round22(totalClosingDr - totalClosingCr);
+  const isBalanced = Math.abs(difference) < 1;
+  if (!isBalanced) {
+    warnings.push(
+      `Trial Balance not balanced. Difference: ${Math.abs(difference).toLocaleString("en-IN")}.`
+    );
+  }
+  return {
+    rows,
+    totalOpeningDr: round22(totalOpeningDr),
+    totalOpeningCr: round22(totalOpeningCr),
+    totalDuringDr: round22(totalDuringDr),
+    totalDuringCr: round22(totalDuringCr),
+    totalClosingDr,
+    totalClosingCr,
+    isBalanced,
+    difference,
+    warnings,
+    detectedColumns: {},
+    headerRowIndex: 0,
+    detectedFormat: "ai_converted"
+  };
+}
+
+// server/routes/trialBalance.ts
+var router2 = Router2();
+router2.get("/template/download", asyncHandler(async (req, res) => {
+  const buffer = await generateTrialBalanceTemplate();
+  res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  res.setHeader("Content-Disposition", 'attachment; filename="NFRS_Trial_Balance_Template.xlsx"');
+  return res.send(buffer);
+}));
+router2.post("/:companyId/upload", tbUploadMiddleware, async (req, res, next) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, error: "No file uploaded. Please select a file and try again." });
+    }
+    if (req.file.size > 50 * 1024 * 1024) {
+      return res.status(413).json({
+        success: false,
+        error: "File size exceeds the 50 MB limit. Please reduce the file size by removing unnecessary sheets or rows."
+      });
+    }
+    const allowed = [
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "application/vnd.ms-excel",
+      "text/csv",
+      "application/csv"
+    ];
+    const ext = (req.file.originalname ?? "").split(".").pop()?.toLowerCase();
+    if (!allowed.includes(req.file.mimetype) && !["xlsx", "xls", "csv"].includes(ext ?? "")) {
+      return res.status(415).json({
+        success: false,
+        error: "Unsupported file format. Please upload .xlsx, .xls, or .csv files exported from your accounting software."
+      });
+    }
+    let session = sessionStore.get(req.params.companyId);
+    if (!session) {
+      const companyRaw = req.body?.company;
+      if (typeof companyRaw === "string") {
+        try {
+          const company = JSON.parse(companyRaw);
+          sessionStore.set(req.params.companyId, { company: { ...company, id: req.params.companyId } });
+          session = sessionStore.get(req.params.companyId);
+        } catch {
+        }
+      }
+    }
+    if (!session) {
+      return res.status(404).json({
+        success: false,
+        error: "Company session not found on server. Save company details first, then upload again.",
+        code: "SESSION_NOT_FOUND"
+      });
+    }
+    const parsed = await parseTrialBalance(req.file.buffer, req.file.originalname);
+    if (parsed.workbookMetadata?.format === "mes_template") {
+      const meta = parsed.workbookMetadata;
+      const current = session.company ?? {};
+      const fiscalYear = meta.fiscalYear ? getFiscalYear(meta.fiscalYear) ?? current.fiscalYear : current.fiscalYear;
+      const enrichedCompany = {
+        ...current,
+        companyName: meta.companyName || current.companyName,
+        fullAddress: meta.fullAddress || current.fullAddress,
+        chairperson: meta.chairperson || current.chairperson,
+        director: meta.director || current.director,
+        accountsHead: meta.accountsHead || current.accountsHead,
+        fiscalYear,
+        auditorInfo: {
+          ...current.auditorInfo ?? { auditorName: "", auditorFirmName: "", position: "", icanRegNumber: "" },
+          auditorName: meta.auditorName || current.auditorInfo?.auditorName || "",
+          auditorFirmName: meta.auditFirmName || current.auditorInfo?.auditorFirmName || ""
+        }
+      };
+      sessionStore.set(req.params.companyId, { company: enrichedCompany });
+      session = sessionStore.get(req.params.companyId);
+    }
+    if (!parsed.rows || parsed.rows.length === 0) {
+      return res.status(422).json({
+        success: false,
+        error: "No data rows found in the uploaded file. Please check your export settings and ensure the file contains account entries."
+      });
+    }
+    let rows = classifyAll(parsed.rows);
+    rows = applyMappingProfile(rows, session.mappingProfile);
+    if (req.query.useAI === "true" && process.env.ANTHROPIC_API_KEY) {
+      try {
+        rows = await classifyWithAI(rows, process.env.ANTHROPIC_API_KEY);
+      } catch (aiErr) {
+        console.warn("[trialBalance.upload] AI matching failed:", aiErr);
+      }
+    }
+    const tb = {
+      rows,
+      companyName: session.company?.name ?? session.company?.companyName ?? "",
+      fiscalYear: session.company?.fiscalYearCurrent ?? session.company?.fiscalYear?.bsFY ?? "",
+      isBalanced: parsed.isBalanced,
+      totalAssets: 0,
+      totalLiabilities: 0,
+      totalEquity: 0,
+      warnings: parsed.warnings,
+      companyId: req.params.companyId,
+      uploadedAt: (/* @__PURE__ */ new Date()).toISOString(),
+      uploadedFileName: req.file.originalname,
+      totalClosingDr: parsed.totalClosingDr,
+      totalClosingCr: parsed.totalClosingCr,
+      difference: parsed.difference,
+      detectedFormat: parsed.detectedFormat,
+      detectedColumns: parsed.detectedColumns,
+      headerRowIndex: parsed.headerRowIndex,
+      previousYearData: parsed.previousYearData ?? null,
+      leafAccountCount: rows.filter((r) => !r.isGroupRow).length,
+      groupRowCount: rows.filter((r) => r.isGroupRow).length
+    };
+    const validation = validateTrialBalanceTotals(rows);
+    tb.validation = validation;
+    const diff = Math.abs(validation.totalClosingDr - validation.totalClosingCr);
+    if (diff > 1e3) {
+      return res.status(422).json({
+        success: false,
+        error: `Trial balance has a significant imbalance of NPR ${diff.toLocaleString("en-IN")}. Please check your accounting export before proceeding. Rounding differences up to NPR 1,000 are auto-adjusted.`,
+        data: tb
+        // still return data so user can review
+      });
+    }
+    sessionStore.set(req.params.companyId, { trialBalance: tb });
+    res.json({ success: true, data: tb });
+  } catch (err) {
+    next(err);
+  }
+});
+router2.post("/:companyId/ai-convert", tbUploadMiddleware, async (req, res, next) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, error: "No file uploaded. Please select a file and try again." });
+    }
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      return res.status(503).json({ success: false, error: "AI import is not configured on this server. Please use Manual Upload (Standard Format) instead." });
+    }
+    let session = sessionStore.get(req.params.companyId);
+    if (!session) {
+      const companyRaw = req.body?.company;
+      if (typeof companyRaw === "string") {
+        try {
+          const company = JSON.parse(companyRaw);
+          sessionStore.set(req.params.companyId, { company: { ...company, id: req.params.companyId } });
+          session = sessionStore.get(req.params.companyId);
+        } catch {
+        }
+      }
+    }
+    if (!session) {
+      return res.status(404).json({
+        success: false,
+        error: "Company session not found on server. Save company details first, then try again.",
+        code: "SESSION_NOT_FOUND"
+      });
+    }
+    const parsed = await convertRoughTrialBalance(req.file.buffer, req.file.originalname, apiKey);
+    let rows = classifyAll(parsed.rows);
+    rows = applyMappingProfile(rows, session.mappingProfile);
+    try {
+      rows = await classifyWithAI(rows, apiKey);
+    } catch (aiErr) {
+      console.warn("[trialBalance.ai-convert] classification pass failed:", aiErr);
+    }
+    const tb = {
+      rows,
+      companyName: session.company?.name ?? session.company?.companyName ?? "",
+      fiscalYear: session.company?.fiscalYearCurrent ?? session.company?.fiscalYear?.bsFY ?? "",
+      isBalanced: parsed.isBalanced,
+      totalAssets: 0,
+      totalLiabilities: 0,
+      totalEquity: 0,
+      warnings: parsed.warnings,
+      companyId: req.params.companyId,
+      uploadedAt: (/* @__PURE__ */ new Date()).toISOString(),
+      uploadedFileName: req.file.originalname,
+      totalClosingDr: parsed.totalClosingDr,
+      totalClosingCr: parsed.totalClosingCr,
+      difference: parsed.difference,
+      detectedFormat: parsed.detectedFormat,
+      detectedColumns: parsed.detectedColumns,
+      headerRowIndex: parsed.headerRowIndex,
+      previousYearData: null,
+      leafAccountCount: rows.filter((r) => !r.isGroupRow).length,
+      groupRowCount: rows.filter((r) => r.isGroupRow).length
+    };
+    const validation = validateTrialBalanceTotals(rows);
+    tb.validation = validation;
+    sessionStore.set(req.params.companyId, { trialBalance: tb });
+    res.json({ success: true, data: tb });
+  } catch (err) {
+    next(err);
+  }
+});
+router2.get("/:companyId", asyncHandler(async (req, res) => {
+  const session = sessionStore.get(req.params.companyId);
+  if (!session?.trialBalance) return res.status(404).json({ error: "No trial balance loaded for this company." });
+  return res.json(session.trialBalance);
+}));
+router2.put("/:companyId/mapping", asyncHandler(async (req, res) => {
+  const session = sessionStore.get(req.params.companyId);
+  if (!session?.trialBalance) return res.status(404).json({ error: "No trial balance loaded." });
+  const updates = req.body.updates ?? [];
+  const updatedRows = [...session.trialBalance.rows];
+  for (const update of updates) {
+    const idx = updatedRows.findIndex((r) => r.rowIndex === update.rowIndex);
+    if (idx !== -1) {
+      updatedRows[idx] = {
+        ...updatedRows[idx],
+        nfrsCategory: update.nfrsCategory,
+        matchedLabel: update.matchedLabel,
+        confidence: 100,
+        matchMethod: "manual",
+        needsReview: false,
+        userOverride: true
+      };
+    }
+  }
+  const updatedTB = { ...session.trialBalance, rows: updatedRows };
+  const validation = validateTrialBalanceTotals(updatedRows);
+  updatedTB.validation = validation;
+  const mappingProfile = upsertMappingProfile(session.mappingProfile ?? {}, updatedRows);
+  sessionStore.set(req.params.companyId, { trialBalance: updatedTB, mappingProfile });
+  return res.json(updatedTB);
+}));
+router2.put("/:companyId/mapping/:rowIndex", asyncHandler(async (req, res) => {
+  const session = sessionStore.get(req.params.companyId);
+  if (!session?.trialBalance) return res.status(404).json({ error: "No trial balance loaded." });
+  const { nfrsCategory } = req.body;
+  if (!nfrsCategory) return res.status(400).json({ error: "nfrsCategory is required." });
+  const updatedRows = [...session.trialBalance.rows];
+  const idx = updatedRows.findIndex((r) => String(r.rowIndex) === req.params.rowIndex);
+  if (idx === -1) return res.status(404).json({ error: "Row not found." });
+  updatedRows[idx] = {
+    ...updatedRows[idx],
+    nfrsCategory,
+    confidence: 100,
+    matchMethod: "manual",
+    needsReview: false,
+    userOverride: true
+  };
+  const updatedTB = { ...session.trialBalance, rows: updatedRows };
+  const validation = validateTrialBalanceTotals(updatedRows);
+  updatedTB.validation = validation;
+  const mappingProfile = upsertMappingProfile(session.mappingProfile ?? {}, updatedRows);
+  sessionStore.set(req.params.companyId, { trialBalance: updatedTB, mappingProfile });
+  return res.json({ updated: true, row: updatedRows[idx] });
+}));
+router2.post("/:companyId/rematch-ai", asyncHandler(async (req, res) => {
+  const session = sessionStore.get(req.params.companyId);
+  if (!session?.trialBalance) return res.status(404).json({ error: "No trial balance loaded." });
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    return res.status(503).json({ error: "AI matching is not configured. Set ANTHROPIC_API_KEY on the server." });
+  }
+  const lowConfRows = session.trialBalance.rows.filter(
+    (r) => !r.isGroupRow && !r.userOverride && (r.confidence ?? 0) < 80
+  );
+  if (lowConfRows.length === 0) {
+    return res.json({ message: "All accounts already matched with high confidence.", updatedCount: 0, trialBalance: session.trialBalance });
+  }
+  const aiInput = lowConfRows.map((r) => ({
+    rowIndex: r.rowIndex,
+    rawLabel: r.rawLabel,
+    parentGroup: r.parentGroup ?? "",
+    closingDr: r.closingDr ?? 0,
+    closingCr: r.closingCr ?? 0
+  }));
+  const aiResults = await aiMatchUnresolved(aiInput, session.company, apiKey);
+  const aiByRowIndex = new Map(aiResults.map((r) => [r.rowIndex, r]));
+  let updatedCount = 0;
+  const updatedRows = session.trialBalance.rows.map((row) => {
+    if (row.isGroupRow || row.userOverride) return row;
+    const ai = aiByRowIndex.get(row.rowIndex);
+    if (!ai) return row;
+    updatedCount += 1;
+    return {
+      ...row,
+      nfrsCategory: ai.nfrsCategory,
+      matchedLabel: null,
+      confidence: ai.confidence,
+      matchMethod: "ai",
+      needsReview: ai.confidence < 80,
+      displayLabel: row.displayLabel ?? row.rawLabel
+    };
+  });
+  const updatedTB = { ...session.trialBalance, rows: updatedRows };
+  const validation = validateTrialBalanceTotals(updatedRows);
+  updatedTB.validation = validation;
+  sessionStore.set(req.params.companyId, { trialBalance: updatedTB });
+  return res.json({ updatedCount, trialBalance: updatedTB });
+}));
+router2.get("/:companyId/validation", asyncHandler(async (req, res) => {
+  const session = sessionStore.get(req.params.companyId);
+  if (!session?.trialBalance) return res.status(404).json({ error: "No trial balance loaded." });
+  const validation = validateTrialBalanceTotals(session.trialBalance.rows);
+  return res.json(validation);
+}));
+var trialBalance_default = router2;
+
+// server/routes/adjustments.ts
+import { Router as Router3 } from "express";
+
+// server/store/subledgerStore.ts
+import crypto2 from "crypto";
+var store = /* @__PURE__ */ new Map();
+function emptySubledger(sessionId) {
+  return {
+    sessionId,
+    debtors: [],
+    creditors: [],
+    bankAccounts: [],
+    relatedParties: [],
+    lastUpdatedAt: /* @__PURE__ */ new Date()
+  };
+}
+function getSubledger(sessionId) {
+  return store.get(sessionId) ?? emptySubledger(sessionId);
+}
+function upsertDebtors(sessionId, debtors) {
+  const existing = store.get(sessionId) ?? emptySubledger(sessionId);
+  const normalised = debtors.map((d) => ({
+    ...d,
+    id: d.id || crypto2.randomUUID(),
+    debitBalance: Math.max(0, d.debitBalance ?? 0),
+    creditBalance: Math.max(0, d.creditBalance ?? 0)
+  }));
+  const updated = {
+    ...existing,
+    debtors: normalised,
+    lastUpdatedAt: /* @__PURE__ */ new Date()
+  };
+  store.set(sessionId, updated);
+  return updated;
+}
+function upsertCreditors(sessionId, creditors) {
+  const existing = store.get(sessionId) ?? emptySubledger(sessionId);
+  const normalised = creditors.map((c) => ({
+    ...c,
+    id: c.id || crypto2.randomUUID(),
+    creditBalance: Math.max(0, c.creditBalance ?? 0),
+    debitBalance: Math.max(0, c.debitBalance ?? 0)
+  }));
+  const updated = {
+    ...existing,
+    creditors: normalised,
+    lastUpdatedAt: /* @__PURE__ */ new Date()
+  };
+  store.set(sessionId, updated);
+  return updated;
+}
+function upsertBankAccounts(sessionId, bankAccounts) {
+  const existing = store.get(sessionId) ?? emptySubledger(sessionId);
+  const normalised = bankAccounts.map((b) => ({
+    ...b,
+    id: b.id || crypto2.randomUUID()
+  }));
+  const updated = {
+    ...existing,
+    bankAccounts: normalised,
+    lastUpdatedAt: /* @__PURE__ */ new Date()
+  };
+  store.set(sessionId, updated);
+  return updated;
+}
+function upsertRelatedParties(sessionId, relatedParties) {
+  const existing = store.get(sessionId) ?? emptySubledger(sessionId);
+  const normalised = relatedParties.map((rp) => ({
+    ...rp,
+    id: rp.id || crypto2.randomUUID(),
+    transactionsCurrentYear: (rp.transactionsCurrentYear ?? []).map((t) => ({
+      ...t,
+      id: t.id || crypto2.randomUUID()
+    }))
+  }));
+  const updated = {
+    ...existing,
+    relatedParties: normalised,
+    lastUpdatedAt: /* @__PURE__ */ new Date()
+  };
+  store.set(sessionId, updated);
+  return updated;
+}
+function deleteSubledger(sessionId) {
+  return store.delete(sessionId);
+}
+function validateSubledger(sessionId, tbDebtorTotal, tbCreditorTotal) {
+  const data = getSubledger(sessionId);
+  const warnings = [];
+  const debtorTotal = data.debtors.reduce((s, d) => s + d.debitBalance, 0);
+  const creditorTotal = data.creditors.reduce((s, c) => s + c.creditBalance, 0);
+  const bankAssetTotal = data.bankAccounts.filter((b) => b.balance > 0).reduce((s, b) => s + b.balance, 0);
+  const bankLiabilityTotal = data.bankAccounts.filter((b) => b.balance < 0).reduce((s, b) => s + Math.abs(b.balance), 0);
+  const debtorDiff = Math.abs(debtorTotal - tbDebtorTotal);
+  if (data.debtors.length > 0 && debtorDiff > 1) {
+    warnings.push(
+      `Debtor subledger total (NPR ${debtorTotal.toLocaleString("en-IN")}) does not match trial balance trade receivables (NPR ${tbDebtorTotal.toLocaleString("en-IN")}). Difference: NPR ${debtorDiff.toLocaleString("en-IN")}.`
+    );
+  }
+  const creditorDiff = Math.abs(creditorTotal - tbCreditorTotal);
+  if (data.creditors.length > 0 && creditorDiff > 1) {
+    warnings.push(
+      `Creditor subledger total (NPR ${creditorTotal.toLocaleString("en-IN")}) does not match trial balance trade payables (NPR ${tbCreditorTotal.toLocaleString("en-IN")}). Difference: NPR ${creditorDiff.toLocaleString("en-IN")}.`
+    );
+  }
+  return {
+    debtorTotal,
+    creditorTotal,
+    bankAssetTotal,
+    bankLiabilityTotal,
+    isValid: warnings.length === 0,
+    warnings
+  };
+}
+function cleanupSubledger(maxAgeHours) {
+  const cutoff = Date.now() - maxAgeHours * 60 * 60 * 1e3;
+  let removed = 0;
+  for (const [id, data] of store.entries()) {
+    if (data.lastUpdatedAt.getTime() < cutoff) {
+      store.delete(id);
+      removed++;
+    }
+  }
+  return removed;
+}
+var subledgerStore = {
+  get: getSubledger,
+  upsertDebtors,
+  upsertCreditors,
+  upsertBankAccounts,
+  upsertRelatedParties,
+  delete: deleteSubledger,
+  validate: validateSubledger,
+  cleanup: cleanupSubledger,
+  size: () => store.size
+};
+
+// server/services/ppeCategoryMap.ts
+var PPE_CLASSES = [
+  { categoryId: "Land", label: "Land", tbCategories: ["ppe_land"] },
+  { categoryId: "Building", label: "Buildings", tbCategories: ["ppe_buildings"] },
+  {
+    categoryId: "OfficeEquipment",
+    label: "Furniture, Computers & Office Equipment",
+    tbCategories: ["ppe_office_equipment", "ppe_furniture", "ppe_computers"]
+  },
+  { categoryId: "Vehicle", label: "Vehicles", tbCategories: ["ppe_vehicles"] },
+  { categoryId: "PlantMachinery", label: "Plant & Machinery", tbCategories: ["ppe_plant_machinery"] },
+  { categoryId: "Intangible", label: "Intangibles / Software", tbCategories: ["ppe_intangibles"] },
+  { categoryId: "UnderConstruction", label: "Capital Work in Progress", tbCategories: ["ppe_cwip"] }
+];
+var PPE_CLASS_ALIASES = {
+  land: "Land",
+  building: "Building",
+  buildings: "Building",
+  ppe_buildings: "Building",
+  ppe_land: "Land",
+  officeequipment: "OfficeEquipment",
+  office_equipment: "OfficeEquipment",
+  ppe_office_equipment: "OfficeEquipment",
+  ppe_furniture: "OfficeEquipment",
+  ppe_computers: "OfficeEquipment",
+  furniture: "OfficeEquipment",
+  computers: "OfficeEquipment",
+  vehicle: "Vehicle",
+  vehicles: "Vehicle",
+  ppe_vehicles: "Vehicle",
+  plantmachinery: "PlantMachinery",
+  plant_machinery: "PlantMachinery",
+  ppe_plant_machinery: "PlantMachinery",
+  intangible: "Intangible",
+  intangibles: "Intangible",
+  ppe_intangibles: "Intangible",
+  underconstruction: "UnderConstruction",
+  cwip: "UnderConstruction",
+  ppe_cwip: "UnderConstruction",
+  wip: "UnderConstruction"
+};
+function normalizePPEClassId(value) {
+  if (!value) return "OfficeEquipment";
+  const direct = PPE_CLASSES.find((c) => c.categoryId === value);
+  if (direct) return direct.categoryId;
+  const key = value.toLowerCase().replace(/[\s_-]/g, "");
+  return PPE_CLASS_ALIASES[key] ?? PPE_CLASS_ALIASES[value.toLowerCase()] ?? "OfficeEquipment";
+}
+function ppeClassLabel(categoryId) {
+  return PPE_CLASSES.find((c) => c.categoryId === categoryId)?.label ?? categoryId;
+}
+function ppeTbCategories(categoryId) {
+  const normalized = normalizePPEClassId(categoryId);
+  return PPE_CLASSES.find((c) => c.categoryId === normalized)?.tbCategories ?? [];
+}
+
+// server/services/depreciationEngine.ts
+var DEFAULT_RATES = {
+  Land: { rate: 0, method: "SLM" },
+  Building: { rate: 0.04, method: "SLM" },
+  OfficeEquipment: { rate: 0.25, method: "WDV" },
+  Vehicle: { rate: 0.2, method: "WDV" },
+  PlantMachinery: { rate: 0.15, method: "WDV" },
+  Intangible: { rate: 0.2, method: "SLM" },
+  UnderConstruction: { rate: 0, method: "SLM" }
+};
+var TAX_POOLS = [
+  { poolName: "Pool A (Building 5%)", rate: 0.05, classes: ["Building"] },
+  { poolName: "Pool B (Computers & Software 25%)", rate: 0.25, classes: ["Intangible", "OfficeEquipment"] },
+  { poolName: "Pool C (Office Equipment & Furniture 25%)", rate: 0.25, classes: ["OfficeEquipment"] },
+  { poolName: "Pool D (Vehicles 20%)", rate: 0.2, classes: ["Vehicle"] },
+  { poolName: "Pool E (Plant & Machinery 15%)", rate: 0.15, classes: ["PlantMachinery"] }
+];
+function parseBSMonth(dateStr) {
+  const months = {
+    shrawan: 1,
+    bhadra: 2,
+    aswin: 3,
+    kartik: 4,
+    mangsir: 5,
+    poush: 6,
+    magh: 7,
+    falgun: 8,
+    chaitra: 9,
+    baisakh: 10,
+    jestha: 11,
+    ashadh: 12
+  };
+  const parts = dateStr.trim().split(/\s+/);
+  return months[(parts[1] ?? "").toLowerCase()] ?? 1;
+}
+function monthsHeldInFY(purchaseDate) {
+  if (typeof purchaseDate === "number") {
+    return 12;
+  }
+  const month = parseBSMonth(purchaseDate);
+  if (month <= 6) return 12;
+  if (month <= 9) return 12 - (month - 6) * 2;
+  return Math.max(1, 12 - month + 1);
+}
+function getRateAndMethod(asset, policies) {
+  if (asset.depreciationMethodOverride) {
+    return {
+      rate: asset.rateOverride ?? DEFAULT_RATES[asset.assetClass]?.rate ?? 0.1,
+      method: asset.depreciationMethodOverride
+    };
+  }
+  const policyRate = policies?.depreciationRates?.[asset.assetClass];
+  const defaults = DEFAULT_RATES[asset.assetClass] ?? { rate: 0.1, method: "SLM" };
+  return {
+    rate: policyRate ?? defaults.rate,
+    method: policies?.depreciationMethod ?? defaults.method
+  };
+}
+function computeAccountingDepreciation(asset, policies) {
+  const raw = asset;
+  const assetLabel = asset.assetName ?? raw.name ?? asset.id;
+  let purchaseDateForCalc;
+  if (raw.purchaseDateBS) {
+    purchaseDateForCalc = raw.purchaseDateBS;
+  } else if (typeof raw.purchaseDate === "number") {
+    purchaseDateForCalc = raw.purchaseDate;
+  } else if (raw.purchaseDate) {
+    purchaseDateForCalc = raw.purchaseDate;
+  } else {
+    throw new Error(`Asset '${assetLabel}': purchaseDate or purchaseDateBS required.`);
+  }
+  const { rate, method } = getRateAndMethod(asset, policies);
+  const costBase = asset.originalCost + asset.additionsCY;
+  const months = monthsHeldInFY(purchaseDateForCalc);
+  const fraction = asset.disposalDate ? months / 12 : months / 12;
+  const accumulatedDepnPY = raw.accumDepn ?? asset.accumulatedDepnPY ?? raw.accumulatedDepreciation ?? 0;
+  let depreciationCY = 0;
+  if (asset.assetClass === "Land" || rate === 0) {
+    depreciationCY = 0;
+  } else if (method === "SLM") {
+    depreciationCY = costBase * rate * fraction;
+  } else {
+    const wdv = costBase - accumulatedDepnPY;
+    depreciationCY = wdv * rate * fraction;
+  }
+  if (asset.disposalDate && asset.disposalValue !== void 0) {
+    const nbv = costBase - accumulatedDepnPY - depreciationCY;
+    const gainLoss = asset.disposalValue - nbv;
+    void gainLoss;
+  }
+  const accumulatedDepnCY = accumulatedDepnPY + depreciationCY;
+  const netBookValueCY = costBase - accumulatedDepnCY;
+  const netBookValuePY = asset.originalCost - accumulatedDepnPY;
+  return {
+    ...asset,
+    depreciationCY: Math.round(depreciationCY * 100) / 100,
+    accumulatedDepnCY: Math.round(accumulatedDepnCY * 100) / 100,
+    netBookValueCY: Math.round(netBookValueCY * 100) / 100,
+    netBookValuePY: Math.round(netBookValuePY * 100) / 100
+  };
+}
+function buildPPENote(assets, policies) {
+  const classMap = /* @__PURE__ */ new Map();
+  for (const asset of assets) {
+    const name = asset.assetClass;
+    if (!classMap.has(name)) {
+      classMap.set(name, {
+        name,
+        costOpeningDr: 0,
+        costOpeningCr: 0,
+        additions: 0,
+        disposals: 0,
+        costClosing: 0,
+        accumDepnOpening: 0,
+        depreciationCharged: 0,
+        impairmentLosses: 0,
+        disposalDepn: 0,
+        accumDepnClosing: 0,
+        carryingAmountOpening: 0,
+        carryingAmountClosing: 0
+      });
+    }
+    const cls = classMap.get(name);
+    cls.costOpeningDr += asset.originalCost;
+    cls.additions += asset.additionsCY;
+    cls.disposals += asset.disposalValue ?? 0;
+    cls.accumDepnOpening += asset.accumulatedDepnPY;
+    cls.depreciationCharged += asset.depreciationCY ?? 0;
+    cls.accumDepnClosing += asset.accumulatedDepnCY ?? 0;
+    cls.carryingAmountOpening += asset.netBookValuePY ?? 0;
+    cls.carryingAmountClosing += asset.netBookValueCY ?? 0;
+    cls.costClosing = cls.costOpeningDr + cls.additions - cls.disposals;
+  }
+  const classes = Array.from(classMap.values());
+  const totals = classes.reduce(
+    (acc, c) => ({
+      name: "Total",
+      costOpeningDr: acc.costOpeningDr + c.costOpeningDr,
+      costOpeningCr: 0,
+      additions: acc.additions + c.additions,
+      disposals: acc.disposals + c.disposals,
+      costClosing: acc.costClosing + c.costClosing,
+      accumDepnOpening: acc.accumDepnOpening + c.accumDepnOpening,
+      depreciationCharged: acc.depreciationCharged + c.depreciationCharged,
+      impairmentLosses: acc.impairmentLosses + c.impairmentLosses,
+      disposalDepn: acc.disposalDepn + c.disposalDepn,
+      accumDepnClosing: acc.accumDepnClosing + c.accumDepnClosing,
+      carryingAmountOpening: acc.carryingAmountOpening + c.carryingAmountOpening,
+      carryingAmountClosing: acc.carryingAmountClosing + c.carryingAmountClosing
+    }),
+    {
+      name: "Total",
+      costOpeningDr: 0,
+      costOpeningCr: 0,
+      additions: 0,
+      disposals: 0,
+      costClosing: 0,
+      accumDepnOpening: 0,
+      depreciationCharged: 0,
+      impairmentLosses: 0,
+      disposalDepn: 0,
+      accumDepnClosing: 0,
+      carryingAmountOpening: 0,
+      carryingAmountClosing: 0
+    }
+  );
+  const depreciationRates = {};
+  for (const [cls, def] of Object.entries(DEFAULT_RATES)) {
+    depreciationRates[cls] = policies?.depreciationRates?.[cls] ?? def.rate;
+  }
+  return {
+    classes,
+    totals,
+    depreciationRates,
+    depreciationMethod: policies?.depreciationMethod ?? "SLM",
+    securityNote: "",
+    WIPNote: ""
+  };
+}
+function computeTaxDepPool(assets, openingBases, taxableIncome, repairExpenses = {}) {
+  return TAX_POOLS.map((pool) => {
+    const poolAssets = assets.filter((a) => pool.classes.includes(a.assetClass));
+    let additions = 0;
+    let disposals = 0;
+    for (const a of poolAssets) {
+      additions += a.additionsCY + a.originalCost;
+      disposals += a.disposalValue ?? 0;
+    }
+    const openingBasis = openingBases[pool.poolName] ?? 0;
+    let repairExpense = repairExpenses[pool.poolName] ?? 0;
+    const repairThreshold = openingBasis * 0.07;
+    const capitalizedRepairs = Math.max(0, repairExpense - repairThreshold);
+    additions += capitalizedRepairs;
+    const depreciationBasis = openingBasis + additions - disposals;
+    const absorbed = additions;
+    const depreciation = depreciationBasis * pool.rate;
+    const netDepreciation = depreciation;
+    const unabsorbed = Math.max(0, netDepreciation - taxableIncome * (2 / 3));
+    const taxableDepreciation = netDepreciation - unabsorbed;
+    const nextYearBasis = depreciationBasis - taxableDepreciation;
+    return {
+      poolName: pool.poolName,
+      rate: pool.rate,
+      openingBasis,
+      additions,
+      disposals,
+      absorbed,
+      unabsorbed: Math.round(unabsorbed * 100) / 100,
+      nextYearBasis: Math.round(Math.max(0, nextYearBasis) * 100) / 100,
+      repairExpense
+    };
+  });
+}
+function computeDepreciation(assetRegister, policies, options) {
+  const assetRegisterComputed = assetRegister.map(
+    (a) => computeAccountingDepreciation(a, policies)
+  );
+  const totalDepreciationExpense = assetRegisterComputed.reduce(
+    (s, a) => s + (a.depreciationCY ?? 0),
+    0
+  );
+  const ppeTotals = buildPPENote(assetRegisterComputed, policies);
+  const taxDepSchedule = computeTaxDepPool(
+    assetRegisterComputed,
+    options?.taxOpeningBases ?? {},
+    options?.taxableIncome ?? 0,
+    options?.repairExpenses
+  );
+  return {
+    assetRegisterComputed,
+    ppeTotals,
+    taxDepSchedule,
+    totalDepreciationExpense: Math.round(totalDepreciationExpense * 100) / 100
+  };
+}
+function calculateDepreciationSummary(assets, _categories, _fiscalYear) {
+  const result = computeDepreciation(assets);
+  const summary = result.ppeTotals.classes.map((cls) => {
+    const categoryId = normalizePPEClassId(cls.name);
+    const classAssets = result.assetRegisterComputed.filter(
+      (asset) => normalizePPEClassId(asset.assetClass) === categoryId
+    );
+    return {
+      categoryId,
+      categoryName: ppeClassLabel(categoryId),
+      openingCost: cls.costOpeningDr,
+      additions: cls.additions,
+      disposals: cls.disposals,
+      closingCost: cls.costClosing,
+      openingAccumDepn: cls.accumDepnOpening,
+      depnForYear: cls.depreciationCharged,
+      depnOnDisposal: cls.disposalDepn,
+      closingAccumDepn: cls.accumDepnClosing,
+      netBookValueClosing: cls.carryingAmountClosing,
+      assets: classAssets
+    };
+  });
+  return {
+    results: result.assetRegisterComputed,
+    summary
+  };
+}
+function calculateTaxDepreciation(assets, _categories, openingPoolBases) {
+  return computeDepreciation(assets, void 0, { taxOpeningBases: openingPoolBases }).taxDepSchedule;
+}
+
+// server/routes/adjustments.ts
+function toDepreciationAssets(assets) {
+  return assets.map((asset) => ({
+    id: asset.id,
+    assetClass: normalizePPEClassId(asset.categoryId),
+    assetName: asset.assetName,
+    purchaseDate: asset.purchaseDateBS,
+    purchaseDateBS: asset.purchaseDateBS,
+    originalCost: asset.originalCost,
+    additionsCY: asset.additionalCost ?? 0,
+    accumulatedDepnPY: asset.accumDepreciationOpening ?? 0,
+    depreciationMethodOverride: asset.depreciationMethod === "WrittenDownValue" || asset.depreciationMethod === "WDV" ? "WDV" : "SLM",
+    rateOverride: asset.wdvRate,
+    disposed: asset.disposed,
+    disposalDate: asset.disposalDateBS,
+    disposalValue: asset.disposalValue
+  }));
+}
+var router3 = Router3();
+var emptyAdj = (companyId, fiscalYear) => ({
+  companyId,
+  fiscalYear,
+  assets: [],
+  depreciationResults: [],
+  depreciationSummary: [],
+  taxDepreciationPools: [],
+  inventoryAdjustments: [],
+  investmentAdjustments: [],
+  provisions: [],
+  journalEntries: [],
+  totalDepreciationExpense: 0,
+  totalInventoryImpairment: 0,
+  totalInvestmentFVAdjustment: 0,
+  totalProvisions: 0,
+  gainOnDisposals: 0,
+  lossOnDisposals: 0
+});
+router3.post("/:companyId/assets", asyncHandler(async (req, res) => {
+  const session = sessionStore.get(req.params.companyId);
+  if (!session) return res.status(404).json({ error: "Company not found." });
+  const assets = req.body.assets ?? [];
+  const adj = session.adjustments ?? emptyAdj(req.params.companyId, session.company?.fiscalYear?.bsFY ?? "");
+  sessionStore.set(req.params.companyId, { adjustments: { ...adj, assets } });
+  return res.json({ message: "Asset register saved.", count: assets.length });
+}));
+router3.post("/:companyId/calculate-depreciation", asyncHandler(async (req, res) => {
+  const session = sessionStore.get(req.params.companyId);
+  if (!session?.company) return res.status(404).json({ error: "Company not found." });
+  const adj = session.adjustments ?? emptyAdj(req.params.companyId, session.company.fiscalYear?.bsFY ?? "");
+  const assetCategories = session.company.accountingPolicies?.assetCategories ?? [];
+  const fiscalYear = session.company.fiscalYear?.bsFY ?? "2081/82";
+  const { results, summary } = calculateDepreciationSummary(
+    toDepreciationAssets(adj.assets ?? []),
+    assetCategories,
+    fiscalYear
+  );
+  const totalDepreciation = results.reduce((s, r) => s + (r.depreciationCY ?? r.depnForYear ?? 0), 0);
+  const gainOnDisposals = results.filter((r) => (r.gainLossOnDisposal ?? 0) > 0).reduce((s, r) => s + (r.gainLossOnDisposal ?? 0), 0);
+  const lossOnDisposals = results.filter((r) => (r.gainLossOnDisposal ?? 0) < 0).reduce((s, r) => s + Math.abs(r.gainLossOnDisposal ?? 0), 0);
+  const openingPoolBases = req.body.openingPoolBases ?? {};
+  const taxPools = calculateTaxDepreciation(toDepreciationAssets(adj.assets ?? []), assetCategories, openingPoolBases);
+  const updatedAdj = {
+    ...adj,
+    depreciationResults: results,
+    depreciationSummary: summary,
+    taxDepreciationPools: taxPools,
+    totalDepreciationExpense: totalDepreciation,
+    gainOnDisposals,
+    lossOnDisposals
+  };
+  sessionStore.set(req.params.companyId, { adjustments: updatedAdj });
+  return res.json({
+    results,
+    summary,
+    taxPools,
+    totalDepreciationExpense: totalDepreciation,
+    gainOnDisposals,
+    lossOnDisposals
+  });
+}));
+router3.post("/:companyId/provisions", asyncHandler(async (req, res) => {
+  const session = sessionStore.get(req.params.companyId);
+  if (!session) return res.status(404).json({ error: "Company not found." });
+  const provisions = req.body.provisions ?? [];
+  const adj = session.adjustments ?? emptyAdj(req.params.companyId, session.company?.fiscalYear?.bsFY ?? "");
+  const totalProvisions = provisions.reduce((s, p) => s + p.additionForYear, 0);
+  sessionStore.set(req.params.companyId, { adjustments: { ...adj, provisions, totalProvisions } });
+  return res.json({ message: "Provisions saved.", count: provisions.length, total: totalProvisions });
+}));
+router3.post("/:companyId/inventory", asyncHandler(async (req, res) => {
+  const session = sessionStore.get(req.params.companyId);
+  if (!session) return res.status(404).json({ error: "Company not found." });
+  const items = req.body.items ?? [];
+  const adj = session.adjustments ?? emptyAdj(req.params.companyId, session.company?.fiscalYear?.bsFY ?? "");
+  const totalInventoryImpairment = items.reduce((s, i) => s + i.impairmentAmount, 0);
+  sessionStore.set(req.params.companyId, { adjustments: { ...adj, inventoryAdjustments: items, totalInventoryImpairment } });
+  return res.json({ message: "Inventory adjustments saved.", totalImpairment: totalInventoryImpairment });
+}));
+router3.post("/:companyId/investments", asyncHandler(async (req, res) => {
+  const session = sessionStore.get(req.params.companyId);
+  if (!session) return res.status(404).json({ error: "Company not found." });
+  const items = req.body.items ?? [];
+  const adj = session.adjustments ?? emptyAdj(req.params.companyId, session.company?.fiscalYear?.bsFY ?? "");
+  const totalFV = items.reduce((s, i) => s + (i.fairValueGainLoss ?? 0), 0);
+  sessionStore.set(req.params.companyId, { adjustments: { ...adj, investmentAdjustments: items, totalInvestmentFVAdjustment: totalFV } });
+  return res.json({ message: "Investment adjustments saved.", totalFVAdjustment: totalFV });
+}));
+router3.get("/:companyId", asyncHandler(async (req, res) => {
+  const session = sessionStore.get(req.params.companyId);
+  if (!session) return res.status(404).json({ error: "Company not found." });
+  return res.json(session.adjustments ?? emptyAdj(req.params.companyId, session.company?.fiscalYear?.bsFY ?? ""));
+}));
+router3.post("/:companyId/calculate-all", asyncHandler(async (req, res) => {
+  const session = sessionStore.get(req.params.companyId);
+  if (!session?.adjustments) return res.status(400).json({ error: "No adjustments data found. Add assets, provisions, and inventory first." });
+  const adj = session.adjustments;
+  const journalTotal = adj.journalEntries.reduce((s, j) => s + j.amount, 0);
+  return res.json({ adjustments: adj, journalEntryCount: adj.journalEntries.length, totalDebitCredit: journalTotal });
+}));
+router3.get("/subledger/:companyId", asyncHandler(async (req, res) => {
+  const { companyId } = req.params;
+  const session = sessionStore.get(companyId);
+  if (!session) return res.status(404).json({ error: "Company session not found." });
+  const data = subledgerStore.get(companyId);
+  return res.json(data);
+}));
+router3.post("/subledger/debtors", asyncHandler(async (req, res) => {
+  const { companyId, debtors } = req.body;
+  if (!companyId) {
+    return res.status(400).json({ error: "companyId is required." });
+  }
+  const session = sessionStore.get(companyId);
+  if (!session) {
+    return res.status(404).json({ error: "Company session not found." });
+  }
+  if (!Array.isArray(debtors)) {
+    return res.status(400).json({ error: "debtors must be an array." });
+  }
+  const updated = subledgerStore.upsertDebtors(companyId, debtors);
+  const tbRows = session.trialBalance?.rows ?? [];
+  const tbDebtorTotal = tbRows.filter((r) => r.nfrsCategory === "trade_receivables" && !r.isGroupRow).reduce((s, r) => s + (r.closingDr ?? 0), 0);
+  const validation = subledgerStore.validate(companyId, tbDebtorTotal, 0);
+  return res.json({
+    message: "Debtor subledger saved.",
+    count: updated.debtors.length,
+    debtorTotal: updated.debtors.reduce((s, d) => s + d.debitBalance, 0),
+    tbDebtorTotal,
+    validation
+  });
+}));
+router3.post("/subledger/creditors", asyncHandler(async (req, res) => {
+  const { companyId, creditors } = req.body;
+  if (!companyId) return res.status(400).json({ error: "companyId is required." });
+  const session = sessionStore.get(companyId);
+  if (!session) return res.status(404).json({ error: "Company session not found." });
+  if (!Array.isArray(creditors)) return res.status(400).json({ error: "creditors must be an array." });
+  const updated = subledgerStore.upsertCreditors(companyId, creditors);
+  const tbRows = session.trialBalance?.rows ?? [];
+  const tbCreditorTotal = tbRows.filter((r) => r.nfrsCategory === "trade_payables_creditors" && !r.isGroupRow).reduce((s, r) => s + (r.closingCr ?? 0), 0);
+  const validation = subledgerStore.validate(companyId, 0, tbCreditorTotal);
+  return res.json({
+    message: "Creditor subledger saved.",
+    count: updated.creditors.length,
+    creditorTotal: updated.creditors.reduce((s, c) => s + c.creditBalance, 0),
+    tbCreditorTotal,
+    validation
+  });
+}));
+router3.post("/subledger/bank-accounts", asyncHandler(async (req, res) => {
+  const { companyId, bankAccounts } = req.body;
+  if (!companyId) return res.status(400).json({ error: "companyId is required." });
+  const session = sessionStore.get(companyId);
+  if (!session) return res.status(404).json({ error: "Company session not found." });
+  if (!Array.isArray(bankAccounts)) {
+    return res.status(400).json({ error: "bankAccounts must be an array." });
+  }
+  const invalid = bankAccounts.filter((b) => !b.bankName?.trim());
+  if (invalid.length > 0) {
+    return res.status(400).json({
+      error: `${invalid.length} bank account row(s) are missing a bank name.`
+    });
+  }
+  const updated = subledgerStore.upsertBankAccounts(companyId, bankAccounts);
+  const assetTotal = updated.bankAccounts.filter((b) => b.balance >= 0).reduce((s, b) => s + b.balance, 0);
+  const liabilityTotal = updated.bankAccounts.filter((b) => b.balance < 0).reduce((s, b) => s + Math.abs(b.balance), 0);
+  return res.json({
+    message: "Bank accounts saved.",
+    count: updated.bankAccounts.length,
+    assetTotal,
+    liabilityTotal
+  });
+}));
+router3.post("/subledger/related-parties", asyncHandler(async (req, res) => {
+  const { companyId, relatedParties } = req.body;
+  if (!companyId) return res.status(400).json({ error: "companyId is required." });
+  const session = sessionStore.get(companyId);
+  if (!session) return res.status(404).json({ error: "Company session not found." });
+  if (!Array.isArray(relatedParties)) {
+    return res.status(400).json({ error: "relatedParties must be an array." });
+  }
+  const updated = subledgerStore.upsertRelatedParties(companyId, relatedParties);
+  return res.json({
+    message: "Related parties saved.",
+    count: updated.relatedParties.length
+  });
+}));
+var adjustments_default = router3;
+
+// server/routes/financials.ts
+import { Router as Router4 } from "express";
+
+// server/services/taxEngine.ts
+function computeStaffBonus(profitBeforeBonus, rate = 0.1) {
+  return Math.max(0, Math.round(profitBeforeBonus * rate * 100) / 100);
+}
+function computePrivateFirmTax(taxableIncome) {
+  if (taxableIncome <= 5e5) return 0;
+  if (taxableIncome <= 7e5) return (taxableIncome - 5e5) * 0.15;
+  return 5e4 * 0.15 + (taxableIncome - 7e5) * 0.25;
+}
+function computeTax(input) {
+  const {
+    accountingProfit,
+    accountingDepreciation,
+    taxDepreciation,
+    disallowedForTax,
+    staffBonus,
+    profitBeforeBonus,
+    donations = 0,
+    researchDevelopment = 0,
+    advanceTaxPaid,
+    incomeTaxRate,
+    entityType
+  } = input;
+  const reconciliation = [];
+  reconciliation.push({ label: "Accounting profit before tax", amount: accountingProfit });
+  reconciliation.push({ label: "Add: Accounting depreciation", amount: accountingDepreciation });
+  reconciliation.push({ label: "Less: Tax depreciation (ITA pools)", amount: -taxDepreciation });
+  const totalDisallowed = disallowedForTax.reduce((s, d) => s + d.amount, 0);
+  if (totalDisallowed > 0) {
+    reconciliation.push({ label: "Add: Disallowed expenses", amount: totalDisallowed });
+  }
+  const maxBonusAllowed = profitBeforeBonus * 0.1;
+  const staffBonusAllowed = Math.min(staffBonus, maxBonusAllowed);
+  let adjustedProfit = accountingProfit + accountingDepreciation - taxDepreciation + totalDisallowed;
+  const donationAllowed = Math.min(donations, adjustedProfit * 0.05);
+  adjustedProfit -= donationAllowed;
+  const rdAllowance = researchDevelopment * 0.5;
+  adjustedProfit -= rdAllowance;
+  const taxableIncome = Math.max(0, Math.round(adjustedProfit * 100) / 100);
+  reconciliation.push({ label: "Taxable income", amount: taxableIncome });
+  let currentTaxExpense;
+  if (entityType === "Sole Proprietorship" || entityType === "Partnership") {
+    currentTaxExpense = computePrivateFirmTax(taxableIncome);
+  } else {
+    currentTaxExpense = Math.round(taxableIncome * incomeTaxRate * 100) / 100;
+  }
+  const netTaxPayable = Math.max(0, Math.round((currentTaxExpense - advanceTaxPaid) * 100) / 100);
+  reconciliation.push({
+    label: `Income tax at ${(incomeTaxRate * 100).toFixed(0)}%`,
+    amount: currentTaxExpense
+  });
+  return {
+    taxableIncome,
+    currentTaxExpense,
+    netTaxPayable,
+    staffBonusAllowed,
+    bookTaxReconciliation: reconciliation
+  };
+}
+function computeIncomeTax(params) {
+  const result = computeTax({
+    accountingProfit: params.bookProfit,
+    accountingDepreciation: 0,
+    taxDepreciation: 0,
+    disallowedForTax: Object.entries(params.disallowableExpenses).map(([description, amount]) => ({
+      description,
+      amount,
+      section: "Section 21 ITA"
+    })),
+    staffBonus: 0,
+    profitBeforeBonus: params.bookProfit,
+    advanceTaxPaid: params.advanceTaxPaid + params.tdsCredit,
+    incomeTaxRate: params.taxRate / 100,
+    entityType: "Company"
+  });
+  const netAfterCredits = result.currentTaxExpense - params.advanceTaxPaid - params.tdsCredit;
+  return {
+    taxableIncome: result.taxableIncome,
+    currentTaxExpense: result.currentTaxExpense,
+    taxPayable: netAfterCredits > 0 ? netAfterCredits : 0,
+    taxRecoverable: netAfterCredits < 0 ? -netAfterCredits : 0,
+    effectiveTaxRate: params.bookProfit > 0 ? Math.round(result.currentTaxExpense / params.bookProfit * 1e4) / 100 : 0
+  };
+}
+
+// server/services/notesEngine.ts
+function sumTB(rows, categories, field = "closingDr") {
+  const cats = Array.isArray(categories) ? categories : [categories];
+  return rows.filter((r) => cats.includes(r.nfrsCategory) && !r.isGroupRow).reduce((s, r) => s + (r[field] ?? 0), 0);
+}
+function netClosing(rows, categories) {
+  const cats = Array.isArray(categories) ? categories : [categories];
+  return rows.filter((r) => cats.includes(r.nfrsCategory) && !r.isGroupRow).reduce((s, r) => s + (r.closingDr ?? 0) - (r.closingCr ?? 0), 0);
+}
+function rowsByCategory(rows, category) {
+  return rows.filter((r) => r.nfrsCategory === category && !r.isGroupRow);
+}
+function safeSum(...vals) {
+  return vals.reduce((a, v) => a + (v ?? 0), 0);
+}
+var round = (n) => Math.round(n * 100) / 100;
+function debtorDaysOutstanding(d) {
+  if (typeof d.daysOutstanding === "number") return d.daysOutstanding;
+  if (typeof d.agingDays === "number") return d.agingDays;
+  const cat = String(d.ageCategory ?? "");
+  if (cat === "<30days") return 15;
+  if (cat === "31-60days") return 45;
+  if (cat === "61-90days") return 75;
+  if (cat === ">90days") return 120;
+  return 0;
+}
+function debtorAmount(d) {
+  return Number(d.debitBalance ?? d.balanceCY ?? d.amount ?? 0);
+}
+function buildAgingAnalysis(debtors, grossReceivables) {
+  const buckets = [
+    { bucket: "0-30 days", min: 0, max: 30, amount: 0 },
+    { bucket: "31-60 days", min: 31, max: 60, amount: 0 },
+    { bucket: "61-90 days", min: 61, max: 90, amount: 0 },
+    { bucket: ">90 days", min: 91, max: Number.POSITIVE_INFINITY, amount: 0 }
+  ];
+  for (const d of debtors) {
+    const amt = debtorAmount(d);
+    if (amt <= 0) continue;
+    const days = debtorDaysOutstanding(d);
+    const bucket = buckets.find((b) => days >= b.min && days <= b.max) ?? buckets[3];
+    bucket.amount += amt;
+  }
+  const total = buckets.reduce((s, b) => s + b.amount, 0);
+  if (total > 0 && grossReceivables > 0 && Math.abs(total - grossReceivables) > 1) {
+    const factor = grossReceivables / total;
+    buckets.forEach((b) => {
+      b.amount = round(b.amount * factor);
+    });
+  }
+  return buckets.map(({ bucket, amount }) => ({ bucket, amount: round(amount) }));
+}
+function mapSubledgerBankType(accountType) {
+  const t = accountType.toLowerCase();
+  if (t === "savings") return "Savings";
+  if (t === "fixed_deposit") return "Fixed Deposit (\u22643 months)";
+  return "Current";
+}
+function isLoanBankType(accountType) {
+  const t = accountType.toLowerCase();
+  return t === "loan" || t === "overdraft" || t === "cash_credit" || t === "working_capital";
+}
+var TAX_DEPN_RATES = {
+  ppe_buildings: 0.05,
+  ppe_furniture: 0.25,
+  ppe_vehicles: 0.2,
+  ppe_plant_machinery: 0.15,
+  ppe_intangibles: 0.15,
+  ppe_computers: 0.25,
+  ppe_office_equipment: 0.15
+};
+function sumTBForPPEClass(rows, classId, field) {
+  return ppeTbCategories(classId).reduce((total, category) => total + sumTB(rows, category, field), 0);
+}
+function normalizeDepreciationSummary(adj) {
+  return (adj.depreciationSummary ?? []).map((raw) => {
+    const item = raw;
+    const categoryId = normalizePPEClassId(item.categoryId ?? item.name ?? item.assetClass);
+    return {
+      categoryId,
+      categoryName: item.categoryName ?? item.name ?? categoryId,
+      openingCost: item.openingCost ?? item.costOpeningDr ?? 0,
+      additions: item.additions ?? 0,
+      disposals: item.disposals ?? 0,
+      closingCost: item.closingCost ?? item.costClosing ?? 0,
+      openingAccumDepn: item.openingAccumDepn ?? item.accumDepnOpening ?? 0,
+      depnForYear: item.depnForYear ?? item.depreciationCharged ?? 0,
+      depnOnDisposal: item.depnOnDisposal ?? item.disposalDepn ?? 0,
+      closingAccumDepn: item.closingAccumDepn ?? item.accumDepnClosing ?? 0,
+      netBookValueClosing: item.netBookValueClosing ?? item.carryingAmountClosing ?? Math.max(0, (item.closingCost ?? item.costClosing ?? 0) - (item.closingAccumDepn ?? item.accumDepnClosing ?? 0)),
+      assets: item.assets ?? []
+    };
+  });
+}
+function buildNotesData(params) {
+  const { tb, adj, bs, is: IS, company } = params;
+  const rows = tb.rows ?? [];
+  const provisions = adj.provisions ?? [];
+  const subledger = company.id ? subledgerStore.get(company.id) : null;
+  const taxRate = (company.accountingPolicies?.incomeTaxRatePercent ?? 25) / 100;
+  const roundingLevel = company.accountingPolicies?.roundingLevel ?? 1;
+  const normalizedDepSummary = normalizeDepreciationSummary(adj);
+  const depnSummaryMap = new Map(
+    normalizedDepSummary.map((d) => [d.categoryId, d])
+  );
+  const note31_ppe = PPE_CLASSES.map((cls) => {
+    const d = depnSummaryMap.get(cls.categoryId);
+    const tbGross = sumTBForPPEClass(rows, cls.categoryId, "closingDr");
+    const tbOpenGross = sumTBForPPEClass(rows, cls.categoryId, "openingDr");
+    const openingCost = d?.openingCost ?? tbOpenGross;
+    const additions = d?.additions ?? 0;
+    const disposals = d?.disposals ?? 0;
+    const closingCost = d?.closingCost ?? openingCost + additions - disposals;
+    const openingAccumDepn = d?.openingAccumDepn ?? 0;
+    const depnForYear = d?.depnForYear ?? 0;
+    const depnOnDisposal = d?.depnOnDisposal ?? 0;
+    const closingAccumDepn = d?.closingAccumDepn ?? openingAccumDepn + depnForYear - depnOnDisposal;
+    const nbvClosing = d?.netBookValueClosing ?? Math.max(0, closingCost - closingAccumDepn);
+    const nbvOpening = Math.max(0, openingCost - openingAccumDepn);
+    const assetsSecured = (adj.assets ?? []).filter((a) => normalizePPEClassId(a.categoryId) === cls.categoryId && a.isMortgaged).reduce((s, a) => s + a.originalCost, 0);
+    return {
+      categoryId: cls.categoryId,
+      categoryName: cls.label,
+      // Cost movement
+      openingCost,
+      additions,
+      disposals,
+      closingCost,
+      // Accumulated depreciation movement
+      openingAccumDepn,
+      depnForYear,
+      impairmentLosses: 0,
+      depnOnDisposal,
+      closingAccumDepn,
+      // NBV
+      netBookValueClosing: nbvClosing,
+      nbvClosing,
+      nbvOpening,
+      // Assets pledged
+      securedAmount: assetsSecured,
+      hasSecuredAssets: assetsSecured > 0,
+      // Individual assets
+      assets: normalizedDepSummary.find((ds) => ds.categoryId === cls.categoryId)?.assets ?? []
+    };
+  }).filter(
+    (item) => (
+      // Only include categories that have any balance or movement
+      item.openingCost > 0 || item.additions > 0 || item.closingCost > 0
+    )
+  );
+  const investmentAdjs = adj.investmentAdjustments ?? [];
+  const listedShares = investmentAdjs.filter(
+    (i) => i.investmentType === "listed_trading" || i.investmentType === "listed_ats"
+  ).map((inv) => ({
+    companyName: inv.investmentName,
+    openingUnits: inv.units ?? 0,
+    purchasesDuringYear: 0,
+    salesDuringYear: 0,
+    closingUnits: inv.units ?? 0,
+    costPerUnit: inv.totalCost && inv.units ? inv.totalCost / inv.units : 0,
+    totalCost: inv.totalCost ?? 0,
+    ltp: inv.ltp ?? 0,
+    marketValue: inv.marketValue ?? (inv.units ?? 0) * (inv.ltp ?? 0),
+    fairValueGainLoss: inv.fairValueGainLoss ?? 0,
+    impairmentAmount: inv.impairmentAmount ?? 0,
+    carryingAmount: inv.carryingAmount ?? 0
+  }));
+  const unlistedShares = investmentAdjs.filter(
+    (i) => i.investmentType === "unlisted"
+  ).map((inv) => ({
+    companyName: inv.investmentName,
+    openingCost: inv.totalCost ?? 0,
+    additions: 0,
+    disposals: 0,
+    impairmentAmount: inv.impairmentAmount ?? 0,
+    closingCarrying: inv.carryingAmount ?? 0
+  }));
+  const fdrNonCurrent = sumTB(rows, "investment_fixed_deposit_noncurrent", "closingDr");
+  const fdrCurrent = sumTB(rows, "bank_fixed_deposit_current", "closingDr");
+  const note32_investments = {
+    listedShares,
+    unlistedShares,
+    fdrNonCurrent,
+    fdrCurrent,
+    totalNonCurrent: listedShares.reduce((s, i) => s + i.carryingAmount, 0) + unlistedShares.reduce((s, i) => s + i.closingCarrying, 0) + fdrNonCurrent,
+    totalCurrent: listedShares.reduce((s, i) => s + i.marketValue, 0) + fdrCurrent
+  };
+  const grossReceivables = sumTB(rows, "trade_receivables", "closingDr");
+  const grossReceivablesOpen = sumTB(rows, "trade_receivables", "openingDr");
+  const provisionBadDebt = provisions.find((p) => p.provisionType === "doubtful_debts");
+  const provisionImpairment = Math.abs(safeSum(
+    sumTB(rows, "provision_impairment_debtors", "closingCr"),
+    provisionBadDebt?.closingBalance ?? 0
+  ));
+  const provisionImpairmentOpen = Math.abs(safeSum(
+    sumTB(rows, "provision_impairment_debtors", "openingCr"),
+    provisionBadDebt?.openingBalance ?? 0
+  ));
+  const provisionAdditions = provisionBadDebt?.additionForYear ?? 0;
+  const provisionWriteOffs = provisionBadDebt?.utilisedDuringYear ?? 0;
+  const provisionReversals = 0;
+  const debtorRows = subledger?.debtors?.length ? subledger.debtors : adj.debtors ?? [];
+  const agingAnalysis = debtorRows.length > 0 ? buildAgingAnalysis(debtorRows, grossReceivables) : [];
+  const note33_tradeReceivables = {
+    grossReceivables_cy: grossReceivables,
+    grossReceivables_py: grossReceivablesOpen,
+    provisionMovement: {
+      opening: provisionImpairmentOpen,
+      additions: provisionAdditions,
+      writeOffs: provisionWriteOffs,
+      reversals: provisionReversals,
+      closing: provisionImpairment
+    },
+    provisionForImpairment_cy: provisionImpairment,
+    provisionForImpairment_py: provisionImpairmentOpen,
+    netReceivables_cy: round(grossReceivables - provisionImpairment),
+    netReceivables_py: round(grossReceivablesOpen - provisionImpairmentOpen),
+    relatedPartyReceivables: sumTB(rows, "related_party_receivable", "closingDr"),
+    prepayments: sumTB(rows, "other_receivables_prepayments", "closingDr"),
+    tdsReceivable: sumTB(rows, "other_receivables_tds", "closingDr"),
+    staffAdvances: sumTB(rows, "other_receivables_staff_advance", "closingDr"),
+    advanceToSuppliers: sumTB(rows, "other_receivables_advance_supplier", "closingDr"),
+    otherLoansAdvances: sumTB(rows, "other_receivables_loans", "closingDr"),
+    nonCurrentPortion: safeSum(
+      sumTB(rows, "nca_loans_advances", "closingDr"),
+      sumTB(rows, "nca_deposits", "closingDr")
+    ),
+    currentPortion: round(
+      grossReceivables - provisionImpairment + sumTB(rows, "other_receivables_prepayments", "closingDr") + sumTB(rows, "other_receivables_tds", "closingDr") + sumTB(rows, "other_receivables_staff_advance", "closingDr") + sumTB(rows, "other_receivables_advance_supplier", "closingDr") + sumTB(rows, "other_receivables_loans", "closingDr")
+    ),
+    agingAnalysis
+  };
+  const note34_otherCurrentAssets = {
+    securityDeposits: sumTB(rows, "nca_deposits", "closingDr"),
+    // current portion
+    guaranteeMargins: 0,
+    advanceIncomeTax: sumTB(rows, "advance_tax_paid", "closingDr"),
+    otherPrepaidExpenses: sumTB(rows, "other_receivables_other", "closingDr"),
+    total: round(
+      sumTB(rows, "nca_deposits", "closingDr") + sumTB(rows, "advance_tax_paid", "closingDr") + sumTB(rows, "other_receivables_other", "closingDr")
+    )
+  };
+  const bioOpeningBalance = sumTB(rows, "biological_assets", "openingDr");
+  const bioClosingBalance = sumTB(rows, "biological_assets", "closingDr");
+  const note35_biologicalAssets = {
+    hasBalance: bioClosingBalance > 0 || bioOpeningBalance > 0,
+    openingCarrying: bioOpeningBalance,
+    additionsPurchases: Math.max(0, sumTB(rows, "biological_assets", "duringDr")),
+    disposalsSales: Math.max(0, sumTB(rows, "biological_assets", "duringCr")),
+    fairValueAdjustment: 0,
+    closingCarrying: bioClosingBalance
+  };
+  const hfsBalance = sumTB(rows, "nca_held_for_sale", "closingDr");
+  const note36_heldForSale = {
+    hasBalance: hfsBalance > 0,
+    assets: hfsBalance > 0 ? [{
+      description: "Non-Current Assets Held for Sale",
+      carryingAmount: hfsBalance,
+      expectedSaleDate: null
+    }] : [],
+    total: hfsBalance
+  };
+  const invAdjs = adj.inventoryAdjustments ?? [];
+  const rmClosing = round(sumTB(rows, "inventory_raw_materials", "closingDr") - (invAdjs.find((i) => i.category === "raw_materials")?.impairmentAmount ?? 0));
+  const wipClosing = round(sumTB(rows, "inventory_wip", "closingDr") - (invAdjs.find((i) => i.category === "wip")?.impairmentAmount ?? 0));
+  const fgClosing = round(sumTB(rows, "inventory_finished_goods", "closingDr") - (invAdjs.find((i) => i.category === "finished_goods")?.impairmentAmount ?? 0));
+  const rmOpening = sumTB(rows, "inventory_raw_materials", "openingDr");
+  const wipOpening = sumTB(rows, "inventory_wip", "openingDr");
+  const fgOpening = sumTB(rows, "inventory_finished_goods", "openingDr");
+  const note37_inventories = {
+    rawMaterials: { opening: rmOpening, closing: rmClosing },
+    wip: { opening: wipOpening, closing: wipClosing },
+    finishedGoods: { opening: fgOpening, closing: fgClosing },
+    totalOpening: round(rmOpening + wipOpening + fgOpening),
+    totalClosing: round(rmClosing + wipClosing + fgClosing),
+    impairmentRecognised: invAdjs.reduce((s, i) => s + (i.impairmentAmount ?? 0), 0),
+    inventoryAtNRV: invAdjs.filter((i) => i.writtenDownTo !== void 0).reduce((s, i) => s + (i.writtenDownTo ?? 0), 0),
+    pledgedAsSecurityAmt: 0,
+    costFormula: company.accountingPolicies?.inventoryCostMethod ?? "WeightedAverage"
+  };
+  const cashRows = rowsByCategory(rows, "cash_in_hand");
+  const bankCurrentRows = rowsByCategory(rows, "bank_current_account");
+  const bankSavingsRows = rowsByCategory(rows, "bank_savings_account");
+  const fdCurrentRows = rowsByCategory(rows, "bank_fixed_deposit_current");
+  const subledgerCashAssetBanks = (subledger?.bankAccounts ?? []).filter((b) => b.balance >= 0 && !isLoanBankType(b.accountType));
+  const subledgerBankRows = subledgerCashAssetBanks.map((b) => ({
+    accountName: b.bankName,
+    bankName: b.bankName,
+    accountType: mapSubledgerBankType(b.accountType),
+    closingBalance: round(b.balance),
+    openingBalance: 0
+  }));
+  const note38_cashEquivalents = {
+    cashInHand_cy: cashRows.reduce((s, r) => s + (r.closingDr ?? 0), 0),
+    cashInHand_py: cashRows.reduce((s, r) => s + (r.openingDr ?? 0), 0),
+    bankAccounts: subledgerBankRows.length > 0 ? subledgerBankRows : [
+      ...bankCurrentRows.map((r) => ({
+        accountName: r.rawLabel,
+        bankName: r.rawLabel,
+        accountType: "Current",
+        closingBalance: round((r.closingDr ?? 0) - (r.closingCr ?? 0)),
+        openingBalance: round((r.openingDr ?? 0) - (r.openingCr ?? 0))
+      })),
+      ...bankSavingsRows.map((r) => ({
+        accountName: r.rawLabel,
+        bankName: r.rawLabel,
+        accountType: "Savings",
+        closingBalance: round((r.closingDr ?? 0) - (r.closingCr ?? 0)),
+        openingBalance: round((r.openingDr ?? 0) - (r.openingCr ?? 0))
+      })),
+      ...fdCurrentRows.map((r) => ({
+        accountName: r.rawLabel,
+        bankName: r.rawLabel,
+        accountType: "Fixed Deposit (\u22643 months)",
+        closingBalance: round(r.closingDr ?? 0),
+        openingBalance: round(r.openingDr ?? 0)
+      }))
+    ],
+    totalCash_cy: round(
+      cashRows.reduce((s, r) => s + (r.closingDr ?? 0), 0) + (subledgerBankRows.length > 0 ? subledgerBankRows.reduce((s, b) => s + b.closingBalance, 0) : bankCurrentRows.reduce((s, r) => s + (r.closingDr ?? 0) - (r.closingCr ?? 0), 0) + bankSavingsRows.reduce((s, r) => s + (r.closingDr ?? 0) - (r.closingCr ?? 0), 0) + fdCurrentRows.reduce((s, r) => s + (r.closingDr ?? 0), 0))
+    ),
+    totalCash_py: round(
+      cashRows.reduce((s, r) => s + (r.openingDr ?? 0), 0) + (subledgerBankRows.length > 0 ? subledgerBankRows.reduce((s, b) => s + b.openingBalance, 0) : bankCurrentRows.reduce((s, r) => s + (r.openingDr ?? 0) - (r.openingCr ?? 0), 0) + bankSavingsRows.reduce((s, r) => s + (r.openingDr ?? 0) - (r.openingCr ?? 0), 0) + fdCurrentRows.reduce((s, r) => s + (r.openingDr ?? 0), 0))
+    )
+  };
+  const paidUpCapital = Math.abs(netClosing(rows, "share_capital"));
+  const paidUpCapitalOpen = Math.abs(
+    rows.filter((r) => r.nfrsCategory === "share_capital" && !r.isGroupRow).reduce((s, r) => s + (r.openingCr ?? 0) - (r.openingDr ?? 0), 0)
+  );
+  const sharesIssued = Math.round(paidUpCapital / 100);
+  const note39_shareCapital = {
+    ordinaryShares: {
+      authorizedAmount: paidUpCapital,
+      authorizedShares: sharesIssued,
+      parValuePerShare: 100,
+      openingIssuedShares: Math.round(paidUpCapitalOpen / 100),
+      openingPaidUp: paidUpCapitalOpen,
+      issuedDuringYear: 0,
+      issuedForCash: 0,
+      closingIssuedShares: sharesIssued,
+      closingPaidUp: paidUpCapital
+    },
+    preferenceShares: null,
+    restrictionsOnDistribution: null,
+    sharesReservedForOptions: 0
+  };
+  const sharePremiumClose = Math.abs(netClosing(rows, "share_premium"));
+  const sharePremiumOpen = Math.abs(
+    rows.filter((r) => r.nfrsCategory === "share_premium" && !r.isGroupRow).reduce((s, r) => s + (r.openingCr ?? 0) - (r.openingDr ?? 0), 0)
+  );
+  const genReserveClose = Math.abs(netClosing(rows, "general_reserve"));
+  const genReserveOpen = Math.abs(
+    rows.filter((r) => r.nfrsCategory === "general_reserve" && !r.isGroupRow).reduce((s, r) => s + (r.openingCr ?? 0) - (r.openingDr ?? 0), 0)
+  );
+  const retainedClose = Math.abs(netClosing(rows, "retained_earnings"));
+  const retainedOpen = Math.abs(
+    rows.filter((r) => r.nfrsCategory === "retained_earnings" && !r.isGroupRow).reduce((s, r) => s + (r.openingCr ?? 0) - (r.openingDr ?? 0), 0)
+  );
+  const note310_reserves = {
+    sharePremium: {
+      opening: sharePremiumOpen,
+      additions: round(sharePremiumClose - sharePremiumOpen),
+      closing: sharePremiumClose
+    },
+    generalReserve: {
+      opening: genReserveOpen,
+      transferFromProfit: round(genReserveClose - genReserveOpen),
+      closing: genReserveClose
+    },
+    retainedEarnings: {
+      opening: retainedOpen,
+      netProfitForYear: IS.netProfit ?? 0,
+      dividendsDeclared: 0,
+      transferToReserve: round(genReserveClose - genReserveOpen),
+      closing: retainedClose
+    },
+    otherReserves: Math.abs(netClosing(rows, "other_reserves"))
+  };
+  const ltBankRows = rowsByCategory(rows, "borrowings_noncurrent_bank");
+  const ltOtherRows = rowsByCategory(rows, "borrowings_noncurrent_other");
+  const stOdRows = rowsByCategory(rows, "borrowings_current_od");
+  const stCcRows = rowsByCategory(rows, "borrowings_current_cc");
+  const stWcRows = rowsByCategory(rows, "borrowings_current_wc");
+  const stPortionRows = rowsByCategory(rows, "borrowings_current_portion_lt");
+  const rpPayableRows = rowsByCategory(rows, "related_party_payable");
+  const subledgerLoanBanks = (subledger?.bankAccounts ?? []).filter(
+    (b) => isLoanBankType(b.accountType) || b.balance < 0
+  );
+  const subledgerLoanCurrent = subledgerLoanBanks.filter((b) => ["overdraft", "cash_credit", "working_capital"].includes(b.accountType)).map((b) => ({
+    lenderName: b.bankName,
+    type: b.accountType === "overdraft" ? "Bank Overdraft" : b.accountType === "cash_credit" ? "Cash Credit" : "Working Capital Loan",
+    secured: !!b.securedBy,
+    balance_cy: Math.abs(b.balance),
+    balance_py: 0
+  }));
+  const subledgerLoanNonCurrent = subledgerLoanBanks.filter((b) => b.accountType === "loan").map((b) => ({
+    lenderName: b.bankName,
+    type: "Bank Term Loan",
+    secured: !!b.securedBy,
+    interestRate: b.interestRate ?? 0,
+    maturityDate: b.maturityDate ?? null,
+    balance_cy: Math.abs(b.balance),
+    balance_py: 0
+  }));
+  const subledgerRpPayableLoans = (subledger?.relatedParties ?? []).filter((rp) => rp.balanceType === "payable").map((rp) => ({
+    lenderName: rp.partyName,
+    type: "Related Party Loan",
+    secured: false,
+    balance_cy: Math.abs(rp.outstandingBalance),
+    balance_py: 0
+  }));
+  const note311_borrowings = {
+    nonCurrent: [
+      ...ltBankRows.map((r) => ({
+        lenderName: r.rawLabel,
+        type: "Bank Term Loan",
+        secured: true,
+        interestRate: 0,
+        maturityDate: null,
+        balance_cy: Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)),
+        balance_py: Math.abs((r.openingCr ?? 0) - (r.openingDr ?? 0))
+      })),
+      ...ltOtherRows.map((r) => ({
+        lenderName: r.rawLabel,
+        type: "Other Loan",
+        secured: false,
+        interestRate: 0,
+        maturityDate: null,
+        balance_cy: Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)),
+        balance_py: Math.abs((r.openingCr ?? 0) - (r.openingDr ?? 0))
+      })),
+      ...subledgerLoanNonCurrent
+    ],
+    current: [
+      ...stOdRows.map((r) => ({
+        lenderName: r.rawLabel,
+        type: "Bank Overdraft",
+        secured: true,
+        balance_cy: Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)),
+        balance_py: Math.abs((r.openingCr ?? 0) - (r.openingDr ?? 0))
+      })),
+      ...stCcRows.map((r) => ({
+        lenderName: r.rawLabel,
+        type: "Cash Credit",
+        secured: true,
+        balance_cy: Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)),
+        balance_py: Math.abs((r.openingCr ?? 0) - (r.openingDr ?? 0))
+      })),
+      ...stWcRows.map((r) => ({
+        lenderName: r.rawLabel,
+        type: "Working Capital Loan",
+        secured: true,
+        balance_cy: Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)),
+        balance_py: Math.abs((r.openingCr ?? 0) - (r.openingDr ?? 0))
+      })),
+      ...stPortionRows.map((r) => ({
+        lenderName: r.rawLabel,
+        type: "Current Portion of Long-Term Loan",
+        secured: true,
+        balance_cy: Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)),
+        balance_py: Math.abs((r.openingCr ?? 0) - (r.openingDr ?? 0))
+      })),
+      ...rpPayableRows.map((r) => ({
+        lenderName: r.rawLabel,
+        type: "Related Party Loan",
+        secured: false,
+        balance_cy: Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)),
+        balance_py: Math.abs((r.openingCr ?? 0) - (r.openingDr ?? 0))
+      })),
+      ...subledgerLoanCurrent,
+      ...subledgerRpPayableLoans
+    ],
+    totalNonCurrent_cy: ltBankRows.reduce((s, r) => s + Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)), 0) + ltOtherRows.reduce((s, r) => s + Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)), 0) + subledgerLoanNonCurrent.reduce((s, r) => s + r.balance_cy, 0),
+    totalCurrent_cy: [stOdRows, stCcRows, stWcRows, stPortionRows, rpPayableRows].flat().reduce((s, r) => s + Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)), 0) + subledgerLoanCurrent.reduce((s, r) => s + r.balance_cy, 0) + subledgerRpPayableLoans.reduce((s, r) => s + r.balance_cy, 0)
+  };
+  const gratuityProv = provisions.find((p) => p.provisionType === "gratuity");
+  const leaveProv = provisions.find((p) => p.provisionType === "leave_encashment");
+  const bonusProv = provisions.find((p) => p.provisionType === "bonus");
+  const note312_employeeBenefits = {
+    definedBenefit: {
+      description: "Gratuity (as per Labour Act 2074)",
+      openingBalance: gratuityProv?.openingBalance ?? 0,
+      expenseForYear: gratuityProv?.additionForYear ?? 0,
+      paidDuringYear: gratuityProv?.utilisedDuringYear ?? 0,
+      closingBalance: gratuityProv?.closingBalance ?? sumTB(rows, "employee_benefit_gratuity", "closingCr"),
+      nonCurrentPortion: gratuityProv?.closingBalance ?? 0,
+      currentPortion: 0
+    },
+    definedContribution: {
+      pfContribution: sumTB(rows, "employee_payables_pf", "closingCr"),
+      ssfContribution: 0
+    },
+    leaveEncashment: {
+      openingBalance: leaveProv?.openingBalance ?? 0,
+      expenseForYear: leaveProv?.additionForYear ?? 0,
+      paidDuringYear: leaveProv?.utilisedDuringYear ?? 0,
+      closingBalance: leaveProv?.closingBalance ?? 0
+    },
+    salaryPayable: sumTB(rows, "employee_payables_salary", "closingCr"),
+    bonusPayable: bonusProv?.closingBalance ?? sumTB(rows, "employee_payables_bonus", "closingCr"),
+    totalCurrentEmployeeLiabilities: round(
+      sumTB(rows, "employee_payables_salary", "closingCr") + (bonusProv?.closingBalance ?? sumTB(rows, "employee_payables_bonus", "closingCr")) + sumTB(rows, "employee_payables_pf", "closingCr")
+    ),
+    totalNonCurrentEmployeeLiabilities: gratuityProv?.closingBalance ?? 0
+  };
+  const creditorRows = rowsByCategory(rows, "trade_payables_creditors");
+  const advFromCustRows = rowsByCategory(rows, "trade_payables_advance_customers");
+  const auditFeeRows = rowsByCategory(rows, "audit_fee_payable");
+  const vatRows = rowsByCategory(rows, "other_payables");
+  const tdsPayRows = rowsByCategory(rows, "tds_payable");
+  const note313_tradePayables = {
+    tradeCreditors: creditorRows.reduce((s, r) => s + Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)), 0),
+    advanceFromCustomers: advFromCustRows.reduce((s, r) => s + Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)), 0),
+    auditFeePayable: auditFeeRows.reduce((s, r) => s + Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)), 0),
+    vatPayable: vatRows.reduce((s, r) => s + Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)), 0),
+    tdsPayableBreakdown: tdsPayRows.map((r) => ({
+      ledgerName: r.rawLabel,
+      amount: Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0))
+    })),
+    tdsPayableTotal: tdsPayRows.reduce((s, r) => s + Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)), 0),
+    otherAccruals: 0,
+    total: round(
+      creditorRows.reduce((s, r) => s + Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)), 0) + advFromCustRows.reduce((s, r) => s + Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)), 0) + auditFeeRows.reduce((s, r) => s + Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)), 0) + vatRows.reduce((s, r) => s + Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)), 0) + tdsPayRows.reduce((s, r) => s + Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)), 0)
+    ),
+    // Previous year
+    tradeCreditors_py: creditorRows.reduce((s, r) => s + Math.abs((r.openingCr ?? 0) - (r.openingDr ?? 0)), 0),
+    auditFeePayable_py: auditFeeRows.reduce((s, r) => s + Math.abs((r.openingCr ?? 0) - (r.openingDr ?? 0)), 0),
+    vatPayable_py: vatRows.reduce((s, r) => s + Math.abs((r.openingCr ?? 0) - (r.openingDr ?? 0)), 0),
+    tdsPayableTotal_py: tdsPayRows.reduce((s, r) => s + Math.abs((r.openingCr ?? 0) - (r.openingDr ?? 0)), 0)
+  };
+  const advanceTaxPaid = sumTB(rows, "advance_tax_paid", "closingDr");
+  const tdsCredit = sumTB(rows, "other_receivables_tds", "closingDr");
+  const taxPayable = Math.abs(sumTB(rows, "income_tax_payable", "closingCr"));
+  const currentTaxExpense = IS.incomeTaxExpense ?? 0;
+  const note314_taxComputation = {
+    advanceTaxPaid,
+    tdsCreditAvailable: tdsCredit,
+    incomeTaxForYear: currentTaxExpense,
+    netTaxLiability: Math.max(0, currentTaxExpense - advanceTaxPaid - tdsCredit),
+    taxRecoverable: Math.max(0, advanceTaxPaid + tdsCredit - currentTaxExpense)
+  };
+  const saleOfGoods = sumTB(rows, "revenue_sales", "closingCr");
+  const saleOfServices = sumTB(rows, "revenue_services", "closingCr");
+  const note315_revenue = {
+    saleOfGoods_cy: saleOfGoods,
+    saleOfServices_cy: saleOfServices,
+    totalRevenue_cy: round(saleOfGoods + saleOfServices),
+    saleOfGoods_py: sumTB(rows, "revenue_sales", "openingCr"),
+    saleOfServices_py: sumTB(rows, "revenue_services", "openingCr"),
+    totalRevenue_py: round(
+      sumTB(rows, "revenue_sales", "openingCr") + sumTB(rows, "revenue_services", "openingCr")
+    )
+  };
+  const dividendPayableBalance = Math.abs(
+    sumTB(rows, "dividend_payable", "closingCr")
+  );
+  const paidUpForDividend = note39_shareCapital.ordinaryShares.closingPaidUp;
+  const declaredRate = paidUpForDividend > 0 && dividendPayableBalance > 0 ? round(dividendPayableBalance / paidUpForDividend * 100) : 0;
+  const note316_dividendPayable = {
+    hasDividend: dividendPayableBalance > 0,
+    paidUpCapital: paidUpForDividend,
+    declaredRatePercent: declaredRate,
+    amountPerShare: note39_shareCapital.ordinaryShares.closingIssuedShares > 0 ? round(dividendPayableBalance / note39_shareCapital.ordinaryShares.closingIssuedShares) : 0,
+    totalDividendDeclared: dividendPayableBalance,
+    tdsOnDividend: round(dividendPayableBalance * 0.05),
+    netDividendPayable: round(dividendPayableBalance * 0.95)
+  };
+  const otherIncomeRows = [
+    "other_income_interest",
+    "other_income_dividend",
+    "other_income_rental",
+    "other_income_disposal_gain",
+    "other_income_misc"
+  ];
+  const note317_revenueDetailed = {
+    saleOfGoods: {
+      cy: sumTB(rows, "revenue_sales", "closingCr"),
+      py: sumTB(rows, "revenue_sales", "openingCr")
+    },
+    renderingOfServices: {
+      cy: sumTB(rows, "revenue_services", "closingCr"),
+      py: sumTB(rows, "revenue_services", "openingCr")
+    },
+    interestIncome: {
+      cy: sumTB(rows, "other_income_interest", "closingCr"),
+      py: sumTB(rows, "other_income_interest", "openingCr")
+    },
+    dividendIncome: {
+      cy: sumTB(rows, "other_income_dividend", "closingCr"),
+      py: sumTB(rows, "other_income_dividend", "openingCr")
+    },
+    otherIncome: {
+      cy: otherIncomeRows.reduce((s, c) => s + sumTB(rows, c, "closingCr"), 0),
+      py: otherIncomeRows.reduce((s, c) => s + sumTB(rows, c, "openingCr"), 0)
+    },
+    totalIncome: {
+      cy: IS.totalIncome ?? 0,
+      py: IS.totalIncome_py ?? 0
+    }
+  };
+  const rmOpenForConsumed = sumTB(rows, "inventory_raw_materials", "openingDr");
+  const purchases = sumTB(rows, "cogs_purchases", "closingDr");
+  const rmCloseForConsumed = sumTB(rows, "inventory_raw_materials", "closingDr");
+  const materialConsumed = round(rmOpenForConsumed + purchases - rmCloseForConsumed);
+  const fgWipOpenForChange = round(fgOpening + wipOpening);
+  const fgWipCloseForChange = round(fgClosing + wipClosing);
+  const changeInInventories = round(fgWipOpenForChange - fgWipCloseForChange);
+  const directWages = sumTB(rows, "direct_wages", "closingDr");
+  const directOther = sumTB(rows, "direct_expenses_other", "closingDr");
+  const note318_materialConsumed = {
+    openingRawMaterial: rmOpenForConsumed,
+    purchasesDuringYear: purchases,
+    closingRawMaterial: rmCloseForConsumed,
+    rawMaterialConsumed: materialConsumed,
+    changeInInventoriesFGWIP: changeInInventories,
+    openingFGWIP: fgWipOpenForChange,
+    closingFGWIP: fgWipCloseForChange,
+    directWages,
+    otherDirectExpenses: directOther,
+    totalCostOfProduction: round(materialConsumed + changeInInventories + directWages + directOther)
+  };
+  const note319_otherIncome = {
+    interestIncome: { cy: sumTB(rows, "other_income_interest", "closingCr"), py: 0 },
+    commissionIncome: { cy: 0, py: 0 },
+    rentalIncome: { cy: sumTB(rows, "other_income_rental", "closingCr"), py: 0 },
+    dividendReceived: { cy: sumTB(rows, "other_income_dividend", "closingCr"), py: 0 },
+    gainOnDisposalAssets: { cy: sumTB(rows, "other_income_disposal_gain", "closingCr"), py: 0 },
+    insuranceClaims: { cy: 0, py: 0 },
+    fairValueGainOnInvestments: {
+      cy: investmentAdjs.filter((i) => (i.fairValueGainLoss ?? 0) > 0).reduce((s, i) => s + (i.fairValueGainLoss ?? 0), 0),
+      py: 0
+    },
+    miscellaneousIncome: { cy: sumTB(rows, "other_income_misc", "closingCr"), py: 0 },
+    total: {
+      cy: round(
+        sumTB(rows, "other_income_interest", "closingCr") + sumTB(rows, "other_income_rental", "closingCr") + sumTB(rows, "other_income_dividend", "closingCr") + sumTB(rows, "other_income_disposal_gain", "closingCr") + sumTB(rows, "other_income_misc", "closingCr") + investmentAdjs.filter((i) => (i.fairValueGainLoss ?? 0) > 0).reduce((s, i) => s + (i.fairValueGainLoss ?? 0), 0)
+      ),
+      py: 0
+    }
+  };
+  const salariesExp = sumTB(rows, "emp_expense_salaries", "closingDr");
+  const pfExp = sumTB(rows, "emp_expense_pf", "closingDr");
+  const gratuityExp = gratuityProv?.additionForYear ?? sumTB(rows, "emp_expense_gratuity", "closingDr");
+  const welfareExp = sumTB(rows, "emp_expense_welfare", "closingDr");
+  const bonusExp = IS.staffBonus ?? bonusProv?.additionForYear ?? 0;
+  const leaveExp = leaveProv?.additionForYear ?? sumTB(rows, "emp_expense_leave", "closingDr");
+  const otherEmpExp = sumTB(rows, "emp_expense_other", "closingDr");
+  const note320_employeeExpenses = {
+    salariesWages: { cy: salariesExp, py: 0 },
+    allowances: { cy: 0, py: 0 },
+    pfSsfContribution: { cy: pfExp, py: 0 },
+    gratuityExpense: { cy: gratuityExp, py: 0 },
+    leaveEncashment: { cy: leaveExp, py: 0 },
+    staffBonusExpense: { cy: bonusExp, py: 0 },
+    staffWelfare: { cy: welfareExp, py: 0 },
+    otherEmployeeCosts: { cy: otherEmpExp, py: 0 },
+    totalEmployeeExpenses: { cy: round(salariesExp + pfExp + gratuityExp + welfareExp + bonusExp + leaveExp + otherEmpExp), py: 0 },
+    kmpCompensation: {
+      description: "Key Management Personnel Compensation",
+      salary: 0,
+      bonus: 0,
+      otherBenefits: 0,
+      total: 0
+    }
+  };
+  const note321_depreciation = {
+    byClass: note31_ppe.map((item) => ({
+      categoryName: item.categoryName,
+      depreciationForYear: item.depnForYear
+    })),
+    totalDepreciation: round(note31_ppe.reduce((s, item) => s + item.depnForYear, 0)),
+    totalDepreciation_py: 0
+  };
+  const ADMIN_CATEGORIES2 = [
+    { cat: "admin_rent", label: "Rent / Lease Rentals" },
+    { cat: "admin_communication", label: "Communication Expenses" },
+    { cat: "admin_printing", label: "Printing & Stationery" },
+    { cat: "admin_traveling", label: "Travel & Conveyance" },
+    { cat: "admin_advertisement", label: "Advertisement & Promotion" },
+    { cat: "admin_audit_fee", label: "Audit Fees" },
+    { cat: "admin_legal_professional", label: "Professional & Legal Fees" },
+    { cat: "admin_rates_taxes", label: "Board & AGM / Rates & Taxes" },
+    { cat: "admin_repairs", label: "Repairs & Maintenance" },
+    { cat: "admin_insurance", label: "Insurance Premium" },
+    { cat: "finance_cost_bank_charges", label: "Bank Charges" },
+    { cat: "admin_other", label: "CSR & Other Miscellaneous" }
+  ];
+  const note322_adminExpenses = {
+    lineItems: ADMIN_CATEGORIES2.map((ac) => ({
+      label: ac.label,
+      cy: sumTB(rows, ac.cat, "closingDr"),
+      py: 0
+    })).filter((li) => li.cy > 0),
+    total_cy: round(ADMIN_CATEGORIES2.reduce((s, ac) => s + sumTB(rows, ac.cat, "closingDr"), 0)),
+    total_py: 0
+  };
+  const bookProfit = IS.profitBeforeTax ?? 0;
+  const bookDepreciation = adj.depreciationSummary?.reduce((s, d) => s + d.depnForYear, 0) ?? 0;
+  const taxDepreciation = (adj.depreciationSummary ?? []).reduce((total, d) => {
+    const rate = TAX_DEPN_RATES[d.categoryId] ?? 0.1;
+    const basis = d.openingCost + d.additions - d.disposals - d.openingAccumDepn;
+    return total + Math.max(0, basis) * rate;
+  }, 0);
+  const disallowableExpenses = {
+    "Accounting Depreciation": bookDepreciation,
+    "Provisions (non-deductible)": provisions.reduce((s, p) => s + (p.closingBalance ?? 0), 0)
+  };
+  const allowableDeductions = {
+    "Tax Depreciation (ITA 2058)": taxDepreciation
+  };
+  const taxResult = computeIncomeTax({
+    bookProfit,
+    taxRate,
+    disallowableExpenses,
+    allowableExpenses: allowableDeductions,
+    advanceTaxPaid: advanceTaxPaid + tdsCredit,
+    tdsCredit: 0,
+    previousYearLoss: 0
+  });
+  const note323_taxExpense = {
+    currentTaxExpense: round(taxResult.currentTaxExpense),
+    deferredTaxExpense: 0,
+    priorYearAdjustment: 0,
+    totalTaxExpense: round(taxResult.currentTaxExpense),
+    effectiveTaxRate: taxResult.effectiveTaxRate,
+    reconciliation: {
+      profitBeforeTax: bookProfit,
+      disallowableExpenses,
+      allowableDeductions,
+      taxableProfit: round(taxResult.taxableIncome),
+      taxAtStatutoryRate: round(taxResult.taxableIncome * taxRate),
+      taxAdjustments: 0,
+      totalCurrentTax: round(taxResult.currentTaxExpense)
+    },
+    taxDepreciationByPool: (adj.taxDepreciationPools ?? []).map((pool) => ({
+      poolName: pool.poolName,
+      rate: pool.rate,
+      openingBasis: pool.openingBasis,
+      additions: pool.additionsFullYear + pool.additionsTwoThirds + pool.additionsOneThird,
+      disposals: pool.disposals,
+      depreciationBasis: pool.depreciationBasis,
+      taxDepreciation: pool.taxDepreciation,
+      closingBasis: pool.closingBasis
+    })),
+    advanceTaxPaid,
+    tdsCreditAvailable: tdsCredit,
+    netTaxPayable: round(taxResult.taxPayable)
+  };
+  const rpReceivableRows = rowsByCategory(rows, "related_party_receivable");
+  const rpPayRows = rowsByCategory(rows, "related_party_payable");
+  const subledgerRelatedParties = subledger?.relatedParties?.length ? subledger.relatedParties : adj.relatedParties ?? [];
+  const note324_relatedParty = {
+    relatedParties: subledgerRelatedParties.length > 0 ? subledgerRelatedParties.map((rp) => {
+      const row = rp;
+      const balanceType = String(row.balanceType ?? "receivable");
+      const txns = row.transactionsCurrentYear ?? [];
+      return {
+        partyName: String(row.partyName ?? row.name ?? ""),
+        relationship: String(row.relationshipType ?? row.relationship ?? "Related Party"),
+        natureOfTransaction: balanceType === "payable" ? "Loan Received" : "Loan Given",
+        transactionAmount: txns.reduce((s, t) => s + (t.amount ?? 0), 0),
+        outstandingBalance: Math.abs(Number(row.outstandingBalance ?? row.balanceCY ?? 0)),
+        balanceType: balanceType === "payable" ? "Payable" : "Receivable",
+        atArmSLength: Boolean(row.isArmLength ?? false)
+      };
+    }) : [
+      ...rpPayRows.map((r) => ({
+        partyName: r.rawLabel,
+        relationship: "Director / Related Party",
+        natureOfTransaction: "Loan Received",
+        transactionAmount: 0,
+        outstandingBalance: Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)),
+        balanceType: "Payable",
+        atArmSLength: false
+      })),
+      ...rpReceivableRows.map((r) => ({
+        partyName: r.rawLabel,
+        relationship: "Director / Related Party",
+        natureOfTransaction: "Loan Given",
+        transactionAmount: 0,
+        outstandingBalance: Math.abs((r.closingDr ?? 0) - (r.closingCr ?? 0)),
+        balanceType: "Receivable",
+        atArmSLength: false
+      }))
+    ],
+    kmpCompensationTotal: 0,
+    noRelatedPartyTransactions: subledgerRelatedParties.length === 0 && rpPayRows.length === 0 && rpReceivableRows.length === 0
+  };
+  const nas = company.nasCompliance ?? {};
+  const hasContingencies = Boolean(nas.contingentLiabilities || nas.leaseArrangements);
+  const contingencyParts = [];
+  if (nas.contingentLiabilities) {
+    contingencyParts.push(
+      "Management has confirmed the existence of contingent liabilities that require disclosure in accordance with NAS for MEs."
+    );
+  }
+  if (nas.leaseArrangements) {
+    contingencyParts.push(
+      "The Company has lease arrangements (finance or operating) that may give rise to commitments requiring disclosure."
+    );
+  }
+  const note325_contingencies = {
+    hasContingencies,
+    bankGuaranteesIssued: 0,
+    lcOpened: 0,
+    legalCasesPending: [],
+    capitalCommitments: 0,
+    operatingLeaseCommitments: nas.leaseArrangements ? 1 : 0,
+    defaultText: hasContingencies ? contingencyParts.join(" ") : "The Company has no contingent liabilities or commitments as at the reporting date."
+  };
+  const hasSubsequentEvents = Boolean(nas.eventsAfterDate);
+  const note326_subsequentEvents = {
+    hasSubsequentEvents,
+    events: [],
+    defaultText: hasSubsequentEvents ? "Management has identified material events after the reporting date that require disclosure in these financial statements. Details are provided in the accompanying schedules." : "There are no significant events after the reporting date that require adjustment to or disclosure in these financial statements."
+  };
+  return {
+    note31_ppe,
+    note32_investments,
+    note33_tradeReceivables,
+    note34_otherCurrentAssets,
+    note35_biologicalAssets,
+    note36_heldForSale,
+    note37_inventories,
+    note38_cashEquivalents,
+    note39_shareCapital,
+    note310_reserves,
+    note311_borrowings,
+    note312_employeeBenefits,
+    note313_tradePayables,
+    note314_taxComputation,
+    note315_revenue,
+    note316_dividendPayable,
+    note317_revenueDetailed,
+    note318_materialConsumed,
+    note319_otherIncome,
+    note320_employeeExpenses,
+    note321_depreciation,
+    note322_adminExpenses,
+    note323_taxExpense,
+    note324_relatedParty,
+    note325_contingencies,
+    note326_subsequentEvents
+  };
+}
+
+// server/services/financialEngine.ts
+function rowMatchesCategory(rowCategory, categories) {
+  if (!rowCategory) return false;
+  const rowNorm = normalizeCategoryAlias(rowCategory);
+  for (const cat of categories) {
+    const catNorm = normalizeCategoryAlias(cat);
+    if (rowCategory === cat || rowNorm === catNorm || rowCategory === catNorm || rowNorm === cat) {
+      return true;
+    }
+  }
+  return false;
+}
+function sumDr(rows, ...categories) {
+  return rows.filter((r) => !r.isGroupRow && rowMatchesCategory(r.nfrsCategory, categories)).reduce((acc, r) => acc + (r.closingDr ?? 0), 0);
+}
+function sumCr(rows, ...categories) {
+  return rows.filter((r) => !r.isGroupRow && rowMatchesCategory(r.nfrsCategory, categories)).reduce((acc, r) => acc + (r.closingCr ?? 0), 0);
+}
+function sumOpeningDr(rows, ...categories) {
+  return rows.filter((r) => !r.isGroupRow && rowMatchesCategory(r.nfrsCategory, categories)).reduce((acc, r) => acc + (r.openingDr ?? 0), 0);
+}
+function sumOpeningCr(rows, ...categories) {
+  return rows.filter((r) => !r.isGroupRow && rowMatchesCategory(r.nfrsCategory, categories)).reduce((acc, r) => acc + (r.openingCr ?? 0), 0);
+}
+function netBalance(rows, ...categories) {
+  return sumDr(rows, ...categories) - sumCr(rows, ...categories);
+}
+var round2 = (n) => Math.round(n * 100) / 100;
+function splitCashAndOverdrafts(rows) {
+  const cashCats = /* @__PURE__ */ new Set(["cash_in_hand", "bank_current_account", "bank_fixed_deposit_current"]);
+  let cash = 0;
+  let overdrafts = 0;
+  for (const row of rows) {
+    if (!cashCats.has(row.nfrsCategory) || row.isGroupRow) continue;
+    const net = (row.closingDr ?? 0) - (row.closingCr ?? 0);
+    if (net >= 0) cash += net;
+    else overdrafts += -net;
+  }
+  return { cash: round2(cash), overdrafts: round2(overdrafts) };
+}
+var ADMIN_CATEGORIES = CHART_OF_ACCOUNTS.filter((e) => e.statementLine === "IS Admin" && !e.isGroup).map((e) => e.category).concat([
+  "admin_electricity",
+  "admin_printing",
+  "admin_legal_professional",
+  "admin_other",
+  "admin_traveling",
+  "admin_repairs",
+  "admin_rates_taxes"
+]);
+function inventoryFromAdj(adj, rows) {
+  const inv = adj.inventoryDetails;
+  const openingPY = inv ? inv.rawMaterialsPY + inv.wipPY + inv.finishedGoodsPY : sumOpeningDr(rows, "inventory_raw_materials", "inventory_wip", "inventory_finished_goods");
+  const closingCY = inv ? inv.rawMaterialsCY + inv.wipCY + inv.finishedGoodsCY : sumDr(rows, "inventory_raw_materials", "inventory_wip", "inventory_finished_goods");
+  return { openingPY, closingCY };
+}
+function computeIncomeStatement(tb, adj, company, previousYearIS = {}) {
+  const rows = tb.rows;
+  const revenue = round2(sumCr(rows, "revenue_sales", "revenue_services"));
+  const interestIncome = round2(
+    sumCr(rows, "other_income_interest", "interest_income")
+  );
+  const otherIncome = round2(
+    sumCr(rows, "other_income_dividend", "other_income_rental", "other_income_misc", "other_income_disposal_gain", "commission_income", "insurance_claim_income") + (adj.gainOnDisposals ?? 0) + (adj.investmentAdjustments ?? []).filter((i) => (i.fairValueGainLoss ?? 0) > 0).reduce((s, i) => s + (i.fairValueGainLoss ?? 0), 0)
+  );
+  const totalIncome = round2(revenue + interestIncome + otherIncome);
+  const { openingPY, closingCY } = inventoryFromAdj(adj, rows);
+  const materialConsumed = round2(
+    openingPY + sumDr(rows, "cogs_purchases", "cogs_opening_stock", "materials_consumed", "purchase") - closingCY
+  );
+  const directExpenses = round2(sumDr(rows, "direct_wages", "direct_expenses_other"));
+  const staffBonusProvision = adj.staffBonusProvision ?? round2(sumDr(rows, "emp_expense_bonus"));
+  const employeeBenefitExpense = round2(
+    sumDr(rows, "emp_expense_salaries", "emp_expense_welfare", "allowances_expense") + sumDr(rows, "emp_expense_pf", "emp_expense_gratuity", "emp_expense_other") + staffBonusProvision + sumDr(rows, "emp_expense_leave")
+  );
+  const financeCharges = round2(sumDr(rows, "finance_cost_interest", "finance_cost_bank_charges"));
+  const depreciation = round2(adj.totalDepreciationExpense ?? 0);
+  const impairment = round2(
+    sumDr(rows, "impairment_expense") + (adj.investmentAdjustments ?? []).reduce((s, i) => s + (i.impairmentAmount ?? 0), 0) + (adj.investmentAdjustments ?? []).filter((i) => (i.fairValueGainLoss ?? 0) < 0).reduce((s, i) => s + Math.abs(i.fairValueGainLoss ?? 0), 0)
+  );
+  const adminAndOtherExpenses = round2(
+    ADMIN_CATEGORIES.reduce((s, cat) => s + sumDr(rows, cat), 0)
+  );
+  const totalExpenses = round2(
+    materialConsumed + directExpenses + employeeBenefitExpense + financeCharges + depreciation + impairment + adminAndOtherExpenses
+  );
+  const profitBeforeStaffBonus = round2(totalIncome - (totalExpenses - staffBonusProvision));
+  const staffBonus = round2(staffBonusProvision);
+  const profitBeforeTax = round2(profitBeforeStaffBonus - staffBonus);
+  const incomeTaxExpense = round2(
+    adj.incomeTaxProvision ?? adj.currentTaxExpense ?? sumDr(rows, "income_tax_expense")
+  );
+  const netProfit = round2(profitBeforeTax - incomeTaxExpense);
+  return {
+    revenue,
+    interestIncome,
+    otherIncome,
+    totalIncome,
+    materialConsumed,
+    directExpenses,
+    employeeBenefitExpense,
+    financeCharges,
+    depreciation,
+    impairment,
+    adminAndOtherExpenses,
+    totalExpenses,
+    profitBeforeStaffBonus,
+    staffBonus,
+    profitBeforeTax,
+    incomeTaxExpense,
+    netProfit,
+    revenue_py: previousYearIS.revenue ?? 0,
+    interestIncome_py: previousYearIS.interestIncome ?? 0,
+    otherIncome_py: previousYearIS.otherIncome ?? 0,
+    totalIncome_py: previousYearIS.totalIncome ?? 0,
+    materialConsumed_py: previousYearIS.materialConsumed ?? 0,
+    directExpenses_py: previousYearIS.directExpenses ?? 0,
+    employeeBenefitExpense_py: previousYearIS.employeeBenefitExpense ?? 0,
+    financeCharges_py: previousYearIS.financeCharges ?? 0,
+    depreciation_py: previousYearIS.depreciation ?? 0,
+    impairment_py: previousYearIS.impairment ?? 0,
+    adminAndOtherExpenses_py: previousYearIS.adminAndOtherExpenses ?? 0,
+    totalExpenses_py: previousYearIS.totalExpenses ?? 0,
+    profitBeforeStaffBonus_py: previousYearIS.profitBeforeStaffBonus ?? 0,
+    staffBonus_py: previousYearIS.staffBonus ?? 0,
+    profitBeforeTax_py: previousYearIS.profitBeforeTax ?? 0,
+    incomeTaxExpense_py: previousYearIS.incomeTaxExpense ?? 0,
+    netProfit_py: previousYearIS.netProfit ?? 0
+  };
+}
+function computeBalanceSheet(tb, adj, is, company, previousYearBS = {}) {
+  const rows = tb.rows;
+  const grossPPE = sumDr(
+    rows,
+    "ppe_land",
+    "ppe_buildings",
+    "ppe_vehicles",
+    "ppe_office_equipment",
+    "ppe_computers",
+    "ppe_furniture",
+    "ppe_plant_machinery",
+    "ppe_intangibles",
+    "ppe_cwip"
+  );
+  const accumDepn = sumCr(rows, "accum_depreciation");
+  const depnInTB = round2(sumCr(rows, "accum_depreciation") - sumOpeningCr(rows, "accum_depreciation"));
+  const totalAccumDepn = depnInTB >= adj.totalDepreciationExpense * 0.99 ? accumDepn : accumDepn + adj.totalDepreciationExpense;
+  const nca_ppe = round2(Math.max(0, grossPPE - totalAccumDepn));
+  const listedFVAdj = (adj.investmentAdjustments ?? []).filter((i) => i.investmentType === "listed_trading" || i.investmentType === "listed_ats").reduce((s, i) => s + (i.fairValueGainLoss ?? 0), 0);
+  const unlistedImpair = (adj.investmentAdjustments ?? []).filter((i) => i.investmentType === "unlisted").reduce((s, i) => s + (i.impairmentAmount ?? 0), 0);
+  const invImpairmentProvision = sumCr(
+    rows,
+    "provision_impairment_investment",
+    "provision_impairment_investments"
+  );
+  const investmentListedTrading = round2(Math.max(0, sumDr(rows, "investment_listed_trading") + listedFVAdj));
+  const investmentUnlisted = sumDr(rows, "investment_unlisted") - unlistedImpair;
+  const investmentFD_NC = sumDr(rows, "investment_fixed_deposit_noncurrent");
+  const nca_investments = round2(Math.max(
+    0,
+    investmentUnlisted + investmentFD_NC - invImpairmentProvision
+  ));
+  const nca_receivables = round2(
+    sumDr(rows, "nca_deposits", "nca_loans_advances")
+  );
+  const nca_other = round2(
+    sumDr(rows, "biological_assets", "other_noncurrent_assets", "nca_other")
+  );
+  const totalNonCurrentAssets = round2(nca_ppe + nca_investments + nca_receivables + nca_other);
+  const ca_investments = investmentListedTrading;
+  const { closingCY } = inventoryFromAdj(adj, rows);
+  const ca_inventories = round2(Math.max(0, closingCY - (adj.totalInventoryImpairment ?? 0)));
+  const tradeRec = sumDr(rows, "trade_receivables");
+  const impairmentOnRec = sumCr(rows, "provision_impairment_debtors");
+  const ca_tradeReceivables = round2(Math.max(
+    0,
+    tradeRec - impairmentOnRec + sumDr(rows, "related_party_receivable") + sumDr(
+      rows,
+      "other_receivables_advance_supplier",
+      "other_receivables_prepayments",
+      "other_receivables_staff_advance",
+      "other_receivables_tds",
+      "other_receivables_loans"
+    )
+  ));
+  const { cash: cashNet, overdrafts: bankOverdrafts } = splitCashAndOverdrafts(rows);
+  const ca_cashAndEquivalents = cashNet;
+  const ca_other = round2(sumDr(rows, "lc_bg_margin", "other_current_assets", "nca_held_for_sale"));
+  const totalCurrentAssets = round2(
+    ca_investments + ca_inventories + ca_tradeReceivables + ca_cashAndEquivalents + ca_other
+  );
+  const totalAssets = round2(totalNonCurrentAssets + totalCurrentAssets);
+  const shareCapital = round2(sumCr(rows, "share_capital"));
+  const sharePremium = round2(sumCr(rows, "share_premium"));
+  const reserves = round2(sumCr(rows, "capital_reserve", "revaluation_reserve"));
+  const dividendDeclared = adj.dividendPayable ?? sumCr(rows, "dividend_payable") ?? round2((company.dividendDeclaredPercent ?? 0) / 100 * shareCapital);
+  const openingRE = round2(
+    sumOpeningCr(rows, "retained_earnings", "general_reserve") - sumOpeningDr(rows, "retained_earnings", "general_reserve")
+  );
+  const eq_retainedEarnings = round2(openingRE + is.netProfit - dividendDeclared);
+  const eq_shareCapital = round2(shareCapital + sharePremium);
+  const eq_reserves = round2(reserves);
+  const totalEquity = round2(eq_shareCapital + eq_reserves + eq_retainedEarnings);
+  const ncl_borrowings = round2(
+    sumCr(rows, "borrowings_noncurrent_bank", "borrowings_noncurrent_other", "borrowings_noncurrent_related")
+  );
+  const ncl_employeeBenefits = round2(sumCr(rows, "employee_benefit_noncurrent", "employee_benefit_gratuity"));
+  const ncl_provisions = 0;
+  const ncl_deferredTax = 0;
+  const totalNonCurrentLiabilities = round2(
+    ncl_borrowings + ncl_employeeBenefits + ncl_provisions + ncl_deferredTax
+  );
+  const cl_borrowings = round2(
+    sumCr(
+      rows,
+      "borrowings_current_od",
+      "borrowings_current_cc",
+      "borrowings_current_wc",
+      "borrowings_current_portion_lt",
+      "borrowings_related_current",
+      "related_party_payable"
+    ) + bankOverdrafts
+  );
+  const cl_tradePayables = round2(
+    sumCr(
+      rows,
+      "trade_payables_creditors",
+      "trade_payables",
+      "audit_fee_payable",
+      "tds_payable",
+      "other_payables",
+      "trade_payables_advance_customers",
+      "vat_payable"
+    )
+  );
+  const incomeTaxPayable = round2(sumCr(rows, "income_tax_payable"));
+  const advanceTax = round2(sumDr(rows, "advance_tax_paid", "other_receivables_tds"));
+  const cl_incomeTaxPayable = round2(Math.max(
+    0,
+    incomeTaxPayable - advanceTax - (adj.incomeTaxPaidPY ?? 0) + Math.max(0, (adj.incomeTaxProvision ?? 0) - sumDr(rows, "income_tax_expense"))
+  ));
+  const cl_provisions = round2(
+    sumCr(
+      rows,
+      "provisions_csr",
+      "provisions_current",
+      "employee_payables_pf",
+      "employee_payables_salary",
+      "employee_payables_bonus"
+    )
+  );
+  const cl_other = round2(sumCr(rows, "advance_from_customers", "dividend_payable"));
+  const totalCurrentLiabilities = round2(
+    cl_borrowings + cl_tradePayables + cl_incomeTaxPayable + cl_provisions + cl_other
+  );
+  const totalEquityAndLiabilities = round2(totalEquity + totalNonCurrentLiabilities + totalCurrentLiabilities);
+  const checkDifference = round2(totalAssets - totalEquityAndLiabilities);
+  return {
+    nca_ppe,
+    nca_investments,
+    nca_receivables,
+    nca_other,
+    totalNonCurrentAssets,
+    ca_investments,
+    ca_inventories,
+    ca_tradeReceivables,
+    ca_cashAndEquivalents,
+    ca_other,
+    totalCurrentAssets,
+    totalAssets,
+    eq_shareCapital,
+    eq_reserves,
+    eq_retainedEarnings,
+    totalEquity,
+    ncl_borrowings,
+    ncl_employeeBenefits,
+    ncl_provisions,
+    ncl_deferredTax,
+    totalNonCurrentLiabilities,
+    cl_borrowings,
+    cl_tradePayables,
+    cl_incomeTaxPayable,
+    cl_provisions,
+    cl_other,
+    totalCurrentLiabilities,
+    totalEquityAndLiabilities,
+    checkDifference,
+    nca_ppe_py: previousYearBS.nca_ppe ?? 0,
+    nca_investments_py: previousYearBS.nca_investments ?? 0,
+    nca_receivables_py: previousYearBS.nca_receivables ?? 0,
+    nca_other_py: previousYearBS.nca_other ?? 0,
+    totalNonCurrentAssets_py: previousYearBS.totalNonCurrentAssets ?? 0,
+    ca_investments_py: previousYearBS.ca_investments ?? 0,
+    ca_inventories_py: previousYearBS.ca_inventories ?? 0,
+    ca_tradeReceivables_py: previousYearBS.ca_tradeReceivables ?? 0,
+    ca_cashAndEquivalents_py: previousYearBS.ca_cashAndEquivalents ?? 0,
+    ca_other_py: previousYearBS.ca_other ?? 0,
+    totalCurrentAssets_py: previousYearBS.totalCurrentAssets ?? 0,
+    totalAssets_py: previousYearBS.totalAssets ?? 0,
+    eq_shareCapital_py: previousYearBS.eq_shareCapital ?? 0,
+    eq_reserves_py: previousYearBS.eq_reserves ?? 0,
+    eq_retainedEarnings_py: previousYearBS.eq_retainedEarnings ?? 0,
+    totalEquity_py: previousYearBS.totalEquity ?? 0,
+    ncl_borrowings_py: previousYearBS.ncl_borrowings ?? 0,
+    ncl_employeeBenefits_py: previousYearBS.ncl_employeeBenefits ?? 0,
+    ncl_provisions_py: previousYearBS.ncl_provisions ?? 0,
+    ncl_deferredTax_py: previousYearBS.ncl_deferredTax ?? 0,
+    totalNonCurrentLiabilities_py: previousYearBS.totalNonCurrentLiabilities ?? 0,
+    cl_borrowings_py: previousYearBS.cl_borrowings ?? 0,
+    cl_tradePayables_py: previousYearBS.cl_tradePayables ?? 0,
+    cl_incomeTaxPayable_py: previousYearBS.cl_incomeTaxPayable ?? 0,
+    cl_provisions_py: previousYearBS.cl_provisions ?? 0,
+    cl_other_py: previousYearBS.cl_other ?? 0,
+    totalCurrentLiabilities_py: previousYearBS.totalCurrentLiabilities ?? 0,
+    totalEquityAndLiabilities_py: previousYearBS.totalEquityAndLiabilities ?? 0,
+    checkDifference_py: previousYearBS.checkDifference ?? 0
+  };
+}
+function computeChangesInEquity(tb, adj, is, company, previousCIE) {
+  const rows = tb.rows;
+  const shareCapital = sumCr(rows, "share_capital");
+  const sharePremium = sumCr(rows, "share_premium");
+  const otherReserves = sumCr(rows, "general_reserve", "capital_reserve", "revaluation_reserve");
+  const openingShareCapital = sumOpeningCr(rows, "share_capital");
+  const openingSharePremium = sumOpeningCr(rows, "share_premium");
+  const openingOtherReserves = sumOpeningCr(rows, "general_reserve", "capital_reserve", "revaluation_reserve");
+  const openingRetained = round2(
+    sumOpeningCr(rows, "retained_earnings", "general_reserve") - sumOpeningDr(rows, "retained_earnings", "general_reserve")
+  );
+  const shareIssued = company.shareIssuedDuringYear ? round2(company.shareIssuedDuringYear * 100) : round2(shareCapital - openingShareCapital);
+  const dividendDeclared = adj.dividendPayable ?? sumCr(rows, "dividend_payable") ?? round2((company.dividendDeclaredPercent ?? 0) / 100 * openingShareCapital);
+  const closingRetained = round2(openingRetained + is.netProfit - dividendDeclared);
+  return {
+    cyOpeningShareCapital: round2(openingShareCapital),
+    cyOpeningSharePremium: round2(openingSharePremium),
+    cyOpeningGeneralReserve: round2(openingOtherReserves),
+    cyOpeningRetainedEarnings: round2(openingRetained),
+    cyOpeningTotal: round2(openingShareCapital + openingSharePremium + openingOtherReserves + openingRetained),
+    cyNetProfit: round2(is.netProfit),
+    cyShareCapitalIssued: shareIssued,
+    cySharePremiumReceived: round2(sharePremium - openingSharePremium),
+    cyTransferToReserve: 0,
+    cyDividends: round2(dividendDeclared),
+    cyClosingShareCapital: round2(shareCapital),
+    cyClosingSharePremium: round2(sharePremium),
+    cyClosingGeneralReserve: round2(otherReserves),
+    cyClosingRetainedEarnings: closingRetained,
+    cyClosingTotal: round2(shareCapital + sharePremium + otherReserves + closingRetained),
+    ...previousCIE
+  };
+}
+function computeCashFlow(tb, adj, is, bs, previousCF) {
+  const rows = tb.rows;
+  const profitBeforeTax = is.profitBeforeTax;
+  const addDepreciation = adj.totalDepreciationExpense ?? 0;
+  const addImpairment = is.impairment;
+  const lessInterestIncome = -is.interestIncome;
+  const lessDividendIncome = -sumCr(rows, "other_income_dividend");
+  const addInterestExpense = is.financeCharges;
+  const addLossOnDisposal = adj.lossOnDisposals ?? 0;
+  const lessGainOnDisposal = -(adj.gainOnDisposals ?? 0);
+  const fvLoss = (adj.investmentAdjustments ?? []).filter((i) => (i.fairValueGainLoss ?? 0) < 0).reduce((s, i) => s - (i.fairValueGainLoss ?? 0), 0);
+  const fvGain = (adj.investmentAdjustments ?? []).filter((i) => (i.fairValueGainLoss ?? 0) > 0).reduce((s, i) => s + (i.fairValueGainLoss ?? 0), 0);
+  const addFVLossOnInvestment = fvLoss;
+  const lessFVGainOnInvestment = -fvGain;
+  const prevTradeRec = previousCF?.decreaseIncreaseReceivables !== void 0 ? bs.ca_tradeReceivables + previousCF.decreaseIncreaseReceivables : round2(
+    sumOpeningDr(
+      rows,
+      "trade_receivables",
+      "other_receivables_advance_supplier",
+      "other_receivables_prepayments",
+      "other_receivables_staff_advance",
+      "other_receivables_loans",
+      "related_party_receivable"
+    ) - sumOpeningCr(rows, "provision_impairment_debtors")
+  );
+  const decreaseIncreaseReceivables = round2(prevTradeRec - bs.ca_tradeReceivables);
+  const { openingPY, closingCY } = inventoryFromAdj(adj, rows);
+  const prevInv = previousCF?.decreaseIncreaseInventory !== void 0 ? bs.ca_inventories + previousCF.decreaseIncreaseInventory : openingPY;
+  const decreaseIncreaseInventory = round2(prevInv - bs.ca_inventories);
+  const prevOtherCA = sumOpeningDr(rows, "other_current_assets", "nca_held_for_sale");
+  const decreaseIncreaseOtherCurrentAssets = round2(prevOtherCA - bs.ca_other);
+  const prevPayables = sumOpeningCr(
+    rows,
+    "trade_payables_creditors",
+    "tds_payable",
+    "other_payables",
+    "audit_fee_payable",
+    "trade_payables_advance_customers"
+  );
+  const increaseDecreasePayables = round2(bs.cl_tradePayables - prevPayables);
+  const prevTaxPayable = sumOpeningCr(rows, "income_tax_payable");
+  const increaseDecreaseIncomeTaxPayable = round2(bs.cl_incomeTaxPayable - prevTaxPayable);
+  const prevEmpLiab = sumOpeningCr(
+    rows,
+    "employee_payables_pf",
+    "employee_payables_bonus",
+    "employee_payables_salary",
+    "employee_benefit_noncurrent"
+  );
+  const currentEmpLiab = round2(
+    sumCr(rows, "employee_payables_pf", "employee_payables_bonus", "employee_payables_salary") + (adj.staffBonusProvision ?? is.staffBonus)
+  );
+  const increaseDecreaseEmployeeLiability = round2(currentEmpLiab - prevEmpLiab);
+  const prevProvisions = sumOpeningCr(rows, "provisions_csr", "provisions_current");
+  const increaseDecreaseProvisions = round2(bs.cl_provisions - prevProvisions - (adj.staffBonusProvision ?? 0));
+  const cashGeneratedFromOperations = round2(
+    profitBeforeTax + addDepreciation + addImpairment + lessInterestIncome + lessDividendIncome + addInterestExpense + addLossOnDisposal + lessGainOnDisposal + addFVLossOnInvestment + lessFVGainOnInvestment + decreaseIncreaseReceivables + decreaseIncreaseInventory + decreaseIncreaseOtherCurrentAssets + increaseDecreasePayables + increaseDecreaseIncomeTaxPayable + increaseDecreaseEmployeeLiability + increaseDecreaseProvisions
+  );
+  const interestPaid = -Math.abs(is.financeCharges);
+  const incomeTaxPaid = -Math.abs(
+    sumDr(rows, "advance_tax_paid") + (adj.incomeTaxPaidPY ?? 0)
+  );
+  const netCashFromOperating = round2(cashGeneratedFromOperations + interestPaid + incomeTaxPaid);
+  const proceedsFromPPEDisposal = (adj.depreciationResults ?? []).reduce((s, r) => s + (r.disposalProceeds ?? 0), 0);
+  const proceedsFromInvestmentDisposal = 0;
+  const interestReceived = is.interestIncome;
+  const dividendReceived = sumCr(rows, "other_income_dividend");
+  const purchaseOfPPE = -(adj.assets ?? []).reduce((s, a) => s + (a.additionalCost ?? 0), 0);
+  const purchaseOfInvestments = -Math.max(
+    0,
+    netBalance(rows, "investment_listed_trading", "investment_unlisted", "investment_fixed_deposit_noncurrent") - (sumOpeningDr(rows, "investment_listed_trading", "investment_unlisted", "investment_fixed_deposit_noncurrent") - sumOpeningCr(rows, "investment_listed_trading", "investment_unlisted", "investment_fixed_deposit_noncurrent"))
+  );
+  const netCashFromInvesting = round2(
+    proceedsFromPPEDisposal + proceedsFromInvestmentDisposal + interestReceived + dividendReceived + purchaseOfPPE + purchaseOfInvestments
+  );
+  const proceedsFromShareIssue = round2(
+    sumCr(rows, "share_capital") - sumOpeningCr(rows, "share_capital") + (sumCr(rows, "share_premium") - sumOpeningCr(rows, "share_premium"))
+  );
+  const ncBorrowChange = sumCr(rows, "borrowings_noncurrent_bank", "borrowings_noncurrent_other") - sumOpeningCr(rows, "borrowings_noncurrent_bank", "borrowings_noncurrent_other");
+  const proceedsFromBorrowingsNonCurrent = round2(Math.max(0, ncBorrowChange));
+  const repaymentOfBorrowingsNonCurrent = round2(Math.min(0, ncBorrowChange));
+  const cBorrowChange = sumCr(rows, "borrowings_current_od", "borrowings_current_cc", "borrowings_current_wc") - sumOpeningCr(rows, "borrowings_current_od", "borrowings_current_cc", "borrowings_current_wc");
+  const proceedsFromBorrowingsCurrent = round2(Math.max(0, cBorrowChange));
+  const repaymentOfBorrowingsCurrent = round2(Math.min(0, cBorrowChange));
+  const dividendPaid = -round2(adj.incomeTaxPaidPY ? 0 : adj.dividendPayable ?? sumCr(rows, "dividend_payable"));
+  const netCashFromFinancing = round2(
+    proceedsFromShareIssue + proceedsFromBorrowingsNonCurrent + repaymentOfBorrowingsNonCurrent + proceedsFromBorrowingsCurrent + repaymentOfBorrowingsCurrent + dividendPaid
+  );
+  const netIncreaseDecrease = round2(netCashFromOperating + netCashFromInvesting + netCashFromFinancing);
+  const openingCash = round2(
+    sumOpeningDr(rows, "cash_in_hand", "bank_current_account", "bank_fixed_deposit_current") - sumOpeningCr(rows, "bank_current_account")
+  );
+  const closingCash = bs.ca_cashAndEquivalents;
+  const reconciliationDifference = round2(closingCash - (openingCash + netIncreaseDecrease));
+  return {
+    profitBeforeTax,
+    addDepreciation,
+    addImpairment,
+    lessInterestIncome,
+    lessDividendIncome,
+    addInterestExpense,
+    addLossOnDisposal,
+    lessGainOnDisposal,
+    addFVLossOnInvestment,
+    lessFVGainOnInvestment,
+    decreaseIncreaseReceivables,
+    decreaseIncreaseInventory,
+    decreaseIncreaseOtherCurrentAssets,
+    increaseDecreasePayables,
+    increaseDecreaseIncomeTaxPayable,
+    increaseDecreaseEmployeeLiability,
+    increaseDecreaseProvisions,
+    cashGeneratedFromOperations,
+    interestPaid,
+    incomeTaxPaid,
+    netCashFromOperating,
+    proceedsFromPPEDisposal,
+    proceedsFromInvestmentDisposal,
+    interestReceived,
+    dividendReceived,
+    purchaseOfPPE,
+    purchaseOfInvestments,
+    netCashFromInvesting,
+    proceedsFromShareIssue,
+    proceedsFromBorrowingsNonCurrent,
+    proceedsFromBorrowingsCurrent,
+    repaymentOfBorrowingsNonCurrent,
+    repaymentOfBorrowingsCurrent,
+    dividendPaid,
+    netCashFromFinancing,
+    netIncreaseDecrease,
+    openingCash,
+    closingCash,
+    reconciliationDifference,
+    ...previousCF
+  };
+}
+function computeAllFinancials(tb, adj, company, previousYearData) {
+  const enrichedAdj = { ...adj };
+  const pyBS = previousYearData ? {
+    nca_ppe: previousYearData.ppe,
+    nca_investments: previousYearData.investments,
+    ca_cashAndEquivalents: previousYearData.cashAndEquivalents,
+    totalCurrentAssets: previousYearData.currentAssets,
+    eq_shareCapital: previousYearData.shareCapital,
+    eq_reserves: previousYearData.reserves,
+    ncl_borrowings: previousYearData.borrowingsNonCurrent,
+    cl_borrowings: previousYearData.borrowingsCurrent,
+    cl_tradePayables: previousYearData.tradePayables,
+    cl_provisions: previousYearData.provisions
+  } : {};
+  const pyIS = previousYearData ? {
+    revenue: previousYearData.revenue,
+    materialConsumed: previousYearData.costOfSales,
+    otherIncome: previousYearData.otherIncome,
+    adminAndOtherExpenses: previousYearData.adminExpenses,
+    financeCharges: previousYearData.financeCosts,
+    depreciation: previousYearData.depreciation,
+    incomeTaxExpense: previousYearData.incomeTaxExpense
+  } : {};
+  const incomeStatement = computeIncomeStatement(tb, enrichedAdj, company, pyIS);
+  if (enrichedAdj.staffBonusProvision == null && incomeStatement.profitBeforeStaffBonus > 0) {
+    enrichedAdj.staffBonusProvision = computeStaffBonus(incomeStatement.profitBeforeStaffBonus);
+    incomeStatement.staffBonus = enrichedAdj.staffBonusProvision;
+    incomeStatement.profitBeforeTax = round2(incomeStatement.profitBeforeStaffBonus - incomeStatement.staffBonus);
+  }
+  if (enrichedAdj.incomeTaxProvision == null && incomeStatement.profitBeforeTax > 0) {
+    const taxRate = (company.accountingPolicies?.incomeTaxRatePercent ?? 25) / 100;
+    const taxResult = computeTax({
+      accountingProfit: incomeStatement.profitBeforeTax,
+      accountingDepreciation: enrichedAdj.totalDepreciationExpense ?? incomeStatement.depreciation ?? 0,
+      taxDepreciation: enrichedAdj.taxDepreciationPools?.reduce((s, p) => s + (p.taxDepreciation ?? 0), 0) ?? 0,
+      disallowedForTax: enrichedAdj.disallowedForTax ?? [],
+      staffBonus: enrichedAdj.staffBonusProvision ?? 0,
+      profitBeforeBonus: incomeStatement.profitBeforeStaffBonus,
+      advanceTaxPaid: sumDr(tb.rows, "advance_tax_paid"),
+      incomeTaxRate: taxRate,
+      entityType: company.entityType ?? "Company"
+    });
+    enrichedAdj.incomeTaxProvision = taxResult.currentTaxExpense;
+    enrichedAdj.currentTaxExpense = taxResult.currentTaxExpense;
+    incomeStatement.incomeTaxExpense = taxResult.currentTaxExpense;
+    incomeStatement.netProfit = round2(incomeStatement.profitBeforeTax - incomeStatement.incomeTaxExpense);
+  }
+  const balanceSheet = computeBalanceSheet(tb, enrichedAdj, incomeStatement, company, pyBS);
+  const changesInEquity = computeChangesInEquity(tb, enrichedAdj, incomeStatement, company);
+  const cashFlow = computeCashFlow(tb, enrichedAdj, incomeStatement, balanceSheet);
+  const notes = buildNotesData({ tb, adj: enrichedAdj, bs: balanceSheet, is: incomeStatement, company });
+  return { balanceSheet, incomeStatement, changesInEquity, cashFlow, notes };
+}
+
+// server/routes/financials.ts
+var router4 = Router4();
+function getSessionId(req) {
+  return req.params.companyId || req.cookies?.sessionId || "";
+}
+function requireSession(req, res) {
+  const sessionId = getSessionId(req);
+  const session = sessionStore.get(sessionId);
+  if (!session) {
+    res.status(404).json({ success: false, error: "Session not found" });
+    return null;
+  }
+  return { session, sessionId };
+}
+router4.post("/compute", asyncHandler(async (req, res) => {
+  const ctx = requireSession(req, res);
+  if (!ctx) return;
+  const { session } = ctx;
+  const missing = [];
+  if (!session.company) missing.push("company profile");
+  if (!session.trialBalance) missing.push("trial balance");
+  if (!session.adjustments) missing.push("year-end adjustments");
+  if (missing.length > 0) {
+    return res.status(400).json({ success: false, error: `Missing data: ${missing.join(", ")}.` });
+  }
+  const result = computeAllFinancials(
+    session.trialBalance,
+    session.adjustments,
+    session.company,
+    session.company?.previousYearData
+  );
+  sessionStore.set(ctx.sessionId, {
+    financials: result,
+    statements: result,
+    notes: result.notes
+  });
+  return res.json({ success: true, data: result });
+}));
+router4.post("/:companyId/generate", asyncHandler(async (req, res) => {
+  const ctx = requireSession(req, res);
+  if (!ctx) return;
+  const { session } = ctx;
+  const missing = [];
+  if (!session.company) missing.push("company profile");
+  if (!session.trialBalance) missing.push("trial balance");
+  if (!session.adjustments) missing.push("year-end adjustments");
+  if (missing.length > 0) return res.status(400).json({ success: false, error: `Missing data: ${missing.join(", ")}.` });
+  const result = computeAllFinancials(session.trialBalance, session.adjustments, session.company, session.company?.previousYearData);
+  sessionStore.set(ctx.sessionId, { financials: result, statements: result, notes: result.notes });
+  return res.json({ success: true, data: result });
+}));
+router4.get("/validation", asyncHandler(async (req, res) => {
+  const ctx = requireSession(req, res);
+  if (!ctx) return;
+  const financials = ctx.session.financials;
+  if (!financials?.balanceSheet) {
+    return res.status(404).json({ success: false, error: "Financial statements not computed yet." });
+  }
+  const bs = financials.balanceSheet;
+  const cf = financials.cashFlow;
+  const errors = [];
+  if (Math.abs(bs.checkDifference ?? 0) > 1) errors.push(`Balance sheet difference: NPR ${bs.checkDifference}`);
+  if (Math.abs(cf.reconciliationDifference ?? 0) > 1) errors.push(`Cash flow reconciliation difference: NPR ${cf.reconciliationDifference}`);
+  return res.json({ success: true, data: { isValid: errors.length === 0, errors, warnings: [] } });
+}));
+router4.get("/:companyId/balance-sheet", asyncHandler(async (req, res) => {
+  const ctx = requireSession(req, res);
+  if (!ctx) return;
+  const bs = ctx.session.financials?.balanceSheet;
+  if (!bs) return res.status(404).json({ success: false, error: "Not generated yet." });
+  return res.json({ success: true, data: bs });
+}));
+router4.get("/:companyId/income-statement", asyncHandler(async (req, res) => {
+  const ctx = requireSession(req, res);
+  if (!ctx) return;
+  const is = ctx.session.financials?.incomeStatement;
+  if (!is) return res.status(404).json({ success: false, error: "Not generated yet." });
+  return res.json({ success: true, data: is });
+}));
+router4.get("/:companyId/cash-flow", asyncHandler(async (req, res) => {
+  const ctx = requireSession(req, res);
+  if (!ctx) return;
+  const cf = ctx.session.financials?.cashFlow;
+  if (!cf) return res.status(404).json({ success: false, error: "Not generated yet." });
+  return res.json({ success: true, data: cf });
+}));
+router4.get("/:companyId/changes-in-equity", asyncHandler(async (req, res) => {
+  const ctx = requireSession(req, res);
+  if (!ctx) return;
+  const cie = ctx.session.financials?.changesInEquity;
+  if (!cie) return res.status(404).json({ success: false, error: "Not generated yet." });
+  return res.json({ success: true, data: cie });
+}));
+router4.get("/:companyId/notes", asyncHandler(async (req, res) => {
+  const ctx = requireSession(req, res);
+  if (!ctx) return;
+  const notes = ctx.session.financials?.notes;
+  if (!notes) return res.status(404).json({ success: false, error: "Not generated yet." });
+  return res.json({ success: true, data: notes });
+}));
+var financials_default = router4;
+
 // server/routes/output.ts
+import { Router as Router5 } from "express";
 var router5 = Router5();
 router5.post("/:companyId/generate-excel", asyncHandler(async (req, res) => {
   const session = sessionStore.get(req.params.companyId);
@@ -8588,6 +8966,7 @@ app.use("/api", standardLimiter);
 app.use("/api/trial-balance", uploadLimiter);
 app.use("/api/output", outputLimiter);
 app.use("/api/trial-balance/:companyId/rematch-ai", aiLimiter);
+app.use("/api/trial-balance/:companyId/ai-convert", aiLimiter);
 app.get("/api/health", (_req, res) => {
   const mem = process.memoryUsage();
   res.json({

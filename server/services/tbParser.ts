@@ -595,7 +595,7 @@ function extractRow(
 // ---------------------------------------------------------------------------
 // CSV parser — respects quoted fields
 // ---------------------------------------------------------------------------
-function parseCSVText(text: string): unknown[][] {
+export function parseCSVText(text: string): unknown[][] {
   const lines = text.split(/\r?\n/);
   return lines.map((line) => {
     const cells: string[] = [];
@@ -658,7 +658,7 @@ function assignParentGroups(rows: RawTBRow[]): RawTBRow[] {
   });
 }
 
-function worksheetToMatrix(ws: ExcelJS.Worksheet): unknown[][] {
+export function worksheetToMatrix(ws: ExcelJS.Worksheet): unknown[][] {
   const matrix: unknown[][] = [];
   ws.eachRow({ includeEmpty: true }, (row) => {
     const cells: unknown[] = [];

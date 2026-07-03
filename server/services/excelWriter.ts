@@ -141,7 +141,7 @@ export interface WorkbookRowMaps {
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-const COLORS = {
+export const COLORS = {
   BRAND_BLUE:   '1E40AF',
   HEADER_BG:    '1E3A8A',
   SUBHEADER_BG: 'DBEAFE',
@@ -155,7 +155,7 @@ const COLORS = {
   LIGHT_GRAY:   'F1F5F9',
 };
 
-const FONTS = {
+export const FONTS = {
   HEADING:    { name: 'Arial', size: 11, bold: true,  color: { argb: `FF${COLORS.WHITE}` } },
   SUBHEADING: { name: 'Arial', size: 10, bold: true,  color: { argb: `FF${COLORS.BRAND_BLUE}` } },
   BODY:       { name: 'Arial', size: 10 },
@@ -165,7 +165,7 @@ const FONTS = {
   TITLE:      { name: 'Arial', size: 11, bold: true,  color: { argb: `FF${COLORS.WHITE}` } },
 };
 
-const NUMBER_FORMAT     = '#,##0';
+export const NUMBER_FORMAT     = '#,##0';
 const NUMBER_FORMAT_DEC = '#,##0.00';
 const THIN_BORDER: Partial<ExcelJS.Border> = { style: 'thin', color: { argb: `FF${COLORS.BORDER_COLOR}` } };
 const MEDIUM_BORDER: Partial<ExcelJS.Border> = { style: 'medium', color: { argb: `FF${COLORS.BRAND_BLUE}` } };
@@ -173,17 +173,17 @@ const MEDIUM_BORDER: Partial<ExcelJS.Border> = { style: 'medium', color: { argb:
 // ---------------------------------------------------------------------------
 // ICAN cell styling helpers (Session 23 — Gap C7)
 // ---------------------------------------------------------------------------
-function applyHeaderStyle(cell: ExcelJS.Cell): void {
+export function applyHeaderStyle(cell: ExcelJS.Cell): void {
   cell.font = { name: 'Arial', size: 11, bold: true, color: { argb: `FF${COLORS.WHITE}` } };
   cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: `FF${COLORS.BRAND_BLUE}` } };
 }
 
-function applySubHeaderStyle(cell: ExcelJS.Cell): void {
+export function applySubHeaderStyle(cell: ExcelJS.Cell): void {
   cell.font = { name: 'Arial', size: 10, bold: true, color: { argb: `FF${COLORS.BRAND_BLUE}` } };
   cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: `FF${COLORS.SUBHEADER_BG}` } };
 }
 
-function applyInputStyle(cell: ExcelJS.Cell): void {
+export function applyInputStyle(cell: ExcelJS.Cell): void {
   cell.font = { name: 'Arial', size: 10 };
   cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: `FF${COLORS.GREEN_INPUT}` } };
 }
@@ -315,7 +315,7 @@ function agingBucketAmount(amount: number, days: number): [number, number, numbe
   return [0, 0, 0, amount];
 }
 
-function applyAllBorders(cell: ExcelJS.Cell): void {
+export function applyAllBorders(cell: ExcelJS.Cell): void {
   cell.border = { top: THIN_BORDER, bottom: THIN_BORDER, left: THIN_BORDER, right: THIN_BORDER };
 }
 
