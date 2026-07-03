@@ -693,8 +693,8 @@ export function writeNote31_PPE(ws: ExcelJS.Worksheet, depnSummary: Depreciation
     row.getCell(depnSummary.length + 2).numFmt = NUMBER_FORMAT;
     row.getCell(depnSummary.length + 2).alignment = { horizontal: 'right' };
     row.height = 15;
-    if (label === 'Charge for the Year') SHEET_ROW_REGISTRY.ppeDepreciationRow = r - 1;
   });
+  SHEET_ROW_REGISTRY.ppeDepreciationRow = r - depnRows.length + depnRows.findIndex(([label]) => label === 'Charge for the Year');
 
   ws.getRow(r).getCell(1).value = 'NET BOOK VALUE'; ws.getRow(r).getCell(1).font = FONTS.SUBHEADING; r++;
   const nbvRows: [string, (d: DepreciationSummary) => number][] = [
