@@ -47,7 +47,7 @@ export const SAMPLE_COMPANY: CompanyProfile = {
   numberOfEmployees: 12,
 };
 
-export const SAMPLE_TRIAL_BALANCE_CSV = \`Account Name,Opening Dr,Opening Cr,During Dr,During Cr,Closing Dr,Closing Cr
+export const SAMPLE_TRIAL_BALANCE_CSV = `Account Name,Opening Dr,Opening Cr,During Dr,During Cr,Closing Dr,Closing Cr
 Paid-up Capital,0,50000000,0,1000000,0,51000000
 Reserves & Surplus,0,2532000,0,0,938901,0
 Bank A,0,2500000,1000000,0,0,1500000
