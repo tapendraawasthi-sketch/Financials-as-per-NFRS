@@ -5,7 +5,7 @@ import { asyncHandler } from '../middleware/errorHandler';
 import { sessionStore } from '../store/sessionStore';
 import { parseTrialBalance } from '../services/tbParser';
 import { classifyAll } from '../services/accountMatcher';
-import { classifyWithAI, aiMatchUnresolved } from '../services/aiAccountMatcher';
+import { classifyWithAI } from '../services/aiAccountMatcher';
 import { validateTrialBalanceTotals } from '../../src/utils/validation';
 import type { ParsedTrialBalance, NFRSCategory } from '../../src/types';
 
@@ -137,6 +137,34 @@ router.put('/:companyId/mapping', asyncHandler(async (req: Request, res: Respons
   (updatedTB as any).validation = validation;
   sessionStore.set(req.params.companyId, { trialBalance: updatedTB });
   return res.json(updatedTB);
+}));
+
+// PUT /:companyId/mapping/:rowIndex
+router.put('/:companyId/mapping/:rowIndex', asyncHandler(async (req: Request, res: Response) => {
+  const session = sessionStore.get(req.params.companyId);
+  if (!session?.trialBalance) return res.status(404).json({ error: 'No trial balance loaded.' });
+
+  const { nfrsCategory } = req.body;
+  if (!nfrsCategory) return res.status(400).json({ error: 'nfrsCategory is required.' });
+
+  const updatedRows = [...session.trialBalance.rows];
+  const idx = updatedRows.findIndex((r) => String(r.rowIndex) === req.params.rowIndex);
+  if (idx === -1) return res.status(404).json({ error: 'Row not found.' });
+
+  updatedRows[idx] = {
+    ...updatedRows[idx],
+    nfrsCategory,
+    confidence: 100,
+    matchMethod: 'manual',
+    needsReview: false,
+    userOverride: true,
+  };
+
+  const updatedTB = { ...session.trialBalance, rows: updatedRows };
+  const validation = validateTrialBalanceTotals(updatedRows);
+  (updatedTB as any).validation = validation;
+  sessionStore.set(req.params.companyId, { trialBalance: updatedTB });
+  return res.json({ updated: true, row: updatedRows[idx] });
 }));
 
 // POST /:companyId/rematch-ai
