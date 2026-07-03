@@ -1912,21 +1912,21 @@ export function appendComplianceStatement(
 
   addRow('1. STATEMENT OF COMPLIANCE', true);
   addRow(
-    `These financial statements of \${params.companyName} have been prepared in accordance with Nepal Accounting Standards for Micro Entities (NAS for MEs) issued by the Institute of Chartered Accountants of Nepal (ICAN).`,
+    `These financial statements of ${params.companyName} have been prepared in accordance with Nepal Accounting Standards for Micro Entities (NAS for MEs) issued by the Institute of Chartered Accountants of Nepal (ICAN).`,
     false, false, 1
   );
   addRow('');
 
   addRow('2. BASIS OF PREPARATION', true);
   addRow(
-    `These financial statements are prepared on the historical cost basis except for certain financial instruments measured at fair values as described in the accounting policies. The financial statements are presented in Nepalese Rupees (NPR) rounded to the nearest NPR \${params.roundingLevel.toLocaleString('en-IN')}.`,
+    `These financial statements are prepared on the historical cost basis except for certain financial instruments measured at fair values as described in the accounting policies. The financial statements are presented in Nepalese Rupees (NPR) rounded to the nearest NPR ${params.roundingLevel.toLocaleString('en-IN')}.`,
     false, false, 1
   );
   addRow('');
 
   addRow('3. AUTHORIZATION FOR ISSUE', true);
   addRow(
-    `These financial statements for the fiscal year \${params.fiscalYear} were authorized for issue by the Board of Directors of \${params.companyName} on \${params.authorizationDate ?? '[Board Meeting Date]'}.`,
+    `These financial statements for the fiscal year ${params.fiscalYear} were authorized for issue by the Board of Directors of ${params.companyName} on ${params.authorizationDate ?? '[Board Meeting Date]'}.`,
     false, false, 1
   );
   addRow('');
