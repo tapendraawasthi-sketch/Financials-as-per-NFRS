@@ -2,6 +2,7 @@
 import React, { useState } from 'react';
 import Card           from '../ui/Card';
 import InputField     from '../ui/InputField';
+import NumberInput    from '../ui/NumberInput';
 import SelectDropdown from '../ui/SelectDropdown';
 import Textarea       from '../ui/Textarea';
 import Button         from '../ui/Button';
@@ -61,6 +62,9 @@ interface FormValues {
   chairperson:        string;
   director:           string;
   accountsHead:       string;
+  numberOfEmployees:  number;
+  dividendDeclaredPercent: number;
+  shareIssuedDuringYear: number;
   auditorName:        string;
   auditFirmName:      string;
   icanRegNumber:      string;
@@ -74,6 +78,7 @@ const EMPTY: FormValues = {
   entityType: 'NASForMEs', province: '', district: '', municipality: '',
   wardNumber: '', tole: '', fullAddress: '', contactPerson: '', designation: '',
   phone: '', email: '', chairperson: '', director: '', accountsHead: '',
+  numberOfEmployees: 0, dividendDeclaredPercent: 0, shareIssuedDuringYear: 0,
   auditorName: '', auditFirmName: '', icanRegNumber: '', auditorPosition: '',
 };
 
@@ -157,7 +162,7 @@ export default function CompanyInfoForm({
     setSaving(true);
     setSaveErr(null);
     try {
-      await onSave(values);
+      await onSave({ ...values, numberOfEmployees: values.numberOfEmployees, dividendDeclaredPercent: values.dividendDeclaredPercent, shareIssuedDuringYear: values.shareIssuedDuringYear });
       // item 52: show "Changes saved" toast after successful save
       show('Company details saved successfully.', 'success', 2500);
     } catch (err: any) {
@@ -349,6 +354,27 @@ export default function CompanyInfoForm({
               value={values.accountsHead}
               onChange={e => set('accountsHead', e.target.value)}
               placeholder="Full name of the person responsible for accounts"
+            />
+          </div>
+
+          <div className="col-span-2 grid grid-cols-3 gap-4">
+            <NumberInput
+              label="Number of Employees"
+              value={values.numberOfEmployees}
+              onChange={v => set('numberOfEmployees', v)}
+            />
+
+            <NumberInput
+              label="Dividend Declared (%)"
+              value={values.dividendDeclaredPercent}
+              onChange={v => set('dividendDeclaredPercent', v)}
+              suffix="%"
+            />
+
+            <NumberInput
+              label="Shares Issued During Year"
+              value={values.shareIssuedDuringYear}
+              onChange={v => set('shareIssuedDuringYear', v)}
             />
           </div>
         </div>
