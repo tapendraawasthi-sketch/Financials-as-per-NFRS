@@ -84,7 +84,7 @@ export default function TrialBalancePage() {
       }
 
       dispatch({ type: 'COMPLETE_STEP', payload: 'trial_balance_mapping' });
-      dispatch({ type: 'SET_STEP', payload: 'year_end_adjustments' });
+      dispatch({ type: 'SET_STEP', payload: 'subledger_details' });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to save mappings.';
       dispatch({ type: 'SET_ERROR', payload: message });
