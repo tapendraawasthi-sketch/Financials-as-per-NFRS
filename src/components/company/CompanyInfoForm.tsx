@@ -7,6 +7,7 @@ import Textarea       from '../ui/Textarea';
 import Button         from '../ui/Button';
 import { useToast }   from '../ui/Toast';
 import { CompanyProfile } from '../../types/company';
+import { SAMPLE_COMPANY } from '../../data/sampleData';
 
 // ── Option lists ───────────────────────────────────────────────────────────
 const COMPANY_TYPE_OPTIONS = [
@@ -119,6 +120,24 @@ export default function CompanyInfoForm({
   const [saving,  setSaving]  = useState(false);
   const [saveErr, setSaveErr] = useState<string | null>(null);
   const { show } = useToast();   // item 52: toast hook
+
+  const loadDummyData = () => {
+    setValues(prev => ({
+      ...prev,
+      companyName: SAMPLE_COMPANY.companyName,
+      panVatNumber: SAMPLE_COMPANY.panVatNumber || '',
+      registrationNumber: SAMPLE_COMPANY.registrationNumber || '',
+      companyType: SAMPLE_COMPANY.companyType || 'PrivateLimited',
+      entityType: SAMPLE_COMPANY.entityType || 'NASForMEs',
+      fullAddress: SAMPLE_COMPANY.fullAddress || '',
+      chairperson: SAMPLE_COMPANY.chairperson || '',
+      director: SAMPLE_COMPANY.director || '',
+      accountsHead: SAMPLE_COMPANY.accountsHead || '',
+      auditorName: SAMPLE_COMPANY.auditorInfo?.auditorName || '',
+      auditFirmName: SAMPLE_COMPANY.auditorInfo?.auditorFirmName || '',
+      auditorPosition: SAMPLE_COMPANY.auditorInfo?.position || '',
+    }));
+  };
 
   const set = <K extends keyof FormValues>(key: K, val: FormValues[K]) => {
     setValues(prev => ({ ...prev, [key]: val }));
@@ -391,9 +410,14 @@ export default function CompanyInfoForm({
         <p className="text-xs text-slate-400">
           All fields marked <span className="text-red-500">*</span> are required
         </p>
-        <Button type="submit" variant="primary" size="md" loading={saving}>
-          Save and Continue
-        </Button>
+        <div className="flex gap-2">
+          <Button type="button" variant="secondary" size="md" onClick={loadDummyData}>
+            Load Dummy Data
+          </Button>
+          <Button type="submit" variant="primary" size="md" loading={saving}>
+            Save and Continue
+          </Button>
+        </div>
       </div>
     </form>
   );

@@ -3,6 +3,7 @@ import React, { useRef, useState, useCallback } from 'react';
 import Card        from '../ui/Card';
 import ProgressBar from '../ui/ProgressBar';
 import Button      from '../ui/Button';
+import { SAMPLE_TRIAL_BALANCE_CSV } from '../../data/sampleData';
 
 interface UploadResult {
   filename:     string;
@@ -162,6 +163,11 @@ export default function TBUploadZone({
     fileRef.current?.click();
   };
 
+  const loadDummyData = () => {
+    const file = new File([SAMPLE_TRIAL_BALANCE_CSV], "dummy_trial_balance.csv", { type: "text/csv" });
+    handleFile(file);
+  };
+
   return (
     <div className="grid grid-cols-5 gap-5">
       {/* ── Left: Upload area ─────────────────────────────────────── */}
@@ -202,6 +208,11 @@ export default function TBUploadZone({
               <p className="text-xs text-slate-400 mt-1">
                 Accepts .xlsx, .xls, .csv
               </p>
+              <div className="mt-4 flex justify-center" onClick={(e) => e.stopPropagation()}>
+                <Button type="button" variant="secondary" size="sm" onClick={loadDummyData}>
+                  Load Dummy Trial Balance
+                </Button>
+              </div>
             </div>
           )}
 

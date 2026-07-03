@@ -7,6 +7,7 @@ import NumberInput    from '../ui/NumberInput';
 import Button         from '../ui/Button';
 import { useToast }   from '../ui/Toast';
 import { AccountingPolicies } from '../../types/company';
+import { SAMPLE_COMPANY } from '../../data/sampleData';
 
 // ── Asset category defaults ────────────────────────────────────────────────
 interface AssetCategoryRow {
@@ -208,6 +209,31 @@ export default function AccountingPoliciesForm({
   const [saving,  setSaving]  = useState(false);
   const [saveErr, setSaveErr] = useState<string | null>(null);
   const { show } = useToast();
+
+  const loadDummyData = () => {
+    const policies = SAMPLE_COMPANY.accountingPolicies;
+    if (!policies) return;
+    setForm(prev => ({
+      ...prev,
+      defaultDepnMethod: policies.depreciationMethod as any,
+      inventoryMethod: policies.inventoryCostMethod as string,
+      recognizeGratuity: policies.recognizeGratuity ?? true,
+      gratuityDays: policies.gratuityDaysPerYear,
+      recognizeLeave: policies.recognizeLeaveEncashment ?? true,
+      bonusRate: policies.bonusRatePercent,
+      taxRate: policies.incomeTaxRatePercent,
+      roundingLevel: String(policies.roundingLevel ?? 100),
+      categories: policies.assetCategories.map(c => ({
+        id: c.id,
+        name: c.name,
+        usefulLife: c.defaultUsefulLife,
+        residualPct: c.defaultResidualPct,
+        method: c.defaultMethod === 'WDV' ? 'WDV' : 'SLM',
+        wdvRate: c.defaultWDVRate,
+        noDepn: c.defaultUsefulLife === 0,
+      })),
+    }));
+  };
 
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) =>
     setForm(prev => ({ ...prev, [k]: v }));
@@ -479,9 +505,14 @@ export default function AccountingPoliciesForm({
         <p className="text-xs text-slate-400">
           Asset category rates can be overridden per-asset in the Fixed Asset Register.
         </p>
-        <Button type="submit" variant="primary" size="md" loading={saving}>
-          Save and Continue
-        </Button>
+        <div className="flex gap-2">
+          <Button type="button" variant="secondary" size="md" onClick={loadDummyData}>
+            Load Dummy Data
+          </Button>
+          <Button type="submit" variant="primary" size="md" loading={saving}>
+            Save and Continue
+          </Button>
+        </div>
       </div>
     </form>
   );

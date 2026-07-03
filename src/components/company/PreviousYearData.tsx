@@ -17,6 +17,14 @@ const DEFAULT_DATA: PreviousYearBalances = {
 export default function PreviousYearData({ initialData, onSave, isLoading }: PreviousYearDataProps) {
   const [data, setData] = useState<PreviousYearBalances>(initialData || DEFAULT_DATA);
 
+  const loadDummyData = () => {
+    setData({
+      revenue: 8500000, costOfSales: 4200000, otherIncome: 150000, adminExpenses: 1200000, financeCosts: 180000, depreciation: 850000, incomeTaxExpense: 200000,
+      ppe: 45000000, investments: 1500000, currentAssets: 3500000, cashAndEquivalents: 1200000,
+      shareCapital: 50000000, reserves: 1590000, borrowingsNonCurrent: 2000000, borrowingsCurrent: 500000, tradePayables: 850000, provisions: 150000,
+    });
+  };
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
     setData((prev) => ({ ...prev, [name]: parseFloat(value) || 0 }));
@@ -76,7 +84,14 @@ export default function PreviousYearData({ initialData, onSave, isLoading }: Pre
         </div>
       </div>
 
-      <div className="flex justify-end pt-4 border-t">
+      <div className="flex justify-between items-center pt-4 border-t">
+        <button
+          type="button"
+          onClick={loadDummyData}
+          className="text-brand font-medium hover:underline text-sm"
+        >
+          Load Dummy Data
+        </button>
         <button
           type="submit"
           disabled={isLoading}
