@@ -219,7 +219,7 @@ export default function TBUploadZone({
                 Drop file here or click to browse
               </p>
               <p className="text-xs text-slate-400 mt-1">
-                Accepts .xlsx, .xls, .csv — including ICAN MEs workbook templates
+                Accepts .xlsx, .xls, .csv — ICAN MEs templates, Tally/Busy grouped exports
               </p>
               <div className="mt-4 flex justify-center" onClick={(e) => e.stopPropagation()}>
                 <Button type="button" variant="secondary" size="sm" onClick={loadDummyData}>

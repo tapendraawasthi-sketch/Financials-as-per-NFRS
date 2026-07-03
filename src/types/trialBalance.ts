@@ -27,7 +27,7 @@ export interface RawTBParseResult {
   warnings: string[];
   detectedColumns: Record<string, number>;
   headerRowIndex: number;
-  detectedFormat: 'full' | '3col' | '2col' | '1col' | 'tally_prime';
+  detectedFormat: 'full' | '3col' | '2col' | '1col' | 'tally_prime' | 'tally_grouped';
 }
 
 // NFRSCategory — the complete taxonomy (see chartOfAccounts.ts)

@@ -88,4 +88,30 @@ describe('tbParser', () => {
     assert.ok(capital);
     assert.equal(capital!.closingCr, 51000000);
   });
+
+  it('parses Tally/Busy grouped Dummy Trial export with Dr/Cr balance strings', async () => {
+    const fs = await import('fs');
+    const path = '/home/ubuntu/.cursor/projects/workspace/uploads/Dummy_Trial_34f5.xlsx';
+    if (!fs.existsSync(path)) return;
+
+    const result = await parseTrialBalance(fs.readFileSync(path), 'Dummy Trial.xlsx');
+    assert.equal(result.detectedFormat, 'tally_grouped');
+    assert.ok(result.workbookMetadata?.companyName?.includes('Satyam Techno Packs'));
+    assert.equal(result.workbookMetadata?.fiscalYear, '2081/82');
+
+    const leafRows = result.rows.filter((r) => !r.isGroupRow);
+    assert.ok(leafRows.length > 50, `Expected many leaf rows, got ${leafRows.length}`);
+    assert.ok(result.rows.some((r) => r.isGroupRow), 'Expected indented group rows');
+
+    const directorsAdvance = leafRows.find((r) => r.rawLabel === 'Directors Advance');
+    assert.ok(directorsAdvance);
+    assert.equal(directorsAdvance!.openingCr, 4351552);
+
+    const purchase = result.rows.find((r) => r.rawLabel === 'Purchase');
+    assert.ok(purchase?.isGroupRow, 'Aggregate "Purchase" row should be excluded from leaf totals');
+
+    const pettyCash = leafRows.find((r) => r.rawLabel === 'Petty Cash');
+    assert.ok(pettyCash);
+    assert.equal(pettyCash!.closingDr, 51447.57);
+  });
 });

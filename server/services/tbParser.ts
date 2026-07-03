@@ -65,7 +65,6 @@ const COL_HINTS: Record<string, string[]> = {
   ],
 };
 
-/** Subtotal row label patterns to skip (will generate a warning). */
 const SUBTOTAL_PATTERNS = /^(total|grand total|sum|sub.?total|net total|account total)/i;
 
 // ---------------------------------------------------------------------------
@@ -81,10 +80,27 @@ function toNumber(val: unknown): number {
     .replace(/\s/g, '')
     .replace(/[()]/g, '')
     .replace(/NPR/gi, '')
-    .replace(/Rs\.?/gi, '');
+    .replace(/Rs\.?/gi, '')
+    .replace(/\s*(dr|cr)\.?$/i, '');
   const num = parseFloat(cleaned);
   if (isNaN(num)) return 0;
   return isNeg ? -Math.abs(num) : num;
+}
+
+/** Parse Tally-style combined balance cells like "1,43,51,552.00 Cr" or "9,664.55 Dr". */
+function parseDrCrBalance(val: unknown): { dr: number; cr: number } {
+  if (val === null || val === undefined || val === '') return { dr: 0, cr: 0 };
+  if (typeof val === 'number') {
+    return val >= 0 ? { dr: val, cr: 0 } : { dr: 0, cr: Math.abs(val) };
+  }
+  const str = String(val).trim();
+  if (!str) return { dr: 0, cr: 0 };
+  const isCr = /\bcr\.?\s*$/i.test(str);
+  const isDr = /\bdr\.?\s*$/i.test(str);
+  const num = toNumber(str);
+  if (isCr) return { dr: 0, cr: num };
+  if (isDr) return { dr: num, cr: 0 };
+  return num >= 0 ? { dr: num, cr: 0 } : { dr: 0, cr: Math.abs(num) };
 }
 
 // ---------------------------------------------------------------------------
@@ -265,15 +281,107 @@ function detectTallyPrimeFormat(
 }
 
 // ---------------------------------------------------------------------------
+// Detect Tally grouped export: Account/Group | Opening Bal | Debit | Credit | Closing Bal
+// Common in Busy/Tally trial balance exports with indentation hierarchy.
+// ---------------------------------------------------------------------------
+function detectTallyGroupedExport(
+  matrix: unknown[][],
+): { isGrouped: boolean; headerRowIndex: number; colMap: Record<string, number> } {
+  for (let r = 0; r < Math.min(matrix.length, MAX_HEADER_SCAN); r++) {
+    const cells = (matrix[r] ?? []).map(normCell);
+    const labelCol = cells.findIndex((c) =>
+      (c.includes('account') && c.includes('group'))
+      || c === 'particulars'
+      || c.includes('ledger name')
+      || c === 'account name',
+    );
+    const openingCol = cells.findIndex((c) => c.includes('opening') && c.includes('bal'));
+    const closingCol = cells.findIndex((c) => c.includes('closing') && c.includes('bal'));
+    const debitCol = cells.findIndex((c) => c === 'debit');
+    const creditCol = cells.findIndex((c) => c === 'credit');
+
+    if (labelCol >= 0 && openingCol >= 0 && closingCol >= 0 && debitCol >= 0 && creditCol >= 0) {
+      return {
+        isGrouped: true,
+        headerRowIndex: r,
+        colMap: {
+          label: labelCol,
+          openingBal: openingCol,
+          duringDr: debitCol,
+          duringCr: creditCol,
+          closingBal: closingCol,
+        },
+      };
+    }
+  }
+  return { isGrouped: false, headerRowIndex: -1, colMap: {} };
+}
+
+/** Rows with a deeper-indented descendant are group headers — exclude from TB totals. */
+function markGroupRowsByIndentation(rows: RawTBRow[]): RawTBRow[] {
+  return rows.map((row, i) => {
+    let hasDeeperDescendant = false;
+    for (let j = i + 1; j < rows.length; j++) {
+      if (rows[j].rawIndentSpaces <= row.rawIndentSpaces) break;
+      hasDeeperDescendant = true;
+      break;
+    }
+    return {
+      ...row,
+      isGroupRow: hasDeeperDescendant,
+      rowLevel: hasDeeperDescendant ? 0 : (row.rawIndentSpaces > 4 ? 2 : 1),
+    };
+  });
+}
+
+/**
+ * Tally exports often place aggregate labels ("Purchase", "Sale") as siblings of
+ * detailed accounts ("Purchase: IMPORT") at the same indent — exclude the shorthand.
+ */
+function markTallyShorthandAggregates(rows: RawTBRow[]): RawTBRow[] {
+  return rows.map((row, i) => {
+    if (row.isGroupRow) return row;
+    const peers: string[] = [];
+    for (let j = i + 1; j < rows.length; j++) {
+      if (rows[j].rawIndentSpaces < row.rawIndentSpaces) break;
+      if (rows[j].rawIndentSpaces === row.rawIndentSpaces) {
+        peers.push(rows[j].rawLabel.trim());
+      }
+    }
+    const isShorthandAggregate = peers.some(
+      (peer) =>
+        (peer.startsWith(`${row.rawLabel.trim()}:`)
+          || peer.startsWith(`${row.rawLabel.trim()} `))
+        && peer.length > row.rawLabel.trim().length,
+    );
+    return { ...row, isGroupRow: isShorthandAggregate };
+  });
+}
+
+function postProcessTallyGroupedRows(rows: RawTBRow[]): RawTBRow[] {
+  return markTallyShorthandAggregates(markGroupRowsByIndentation(rows));
+}
+
+// ---------------------------------------------------------------------------
 // Detect the format type of the file
 // ---------------------------------------------------------------------------
-type FileFormat = 'full' | '3col' | '2col' | '1col' | 'tally_prime';
+type FileFormat = 'full' | '3col' | '2col' | '1col' | 'tally_prime' | 'tally_grouped';
 
 function detectFormat(
   matrix: unknown[][],
   detection: { colMap: Record<string, number>; headerRowIndex: number } | null,
 ): { format: FileFormat; colMap: Record<string, number>; headerRowIndex: number } {
-  // First check for Tally Prime
+  // Tally grouped export (Opening Bal | Debit | Credit | Closing Bal with indentation)
+  const groupedCheck = detectTallyGroupedExport(matrix);
+  if (groupedCheck.isGrouped) {
+    return {
+      format: 'tally_grouped',
+      colMap: groupedCheck.colMap,
+      headerRowIndex: groupedCheck.headerRowIndex,
+    };
+  }
+
+  // Tally Prime separate Dr/Cr columns
   const tallyCheck = detectTallyPrimeFormat(matrix);
   if (tallyCheck.isTallyPrime) {
     return {
@@ -388,6 +496,28 @@ function extractRow(
           closingDr = Math.abs(balanceAmt);
           closingCr = 0;
         }
+      }
+      break;
+    }
+    case 'tally_grouped': {
+      const openingIdx = colMap['openingBal'];
+      const closingIdx = colMap['closingBal'];
+      if (openingIdx !== undefined) {
+        const opening = parseDrCrBalance(matRow[openingIdx]);
+        openingDr = opening.dr;
+        openingCr = opening.cr;
+      }
+      duringDr = g('duringDr');
+      duringCr = g('duringCr');
+      if (closingIdx !== undefined) {
+        const closing = parseDrCrBalance(matRow[closingIdx]);
+        closingDr = closing.dr;
+        closingCr = closing.cr;
+      }
+      if (closingDr === 0 && closingCr === 0) {
+        const net = (openingDr - openingCr) + (duringDr - duringCr);
+        if (net >= 0) closingDr = net;
+        else closingCr = Math.abs(net);
       }
       break;
     }
@@ -726,7 +856,9 @@ function parseMatrixWithColMap(
     warnings.push(`${skippedSubtotals.length} subtotal row(s) skipped.`);
   }
 
-  const rowsWithParents = assignParentGroups(rows);
+  const rowsWithParents = assignParentGroups(
+    mode === 'tally_grouped' ? postProcessTallyGroupedRows(rows) : rows,
+  );
   const leafRows = rowsWithParents.filter((r) => !r.isGroupRow);
 
   if (leafRows.length === 0) {
@@ -761,6 +893,15 @@ function parseMatrixWithColMap(
     );
   }
 
+  if (mode === 'tally_grouped') {
+    const duringDiff = Math.abs(round2(totalDuringDr) - round2(totalDuringCr));
+    if (!isBalanced && duringDiff < 1000) {
+      warnings.push(
+        'Closing totals differ but during-period movement is balanced (common in Tally/Busy grouped exports).',
+      );
+    }
+  }
+
   return {
     rows: rowsWithParents,
     totalOpeningDr: round2(totalOpeningDr),
@@ -790,6 +931,8 @@ export function parseMatrix(matrix: unknown[][]): RawTBParseResult {
     warnings.push('Treating file as 2-column net balance layout (positive=Dr, negative=Cr).');
   } else if (mode === '1col') {
     warnings.push('Treating file as single balance column layout.');
+  } else if (mode === 'tally_grouped') {
+    warnings.push('Detected Tally/Busy grouped trial balance (Opening Bal | Debit | Credit | Closing Bal).');
   }
 
   if (mode === 'full' && colMap['label'] === undefined) {
@@ -856,8 +999,45 @@ function cellPlainValue(val: unknown): string {
   return String(val).trim();
 }
 
-/** Extract company/fiscal metadata from ICAN MEs workbook "Enter Details" sheet. */
-export function extractWorkbookMetadata(workbook: ExcelJS.Workbook): WorkbookMetadata | null {
+/** Extract company/fiscal metadata from Tally-style TB header rows (rows 1–6). */
+export function extractSheetHeaderMetadata(matrix: unknown[][]): WorkbookMetadata | null {
+  const row1 = cellPlainValue(matrix[0]?.[0]);
+  if (!row1 || row1.toLowerCase() === 'trial balance') return null;
+
+  const fyFromName = row1.match(/\((\d{4})[-/](\d{2,3})\)/);
+  let fiscalYear: string | undefined;
+  if (fyFromName) {
+    const startYear = fyFromName[1];
+    const endPart = fyFromName[2].padStart(2, '0').slice(-2);
+    fiscalYear = `${startYear}/${endPart}`;
+  }
+
+  for (const row of matrix.slice(0, 8)) {
+    for (const cell of row) {
+      const text = cellPlainValue(cell);
+      const fromMatch = text.match(/from\s+(\d{4})\//i);
+      if (fromMatch) {
+        const start = parseInt(fromMatch[1], 10);
+        fiscalYear = `${start}/${String(start + 1).slice(-2)}`;
+        break;
+      }
+    }
+  }
+
+  const companyName = row1.replace(/\s*\(\d{4}[-/]\d{2,3}\)\s*$/i, '').trim();
+  const addressParts = [matrix[1]?.[0], matrix[2]?.[0]]
+    .map((v) => cellPlainValue(v))
+    .filter(Boolean);
+
+  return {
+    format: 'generic',
+    companyName: companyName || undefined,
+    fullAddress: addressParts.join(', ') || undefined,
+    fiscalYear,
+  };
+}
+
+function extractMesWorkbookMetadata(workbook: ExcelJS.Workbook): WorkbookMetadata | null {
   const enterDetails = workbook.getWorksheet('Enter Details');
   if (!enterDetails) return null;
 
@@ -882,6 +1062,18 @@ export function extractWorkbookMetadata(workbook: ExcelJS.Workbook): WorkbookMet
     auditorName: fields.get('auditor'),
     auditFirmName: fields.get('name of audit firm'),
   };
+}
+
+export function extractWorkbookMetadata(workbook: ExcelJS.Workbook): WorkbookMetadata | null {
+  const mesMeta = extractMesWorkbookMetadata(workbook);
+  if (mesMeta) return mesMeta;
+
+  const primaryWs =
+    workbook.getWorksheet('Trial Balance')
+    ?? workbook.getWorksheet('TB')
+    ?? workbook.worksheets[0];
+  if (!primaryWs) return null;
+  return extractSheetHeaderMetadata(worksheetToMatrix(primaryWs));
 }
 
 /** Parse CSV buffer using the same logic as Excel uploads. */
