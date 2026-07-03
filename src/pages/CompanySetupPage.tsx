@@ -95,7 +95,7 @@ export default function CompanySetupPage() {
         // Replace local placeholder id with the real server id
         dispatch({ type: 'SET_COMPANY', payload: savedCompany });
       } catch {
-        // Backend unavailable — local state is enough to continue the wizard
+        dispatch({ type: 'SET_ERROR', payload: 'Could not reach the server to save your company profile. Your progress is stored locally only — if you refresh the page or the server restarts, this data will be lost. Please check your connection.' });
       }
     } catch (err: any) {
       dispatch({ type: 'SET_ERROR', payload: err?.message ?? 'Failed to save company details.' });
@@ -144,7 +144,7 @@ export default function CompanySetupPage() {
           await companyApi.update(state.company.id, { accountingPolicies: policies } as any);
         }
       } catch {
-        // Backend unavailable — local state is sufficient
+        dispatch({ type: 'SET_ERROR', payload: 'Could not reach the server to save your company profile. Your progress is stored locally only — if you refresh the page or the server restarts, this data will be lost. Please check your connection.' });
       }
     } catch (err: any) {
       dispatch({ type: 'SET_ERROR', payload: err?.message ?? 'Failed to save accounting policies.' });
