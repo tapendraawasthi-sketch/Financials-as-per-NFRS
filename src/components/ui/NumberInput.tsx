@@ -1,5 +1,6 @@
 // src/components/ui/NumberInput.tsx
-import React, { useState, useId, useRef, useCallback } from 'react';
+import React, { useState, useId, useCallback } from 'react';
+import { ChevronUp, ChevronDown } from 'lucide-react';
 
 interface NumberInputProps {
   label:        string;
@@ -15,15 +16,10 @@ interface NumberInputProps {
   suffix?:      string;
   disabled?:    boolean;
   id?:          string;
-  // item 162: show +/- stepper buttons opt-in
   showSteppers?: boolean;
   step?:         number;
 }
 
-/**
- * Formats a number with Indian comma grouping (e.g. 12,34,567).
- * Returns empty string for zero.
- */
 function formatIndian(n: number): string {
   if (n === 0) return '';
   const isNeg    = n < 0;
@@ -63,18 +59,15 @@ export default function NumberInput({
   showSteppers = false,
   step         = 1,
 }: NumberInputProps) {
-  const [focused, setFocused]   = useState(false);
-  const inputRef                = useRef<HTMLInputElement>(null);
-  const generatedId             = useId();
-  const inputId                 = id ?? generatedId;
-  const errorId                 = `${inputId}-error`;
-  const helpId                  = `${inputId}-help`;
+  const [focused, setFocused] = useState(false);
+  const generatedId           = useId();
+  const inputId               = id ?? generatedId;
+  const errorId               = `${inputId}-error`;
+  const helpId                = `${inputId}-help`;
 
   const displayValue = focused
     ? value === '' ? '' : String(value)
     : value === '' ? '' : formatIndian(value as number);
-
-  const handleFocus = () => setFocused(true);
 
   const handleBlur = () => {
     setFocused(false);
@@ -88,15 +81,11 @@ export default function NumberInput({
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const raw = e.target.value;
-    if (raw === '' || raw === '-') {
-      onChange(0);
-      return;
-    }
+    if (raw === '' || raw === '-') { onChange(0); return; }
     const parsed = parseFloat(raw);
     if (!isNaN(parsed)) onChange(parsed);
   };
 
-  // item 162: custom stepper increment/decrement
   const increment = useCallback(() => {
     const current = typeof value === 'number' ? value : 0;
     const next    = current + step;
@@ -111,42 +100,22 @@ export default function NumberInput({
     onChange(next);
   }, [value, step, min, onChange]);
 
-  // item 162: hide native spinners via CSS injected inline
-  const noSpinnerStyle: React.CSSProperties = {
-    MozAppearance:    'textfield' as any,
-    WebkitAppearance: 'none',
-  };
-
-  const baseCls = [
-    // item 162: consistent h-9 (from Section 7 upgrade)
-    'h-9 w-full rounded border text-sm font-mono tabular-nums',
-    'placeholder:text-slate-400 outline-none transition-colors duration-150',
-    // pad for prefix/suffix/steppers
-    prefix ? 'pl-8' : 'pl-2.5',
-    suffix ? 'pr-8' : showSteppers ? 'pr-16' : 'pr-2.5',
-    'text-right',
-    error
-      ? 'border-red-400 bg-red-50 focus:border-red-500 focus:ring-1 focus:ring-red-400'
-      : 'border-slate-300 bg-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500',
-    disabled ? 'bg-slate-50 text-slate-400 cursor-not-allowed' : 'text-slate-800',
-  ].filter(Boolean).join(' ');
-
   return (
     <div className="flex flex-col gap-1.5">
       <label
         htmlFor={inputId}
-        className="text-[13px] font-medium text-slate-700 leading-none"
+        className="font-medium text-slate-700 leading-none"
+        style={{ fontSize: '13px' }}
       >
         {label}
-        {required && (
-          <span className="text-red-500 ml-0.5" aria-hidden="true">*</span>
-        )}
+        {required && <span className="text-red-500 ml-0.5" aria-hidden="true">*</span>}
       </label>
 
       <div className="relative flex items-center">
         {prefix && (
           <span
-            className="absolute left-2.5 text-xs text-slate-400 pointer-events-none select-none leading-none"
+            className="absolute left-2.5 text-slate-400 pointer-events-none select-none leading-none"
+            style={{ fontSize: '12px' }}
             aria-hidden="true"
           >
             {prefix}
@@ -154,7 +123,6 @@ export default function NumberInput({
         )}
 
         <input
-          ref={inputRef}
           id={inputId}
           type={focused ? 'number' : 'text'}
           inputMode="decimal"
@@ -163,51 +131,55 @@ export default function NumberInput({
           min={min}
           max={max}
           placeholder={placeholder}
-          onFocus={handleFocus}
+          onFocus={() => setFocused(true)}
           onBlur={handleBlur}
           onChange={handleChange}
-          className={baseCls}
-          style={noSpinnerStyle}
+          className={[
+            'h-11 w-full rounded-xl border outline-none transition-all duration-150 text-right',
+            'font-mono tabular-nums',
+            prefix ? 'pl-8' : 'pl-2.5',
+            suffix ? 'pr-8' : showSteppers ? 'pr-16' : 'pr-2.5',
+            error
+              ? 'border-red-400 bg-red-50 focus:border-red-500 focus:ring-1 focus:ring-red-400'
+              : 'border-slate-200 bg-white focus:border-indigo-400 focus:ring-4 focus:ring-indigo-50 hover:border-slate-300',
+            disabled ? 'bg-slate-50 text-slate-400 cursor-not-allowed' : 'text-slate-800',
+          ].filter(Boolean).join(' ')}
+          style={{ fontSize: '13px', MozAppearance: 'textfield' as any, WebkitAppearance: 'none' }}
           aria-invalid={error ? 'true' : undefined}
           aria-describedby={error ? errorId : helperText ? helpId : undefined}
           aria-required={required}
         />
 
-        {/* item 162: custom styled +/- stepper buttons */}
         {showSteppers && !disabled && (
-          <div className="absolute right-0 flex flex-col h-9 border-l border-slate-300">
+          <div className="absolute right-0 flex flex-col h-11" style={{ borderLeft: '1px solid #e2e8f0' }}>
             <button
               type="button"
               onClick={increment}
               disabled={disabled || (max !== undefined && (typeof value === 'number' ? value : 0) >= max)}
-              className="flex-1 w-7 flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-50 rounded-tr border-b border-slate-200 disabled:opacity-30 transition-colors"
+              className="flex-1 w-8 flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-50 rounded-tr-xl disabled:opacity-30 transition-colors"
+              style={{ borderBottom: '1px solid #e2e8f0' }}
               aria-label="Increase value"
               tabIndex={-1}
             >
-              <svg className="h-2.5 w-2.5" fill="none" viewBox="0 0 24 24"
-                stroke="currentColor" strokeWidth={2.5} aria-hidden="true">
-                <polyline points="18 15 12 9 6 15" />
-              </svg>
+              <ChevronUp size={11} />
             </button>
             <button
               type="button"
               onClick={decrement}
               disabled={disabled || (min !== undefined && (typeof value === 'number' ? value : 0) <= min)}
-              className="flex-1 w-7 flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-50 rounded-br disabled:opacity-30 transition-colors"
+              className="flex-1 w-8 flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-50 rounded-br-xl disabled:opacity-30 transition-colors"
               aria-label="Decrease value"
               tabIndex={-1}
             >
-              <svg className="h-2.5 w-2.5" fill="none" viewBox="0 0 24 24"
-                stroke="currentColor" strokeWidth={2.5} aria-hidden="true">
-                <polyline points="6 9 12 15 18 9" />
-              </svg>
+              <ChevronDown size={11} />
             </button>
           </div>
         )}
 
         {suffix && !showSteppers && (
           <span
-            className="absolute right-2.5 text-xs text-slate-400 pointer-events-none select-none leading-none"
+            className="absolute right-2.5 text-slate-400 pointer-events-none select-none leading-none"
+            style={{ fontSize: '12px' }}
             aria-hidden="true"
           >
             {suffix}
@@ -216,14 +188,10 @@ export default function NumberInput({
       </div>
 
       {error && (
-        <p id={errorId} className="text-xs text-red-600 leading-tight" role="alert">
-          {error}
-        </p>
+        <p id={errorId} className="text-xs text-red-600 leading-tight" role="alert">{error}</p>
       )}
       {!error && helperText && (
-        <p id={helpId} className="text-xs text-slate-400 leading-snug">
-          {helperText}
-        </p>
+        <p id={helpId} className="text-xs text-slate-400 leading-snug">{helperText}</p>
       )}
     </div>
   );

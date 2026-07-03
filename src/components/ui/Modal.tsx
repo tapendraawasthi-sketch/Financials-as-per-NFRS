@@ -1,5 +1,6 @@
 // src/components/ui/Modal.tsx
 import React, { useEffect, useRef, useId } from 'react';
+import { X } from 'lucide-react';
 
 interface ModalProps {
   isOpen:   boolean;
@@ -32,11 +33,7 @@ export default function Modal({
     if (!isOpen) return;
 
     const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        onClose();
-        return;
-      }
+      if (e.key === 'Escape') { e.preventDefault(); onClose(); return; }
       if (e.key === 'Tab' && panelRef.current) {
         const focusable = panelRef.current.querySelectorAll<HTMLElement>(
           'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
@@ -44,21 +41,17 @@ export default function Modal({
         const first = focusable[0];
         const last  = focusable[focusable.length - 1];
         if (!e.shiftKey && document.activeElement === last) {
-          e.preventDefault();
-          first?.focus();
+          e.preventDefault(); first?.focus();
         } else if (e.shiftKey && document.activeElement === first) {
-          e.preventDefault();
-          last?.focus();
+          e.preventDefault(); last?.focus();
         }
       }
     };
 
     document.addEventListener('keydown', handleKey);
     requestAnimationFrame(() => { panelRef.current?.focus(); });
-
     const prev = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
-
     return () => {
       document.removeEventListener('keydown', handleKey);
       document.body.style.overflow = prev;
@@ -69,20 +62,19 @@ export default function Modal({
 
   return (
     <div
-      // item 150: Tailwind backdrop classes + backdrop-blur-sm frosted glass
-      className="fixed inset-0 z-50 flex items-start justify-center pt-16 px-4 pb-8 bg-slate-900/50 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-start justify-center pt-12 px-4 pb-8"
+      style={{ background: 'rgba(2,6,23,0.60)', backdropFilter: 'blur(4px)' }}
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}
       aria-modal="true"
       role="dialog"
       aria-labelledby={titleId}
     >
-      {/* item 151: fade + scale-up animation via inline keyframe */}
       <style>{`
         @keyframes modalEnter {
-          from { opacity: 0; transform: scale(0.96) translateY(8px); }
-          to   { opacity: 1; transform: scale(1)    translateY(0);   }
+          from { opacity: 0; transform: scale(.96) translateY(10px); }
+          to   { opacity: 1; transform: scale(1)   translateY(0);    }
         }
-        .modal-enter { animation: modalEnter 150ms ease-out forwards; }
+        .modal-enter { animation: modalEnter 160ms cubic-bezier(.22,.61,.36,1) forwards; }
       `}</style>
 
       <div
@@ -91,37 +83,33 @@ export default function Modal({
         className={[
           'modal-enter relative w-full',
           WIDTHS[size],
-          'bg-white rounded-xl',
-          // item 152: no border, shadow-2xl defines modal boundary
-          'shadow-2xl',
-          'flex flex-col max-h-[80vh] outline-none',
+          'bg-white rounded-2xl flex flex-col max-h-[85vh] outline-none',
         ].join(' ')}
+        style={{ boxShadow: '0 16px 48px rgba(0,0,0,0.18), 0 4px 16px rgba(0,0,0,0.08)' }}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-200 flex-shrink-0">
-          <h2 id={titleId} className="text-sm font-semibold text-slate-800">
+        <div className="flex items-center justify-between px-6 py-4 flex-shrink-0" style={{ borderBottom: '1px solid #e2e8f0' }}>
+          <h2 id={titleId} className="font-semibold text-slate-900" style={{ fontSize: '15px' }}>
             {title}
           </h2>
           <button
             onClick={onClose}
             aria-label="Close dialog"
-            className="h-6 w-6 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600"
+            className="h-8 w-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600"
           >
-            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24"
-              stroke="currentColor" strokeWidth={2} aria-hidden="true">
-              <line x1="18" y1="6"  x2="6"  y2="18" />
-              <line x1="6"  y1="6"  x2="18" y2="18" />
-            </svg>
+            <X size={16} />
           </button>
         </div>
 
-        {/* item 153: min-h-[120px] on body */}
-        <div className="flex-1 overflow-y-auto px-5 py-4 min-h-[120px]">
+        <div className="flex-1 overflow-y-auto px-6 py-5 min-h-[120px]">
           {children}
         </div>
 
         {footer && (
-          <div className="flex-shrink-0 px-5 py-3 border-t border-slate-200 bg-slate-50 rounded-b-xl flex items-center justify-end gap-2">
+          <div
+            className="flex-shrink-0 px-6 py-4 flex items-center justify-end gap-3 rounded-b-2xl"
+            style={{ borderTop: '1px solid #e2e8f0', background: '#f8fafc' }}
+          >
             {footer}
           </div>
         )}

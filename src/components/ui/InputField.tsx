@@ -1,5 +1,6 @@
 // src/components/ui/InputField.tsx
 import React, { useId } from 'react';
+import { AlertCircle } from 'lucide-react';
 
 interface InputFieldProps extends React.InputHTMLAttributes<HTMLInputElement> {
   label:       string;
@@ -26,7 +27,14 @@ export default function InputField({
     <div className="flex flex-col gap-1.5">
       <label
         htmlFor={inputId}
-        className="text-[11px] font-bold text-slate-500 leading-none uppercase tracking-widest"
+        className="leading-none"
+        style={{
+          fontSize: '10.5px',
+          fontWeight: 700,
+          textTransform: 'uppercase',
+          letterSpacing: '0.10em',
+          color: '#64748b',
+        }}
       >
         {label}
         {required && (
@@ -37,15 +45,20 @@ export default function InputField({
       <input
         id={inputId}
         className={[
-          'h-11 w-full rounded-xl px-3.5 text-[13px] text-slate-800',
-          'placeholder:text-slate-300 outline-none transition-all duration-150',
+          'h-11 w-full rounded-xl px-3.5 bg-white outline-none transition-all duration-150',
+          'placeholder:text-slate-300',
           error
-            ? 'border-2 border-red-300 bg-red-50/40 focus:border-red-400 focus:ring-0'
-            : 'border border-slate-200 bg-white focus:border-indigo-400 focus:ring-3 focus:ring-indigo-50 hover:border-slate-300',
-          props.disabled ? 'bg-slate-50 text-slate-400 cursor-not-allowed opacity-60' : '',
+            ? 'border-2 border-red-400 bg-red-50/40 focus:ring-0'
+            : 'border border-slate-200 hover:border-slate-300 focus:border-indigo-400 focus:ring-4 focus:ring-indigo-50',
+          props.disabled ? 'bg-slate-50 text-slate-400 cursor-not-allowed opacity-60' : 'text-slate-800',
           className,
         ].filter(Boolean).join(' ')}
-        style={{ boxShadow: error ? 'none' : '0 1px 3px rgba(0,0,0,0.06), inset 0 1px 2px rgba(0,0,0,0.02)' }}
+        style={{
+          fontSize: '13px',
+          boxShadow: error
+            ? 'none'
+            : '0 1px 3px rgba(0,0,0,0.06), inset 0 1px 2px rgba(0,0,0,0.02)',
+        }}
         aria-invalid={error ? 'true' : undefined}
         aria-describedby={error ? errorId : helperText ? helpId : undefined}
         aria-required={required}
@@ -53,15 +66,18 @@ export default function InputField({
       />
 
       {error && (
-        <p id={errorId} className="text-[11px] text-red-500 leading-tight font-medium flex items-center gap-1" role="alert">
-          <svg className="h-3 w-3 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
-            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-          </svg>
+        <p
+          id={errorId}
+          className="flex items-center gap-1 font-medium leading-tight"
+          style={{ fontSize: '11px', color: '#ef4444' }}
+          role="alert"
+        >
+          <AlertCircle size={12} className="flex-shrink-0" />
           {error}
         </p>
       )}
       {!error && helperText && (
-        <p id={helpId} className="text-[11px] text-slate-400 leading-snug">
+        <p id={helpId} className="leading-snug" style={{ fontSize: '11px', color: '#94a3b8' }}>
           {helperText}
         </p>
       )}

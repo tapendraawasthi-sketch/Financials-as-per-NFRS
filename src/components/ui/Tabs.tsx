@@ -29,7 +29,8 @@ export default function Tabs({
     return (
       <div
         role="tablist"
-        className={`inline-flex items-center bg-slate-100 rounded-xl p-0.5 gap-0.5 ${className}`}
+        className={`inline-flex items-center rounded-xl p-1 gap-0.5 ${className}`}
+        style={{ background: '#f1f5f9' }}
       >
         {tabs.map(t => (
           <button
@@ -41,22 +42,28 @@ export default function Tabs({
             onClick={() => !t.disabled && onChange(t.id)}
             disabled={t.disabled}
             className={[
-              // item 147: h-8 px-3 text-sm for pill tabs
-              'h-8 px-3 rounded-lg text-sm font-medium transition-colors',
+              'h-8 px-3.5 rounded-lg font-medium transition-all duration-150',
               active === t.id
-                ? 'bg-white text-slate-800 shadow-sm ring-1 ring-slate-200'  // item 149
+                ? 'bg-white text-slate-900 shadow-sm'
                 : 'text-slate-500 hover:text-slate-700',
               t.disabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer',
             ].filter(Boolean).join(' ')}
+            style={{
+              fontSize: '12px',
+              boxShadow: active === t.id
+                ? '0 1px 3px rgba(0,0,0,0.08), 0 0 0 1px rgba(0,0,0,0.06)'
+                : undefined,
+            }}
           >
             {t.label}
             {t.count !== undefined && (
               <span
-                className={`ml-1.5 text-xs rounded-full px-1.5 py-0.5 ${
+                className={`ml-1.5 rounded-full px-1.5 py-0.5 ${
                   active === t.id
-                    ? 'bg-slate-100 text-slate-600'
+                    ? 'bg-indigo-100 text-indigo-700'
                     : 'bg-slate-200 text-slate-500'
                 }`}
+                style={{ fontSize: '11px' }}
               >
                 {t.count}
               </span>
@@ -69,8 +76,12 @@ export default function Tabs({
 
   // ── Line variant ──────────────────────────────────────────────────────────
   return (
-    <div role="tablist" className={`border-b border-slate-200 ${className}`}>
-      <div className="flex items-center gap-0 -mb-px overflow-x-auto">
+    <div
+      role="tablist"
+      className={`overflow-x-auto ${className}`}
+      style={{ borderBottom: '2px solid #e2e8f0' }}
+    >
+      <div className="flex items-center gap-0 -mb-px">
         {tabs.map(t => (
           <button
             key={t.id}
@@ -81,19 +92,24 @@ export default function Tabs({
             onClick={() => !t.disabled && onChange(t.id)}
             disabled={t.disabled}
             className={[
-              // item 147: h-10 text-sm for line tabs
-              'h-10 px-4 text-sm font-medium whitespace-nowrap',
-              // item 148: border-b-[3px] for more definitive active indicator
+              'h-10 px-4 font-medium whitespace-nowrap border-b-[3px] transition-colors duration-150',
               active === t.id
-                ? 'border-b-[3px] border-blue-600 text-blue-700'
-                : 'border-b-[3px] border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300',
-              'transition-colors duration-150',
+                ? 'border-indigo-600 text-indigo-700'
+                : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300',
               t.disabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer',
             ].filter(Boolean).join(' ')}
+            style={{ fontSize: '13px' }}
           >
             {t.label}
             {t.count !== undefined && (
-              <span className="ml-1.5 tabular-nums bg-slate-100 text-slate-500 text-xs rounded-full px-1.5 py-0.5">
+              <span
+                className={`ml-1.5 tabular-nums rounded-full px-1.5 py-0.5 ${
+                  active === t.id
+                    ? 'bg-indigo-100 text-indigo-700'
+                    : 'bg-slate-100 text-slate-500'
+                }`}
+                style={{ fontSize: '11px' }}
+              >
                 {t.count}
               </span>
             )}

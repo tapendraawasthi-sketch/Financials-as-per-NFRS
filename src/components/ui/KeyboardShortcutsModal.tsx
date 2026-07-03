@@ -9,12 +9,12 @@ interface Shortcut {
 }
 
 const SHORTCUTS: Shortcut[] = [
-  { keys: ['Ctrl', 'S'],  description: 'Save current step',           category: 'General' },
-  { keys: ['Ctrl', '/'],  description: 'Show keyboard shortcuts',      category: 'General' },
-  { keys: ['Ctrl', '→'],  description: 'Go to next step',             category: 'Navigation' },
-  { keys: ['Ctrl', '←'],  description: 'Go to previous step',         category: 'Navigation' },
-  { keys: ['Ctrl', 'P'],  description: 'Print current statement',      category: 'Statements' },
-  { keys: ['Escape'],     description: 'Close modal / dismiss alert',   category: 'General' },
+  { keys: ['Ctrl', 'S'],  description: 'Save current step',          category: 'General'     },
+  { keys: ['Ctrl', '/'],  description: 'Show keyboard shortcuts',     category: 'General'     },
+  { keys: ['Ctrl', '→'],  description: 'Go to next step',            category: 'Navigation'  },
+  { keys: ['Ctrl', '←'],  description: 'Go to previous step',        category: 'Navigation'  },
+  { keys: ['Ctrl', 'P'],  description: 'Print current statement',     category: 'Statements'  },
+  { keys: ['Escape'],     description: 'Close modal / dismiss alert',  category: 'General'     },
 ];
 
 const GROUPED = SHORTCUTS.reduce((acc, s) => {
@@ -23,10 +23,19 @@ const GROUPED = SHORTCUTS.reduce((acc, s) => {
   return acc;
 }, {} as Record<string, Shortcut[]>);
 
-// ── Kbd styled element ────────────────────────────────────────────────────────
 function Kbd({ children }: { children: string }) {
   return (
-    <kbd className="inline-flex items-center justify-center h-6 min-w-[1.5rem] px-1.5 rounded border border-slate-300 bg-slate-50 text-[11px] font-mono font-semibold text-slate-600 shadow-[0_1px_0_rgb(0_0_0/0.12)]">
+    <kbd
+      className="inline-flex items-center justify-center h-6 rounded font-mono font-semibold text-slate-600"
+      style={{
+        minWidth: '1.5rem',
+        padding: '0 6px',
+        fontSize: '11px',
+        background: '#f8fafc',
+        border: '1px solid #e2e8f0',
+        boxShadow: '0 1px 0 rgba(0,0,0,0.12)',
+      }}
+    >
       {children}
     </kbd>
   );
@@ -35,7 +44,6 @@ function Kbd({ children }: { children: string }) {
 export function KeyboardShortcutsModal() {
   const [open, setOpen] = useState(false);
 
-  // item 175: Ctrl+/ opens the modal
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === '/') {
@@ -57,19 +65,17 @@ export function KeyboardShortcutsModal() {
       <div className="space-y-4">
         {Object.entries(GROUPED).map(([category, shortcuts]) => (
           <div key={category}>
-            <p className="text-[11px] uppercase tracking-wide text-slate-400 font-semibold mb-2">
-              {category}
-            </p>
-            <div className="space-y-2">
+            <p className="section-label">{category}</p>
+            <div className="space-y-0 divide-y divide-slate-100">
               {shortcuts.map((s, i) => (
-                <div key={i} className="flex items-center justify-between">
+                <div key={i} className="flex items-center justify-between py-2.5">
                   <span className="text-sm text-slate-600">{s.description}</span>
-                  <div className="flex items-center gap-1 flex-shrink-0">
+                  <div className="flex items-center gap-1 flex-shrink-0 ml-4">
                     {s.keys.map((k, ki) => (
                       <React.Fragment key={k}>
                         <Kbd>{k}</Kbd>
                         {ki < s.keys.length - 1 && (
-                          <span className="text-slate-400 text-[11px]">+</span>
+                          <span className="text-slate-400 text-xs">+</span>
                         )}
                       </React.Fragment>
                     ))}
@@ -82,7 +88,7 @@ export function KeyboardShortcutsModal() {
       </div>
 
       <p className="text-xs text-slate-400 mt-4 pt-3 border-t border-slate-100">
-        Press <Kbd>Ctrl</Kbd>+<Kbd>/</Kbd> to toggle this panel at any time.
+        Press <Kbd>Ctrl</Kbd> + <Kbd>/</Kbd> to toggle this panel at any time.
       </p>
     </Modal>
   );
