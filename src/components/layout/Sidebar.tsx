@@ -152,6 +152,23 @@ export default function Sidebar({
           const accessible = isAccessible(item.step, currentStep, completedSteps);
           const ItemIcon   = item.icon;
 
+          // Determine text color via inline style (not Tailwind) so it's always visible on dark sidebar
+          const labelColor = isActive
+            ? '#ffffff'
+            : isDone
+            ? '#cbd5e1'  // slate-300 — light enough on dark bg
+            : accessible
+            ? '#94a3b8'  // slate-400 — medium grey, always visible
+            : 'rgba(148,163,184,0.35)'; // very muted for locked steps
+
+          const iconColor = isActive
+            ? '#a5b4fc'  // indigo-300
+            : isDone
+            ? 'rgba(45,212,191,0.7)'  // teal
+            : accessible
+            ? '#64748b'  // slate-500
+            : 'rgba(100,116,139,0.35)';
+
           return (
             <button
               key={item.step}
@@ -159,34 +176,41 @@ export default function Sidebar({
               disabled={!accessible}
               aria-current={isActive ? 'step' : undefined}
               aria-label={`Step ${idx + 1}: ${item.label}${isDone ? ' (completed)' : ''}${!accessible ? ' (not yet available)' : ''}`}
-              className={[
-                'w-full flex items-center gap-3 px-3 py-2.5 text-left relative group transition-colors duration-150',
-                'focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-400',
-                isActive
-                  ? 'text-white'
-                  : isDone
-                  ? 'text-slate-300 hover:text-white'
-                  : accessible
-                  ? 'text-slate-500 hover:text-slate-300'
-                  : 'text-slate-700 cursor-not-allowed opacity-40',
-              ].filter(Boolean).join(' ')}
-              style={isActive ? {
-                background: 'linear-gradient(90deg, rgba(99,102,241,0.22) 0%, transparent 100%)',
-              } : undefined}
+              className="w-full flex items-center gap-3 px-3 py-2.5 text-left relative transition-all duration-150 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-400"
+              style={{
+                color: labelColor,
+                cursor: accessible ? 'pointer' : 'not-allowed',
+                opacity: accessible || isActive ? 1 : 0.4,
+                background: isActive
+                  ? 'linear-gradient(90deg, rgba(99,102,241,0.22) 0%, transparent 100%)'
+                  : 'transparent',
+              }}
             >
               {/* Active left accent */}
               {isActive && (
                 <span
-                  className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-r-full"
-                  style={{ background: 'linear-gradient(180deg, #818cf8, #6366f1)' }}
+                  className="absolute left-0 top-1/2 w-[3px] h-5 rounded-r-full"
+                  style={{
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    background: 'linear-gradient(180deg, #818cf8, #6366f1)',
+                  }}
                 />
               )}
 
               {/* Step number / check badge */}
               <span
-                className="h-[26px] w-[26px] rounded-full flex items-center justify-center flex-shrink-0 text-[11px] font-bold transition-all"
-                style={
-                  isActive
+                style={{
+                  height: '26px',
+                  width: '26px',
+                  borderRadius: '9999px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  ...(isActive
                     ? {
                         background: 'linear-gradient(135deg, #4f46e5, #6366f1)',
                         boxShadow: '0 0 12px rgba(99,102,241,0.7)',
@@ -200,26 +224,23 @@ export default function Sidebar({
                       }
                     : {
                         background: 'rgba(255,255,255,0.06)',
-                        border: '1px solid rgba(255,255,255,0.09)',
-                        color: '#475569',
-                      }
-                }
+                        border: '1px solid rgba(255,255,255,0.10)',
+                        color: 'rgba(148,163,184,0.7)',
+                      }),
+                }}
               >
                 {isDone && !isActive ? <Check size={11} strokeWidth={3} /> : idx + 1}
               </span>
 
               {/* Icon */}
-              <span
-                className={[
-                  'flex-shrink-0 transition-colors',
-                  isActive ? 'text-indigo-300' : isDone ? 'text-teal-400/70' : 'text-slate-600',
-                ].join(' ')}
-              >
+              <span style={{ color: iconColor, flexShrink: 0, display: 'flex', alignItems: 'center' }}>
                 <ItemIcon size={15} />
               </span>
 
               {/* Label */}
-              <span className="truncate text-[12px] font-medium leading-none">{item.label}</span>
+              <span style={{ fontSize: '12px', fontWeight: 500, lineHeight: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {item.label}
+              </span>
             </button>
           );
         })}
