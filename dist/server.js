@@ -1,3 +1,390 @@
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __require = /* @__PURE__ */ ((x) => typeof require !== "undefined" ? require : typeof Proxy !== "undefined" ? new Proxy(x, {
+  get: (a, b) => (typeof require !== "undefined" ? require : a)[b]
+}) : x)(function(x) {
+  if (typeof require !== "undefined") return require.apply(this, arguments);
+  throw Error('Dynamic require of "' + x + '" is not supported');
+});
+var __commonJS = (cb, mod) => function __require2() {
+  return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
+};
+
+// node_modules/dotenv/lib/main.js
+var require_main = __commonJS({
+  "node_modules/dotenv/lib/main.js"(exports, module) {
+    var fs = __require("fs");
+    var path2 = __require("path");
+    var os = __require("os");
+    var crypto3 = __require("crypto");
+    var TIPS = [
+      "\u25C8 encrypted .env [www.dotenvx.com]",
+      "\u25C8 secrets for agents [www.dotenvx.com]",
+      "\u2301 auth for agents [www.vestauth.com]",
+      "\u2318 custom filepath { path: '/custom/path/.env' }",
+      "\u2318 enable debugging { debug: true }",
+      "\u2318 override existing { override: true }",
+      "\u2318 suppress logs { quiet: true }",
+      "\u2318 multiple files { path: ['.env.local', '.env'] }"
+    ];
+    function _getRandomTip() {
+      return TIPS[Math.floor(Math.random() * TIPS.length)];
+    }
+    function parseBoolean(value) {
+      if (typeof value === "string") {
+        return !["false", "0", "no", "off", ""].includes(value.toLowerCase());
+      }
+      return Boolean(value);
+    }
+    function supportsAnsi() {
+      return process.stdout.isTTY;
+    }
+    function dim(text) {
+      return supportsAnsi() ? `\x1B[2m${text}\x1B[0m` : text;
+    }
+    var LINE = /(?:^|^)\s*(?:export\s+)?([\w.-]+)(?:\s*=\s*?|:\s+?)(\s*'(?:\\'|[^'])*'|\s*"(?:\\"|[^"])*"|\s*`(?:\\`|[^`])*`|[^#\r\n]+)?\s*(?:#.*)?(?:$|$)/mg;
+    function parse(src) {
+      const obj = {};
+      let lines = src.toString();
+      lines = lines.replace(/\r\n?/mg, "\n");
+      let match;
+      while ((match = LINE.exec(lines)) != null) {
+        const key = match[1];
+        let value = match[2] || "";
+        value = value.trim();
+        const maybeQuote = value[0];
+        value = value.replace(/^(['"`])([\s\S]*)\1$/mg, "$2");
+        if (maybeQuote === '"') {
+          value = value.replace(/\\n/g, "\n");
+          value = value.replace(/\\r/g, "\r");
+        }
+        obj[key] = value;
+      }
+      return obj;
+    }
+    function _parseVault(options) {
+      options = options || {};
+      const vaultPath = _vaultPath(options);
+      options.path = vaultPath;
+      const result = DotenvModule.configDotenv(options);
+      if (!result.parsed) {
+        const err = new Error(`MISSING_DATA: Cannot parse ${vaultPath} for an unknown reason`);
+        err.code = "MISSING_DATA";
+        throw err;
+      }
+      const keys = _dotenvKey(options).split(",");
+      const length = keys.length;
+      let decrypted;
+      for (let i = 0; i < length; i++) {
+        try {
+          const key = keys[i].trim();
+          const attrs = _instructions(result, key);
+          decrypted = DotenvModule.decrypt(attrs.ciphertext, attrs.key);
+          break;
+        } catch (error) {
+          if (i + 1 >= length) {
+            throw error;
+          }
+        }
+      }
+      return DotenvModule.parse(decrypted);
+    }
+    function _warn(message) {
+      console.error(`\u26A0 ${message}`);
+    }
+    function _debug(message) {
+      console.log(`\u2506 ${message}`);
+    }
+    function _log(message) {
+      console.log(`\u25C7 ${message}`);
+    }
+    function _dotenvKey(options) {
+      if (options && options.DOTENV_KEY && options.DOTENV_KEY.length > 0) {
+        return options.DOTENV_KEY;
+      }
+      if (process.env.DOTENV_KEY && process.env.DOTENV_KEY.length > 0) {
+        return process.env.DOTENV_KEY;
+      }
+      return "";
+    }
+    function _instructions(result, dotenvKey) {
+      let uri;
+      try {
+        uri = new URL(dotenvKey);
+      } catch (error) {
+        if (error.code === "ERR_INVALID_URL") {
+          const err = new Error("INVALID_DOTENV_KEY: Wrong format. Must be in valid uri format like dotenv://:key_1234@dotenvx.com/vault/.env.vault?environment=development");
+          err.code = "INVALID_DOTENV_KEY";
+          throw err;
+        }
+        throw error;
+      }
+      const key = uri.password;
+      if (!key) {
+        const err = new Error("INVALID_DOTENV_KEY: Missing key part");
+        err.code = "INVALID_DOTENV_KEY";
+        throw err;
+      }
+      const environment = uri.searchParams.get("environment");
+      if (!environment) {
+        const err = new Error("INVALID_DOTENV_KEY: Missing environment part");
+        err.code = "INVALID_DOTENV_KEY";
+        throw err;
+      }
+      const environmentKey = `DOTENV_VAULT_${environment.toUpperCase()}`;
+      const ciphertext = result.parsed[environmentKey];
+      if (!ciphertext) {
+        const err = new Error(`NOT_FOUND_DOTENV_ENVIRONMENT: Cannot locate environment ${environmentKey} in your .env.vault file.`);
+        err.code = "NOT_FOUND_DOTENV_ENVIRONMENT";
+        throw err;
+      }
+      return { ciphertext, key };
+    }
+    function _vaultPath(options) {
+      let possibleVaultPath = null;
+      if (options && options.path && options.path.length > 0) {
+        if (Array.isArray(options.path)) {
+          for (const filepath of options.path) {
+            if (fs.existsSync(filepath)) {
+              possibleVaultPath = filepath.endsWith(".vault") ? filepath : `${filepath}.vault`;
+            }
+          }
+        } else {
+          possibleVaultPath = options.path.endsWith(".vault") ? options.path : `${options.path}.vault`;
+        }
+      } else {
+        possibleVaultPath = path2.resolve(process.cwd(), ".env.vault");
+      }
+      if (fs.existsSync(possibleVaultPath)) {
+        return possibleVaultPath;
+      }
+      return null;
+    }
+    function _resolveHome(envPath) {
+      return envPath[0] === "~" ? path2.join(os.homedir(), envPath.slice(1)) : envPath;
+    }
+    function _configVault(options) {
+      const debug = parseBoolean(process.env.DOTENV_CONFIG_DEBUG || options && options.debug);
+      const quiet = parseBoolean(process.env.DOTENV_CONFIG_QUIET || options && options.quiet);
+      if (debug || !quiet) {
+        _log("loading env from encrypted .env.vault");
+      }
+      const parsed = DotenvModule._parseVault(options);
+      let processEnv = process.env;
+      if (options && options.processEnv != null) {
+        processEnv = options.processEnv;
+      }
+      DotenvModule.populate(processEnv, parsed, options);
+      return { parsed };
+    }
+    function configDotenv(options) {
+      const dotenvPath = path2.resolve(process.cwd(), ".env");
+      let encoding = "utf8";
+      let processEnv = process.env;
+      if (options && options.processEnv != null) {
+        processEnv = options.processEnv;
+      }
+      let debug = parseBoolean(processEnv.DOTENV_CONFIG_DEBUG || options && options.debug);
+      let quiet = parseBoolean(processEnv.DOTENV_CONFIG_QUIET || options && options.quiet);
+      if (options && options.encoding) {
+        encoding = options.encoding;
+      } else {
+        if (debug) {
+          _debug("no encoding is specified (UTF-8 is used by default)");
+        }
+      }
+      let optionPaths = [dotenvPath];
+      if (options && options.path) {
+        if (!Array.isArray(options.path)) {
+          optionPaths = [_resolveHome(options.path)];
+        } else {
+          optionPaths = [];
+          for (const filepath of options.path) {
+            optionPaths.push(_resolveHome(filepath));
+          }
+        }
+      }
+      let lastError;
+      const parsedAll = {};
+      for (const path3 of optionPaths) {
+        try {
+          const parsed = DotenvModule.parse(fs.readFileSync(path3, { encoding }));
+          DotenvModule.populate(parsedAll, parsed, options);
+        } catch (e) {
+          if (debug) {
+            _debug(`failed to load ${path3} ${e.message}`);
+          }
+          lastError = e;
+        }
+      }
+      const populated = DotenvModule.populate(processEnv, parsedAll, options);
+      debug = parseBoolean(processEnv.DOTENV_CONFIG_DEBUG || debug);
+      quiet = parseBoolean(processEnv.DOTENV_CONFIG_QUIET || quiet);
+      if (debug || !quiet) {
+        const keysCount = Object.keys(populated).length;
+        const shortPaths = [];
+        for (const filePath of optionPaths) {
+          try {
+            const relative = path2.relative(process.cwd(), filePath);
+            shortPaths.push(relative);
+          } catch (e) {
+            if (debug) {
+              _debug(`failed to load ${filePath} ${e.message}`);
+            }
+            lastError = e;
+          }
+        }
+        _log(`injected env (${keysCount}) from ${shortPaths.join(",")} ${dim(`// tip: ${_getRandomTip()}`)}`);
+      }
+      if (lastError) {
+        return { parsed: parsedAll, error: lastError };
+      } else {
+        return { parsed: parsedAll };
+      }
+    }
+    function config(options) {
+      if (_dotenvKey(options).length === 0) {
+        return DotenvModule.configDotenv(options);
+      }
+      const vaultPath = _vaultPath(options);
+      if (!vaultPath) {
+        _warn(`you set DOTENV_KEY but you are missing a .env.vault file at ${vaultPath}`);
+        return DotenvModule.configDotenv(options);
+      }
+      return DotenvModule._configVault(options);
+    }
+    function decrypt(encrypted, keyStr) {
+      const key = Buffer.from(keyStr.slice(-64), "hex");
+      let ciphertext = Buffer.from(encrypted, "base64");
+      const nonce = ciphertext.subarray(0, 12);
+      const authTag = ciphertext.subarray(-16);
+      ciphertext = ciphertext.subarray(12, -16);
+      try {
+        const aesgcm = crypto3.createDecipheriv("aes-256-gcm", key, nonce);
+        aesgcm.setAuthTag(authTag);
+        return `${aesgcm.update(ciphertext)}${aesgcm.final()}`;
+      } catch (error) {
+        const isRange = error instanceof RangeError;
+        const invalidKeyLength = error.message === "Invalid key length";
+        const decryptionFailed = error.message === "Unsupported state or unable to authenticate data";
+        if (isRange || invalidKeyLength) {
+          const err = new Error("INVALID_DOTENV_KEY: It must be 64 characters long (or more)");
+          err.code = "INVALID_DOTENV_KEY";
+          throw err;
+        } else if (decryptionFailed) {
+          const err = new Error("DECRYPTION_FAILED: Please check your DOTENV_KEY");
+          err.code = "DECRYPTION_FAILED";
+          throw err;
+        } else {
+          throw error;
+        }
+      }
+    }
+    function populate(processEnv, parsed, options = {}) {
+      const debug = Boolean(options && options.debug);
+      const override = Boolean(options && options.override);
+      const populated = {};
+      if (typeof parsed !== "object") {
+        const err = new Error("OBJECT_REQUIRED: Please check the processEnv argument being passed to populate");
+        err.code = "OBJECT_REQUIRED";
+        throw err;
+      }
+      for (const key of Object.keys(parsed)) {
+        if (Object.prototype.hasOwnProperty.call(processEnv, key)) {
+          if (override === true) {
+            processEnv[key] = parsed[key];
+            populated[key] = parsed[key];
+          }
+          if (debug) {
+            if (override === true) {
+              _debug(`"${key}" is already defined and WAS overwritten`);
+            } else {
+              _debug(`"${key}" is already defined and was NOT overwritten`);
+            }
+          }
+        } else {
+          processEnv[key] = parsed[key];
+          populated[key] = parsed[key];
+        }
+      }
+      return populated;
+    }
+    var DotenvModule = {
+      configDotenv,
+      _configVault,
+      _parseVault,
+      config,
+      decrypt,
+      parse,
+      populate
+    };
+    module.exports.configDotenv = DotenvModule.configDotenv;
+    module.exports._configVault = DotenvModule._configVault;
+    module.exports._parseVault = DotenvModule._parseVault;
+    module.exports.config = DotenvModule.config;
+    module.exports.decrypt = DotenvModule.decrypt;
+    module.exports.parse = DotenvModule.parse;
+    module.exports.populate = DotenvModule.populate;
+    module.exports = DotenvModule;
+  }
+});
+
+// node_modules/dotenv/lib/env-options.js
+var require_env_options = __commonJS({
+  "node_modules/dotenv/lib/env-options.js"(exports, module) {
+    var options = {};
+    if (process.env.DOTENV_CONFIG_ENCODING != null) {
+      options.encoding = process.env.DOTENV_CONFIG_ENCODING;
+    }
+    if (process.env.DOTENV_CONFIG_PATH != null) {
+      options.path = process.env.DOTENV_CONFIG_PATH;
+    }
+    if (process.env.DOTENV_CONFIG_QUIET != null) {
+      options.quiet = process.env.DOTENV_CONFIG_QUIET;
+    }
+    if (process.env.DOTENV_CONFIG_DEBUG != null) {
+      options.debug = process.env.DOTENV_CONFIG_DEBUG;
+    }
+    if (process.env.DOTENV_CONFIG_OVERRIDE != null) {
+      options.override = process.env.DOTENV_CONFIG_OVERRIDE;
+    }
+    if (process.env.DOTENV_CONFIG_DOTENV_KEY != null) {
+      options.DOTENV_KEY = process.env.DOTENV_CONFIG_DOTENV_KEY;
+    }
+    module.exports = options;
+  }
+});
+
+// node_modules/dotenv/lib/cli-options.js
+var require_cli_options = __commonJS({
+  "node_modules/dotenv/lib/cli-options.js"(exports, module) {
+    var re = /^dotenv_config_(encoding|path|quiet|debug|override|DOTENV_KEY)=(.+)$/;
+    module.exports = function optionMatcher(args) {
+      const options = args.reduce(function(acc, cur) {
+        const matches = cur.match(re);
+        if (matches) {
+          acc[matches[1]] = matches[2];
+        }
+        return acc;
+      }, {});
+      if (!("quiet" in options)) {
+        options.quiet = "true";
+      }
+      return options;
+    };
+  }
+});
+
+// node_modules/dotenv/config.js
+(function() {
+  require_main().config(
+    Object.assign(
+      {},
+      require_env_options(),
+      require_cli_options()(process.argv)
+    )
+  );
+})();
+
 // server/server.ts
 import express from "express";
 import path from "path";
@@ -19,11 +406,21 @@ function errorMiddleware(err, _req, res, _next) {
 }
 
 // server/store/sessionStore.ts
+import { randomUUID } from "crypto";
+var SESSION_TTL_MS = 4 * 60 * 60 * 1e3;
 var SessionStore = class {
   store = /* @__PURE__ */ new Map();
+  generateSessionId() {
+    return randomUUID();
+  }
   get(id) {
     const session = this.store.get(id);
-    if (session) session.lastAccessAt = /* @__PURE__ */ new Date();
+    if (!session) return void 0;
+    if (Date.now() - session.lastAccessAt.getTime() > SESSION_TTL_MS) {
+      this.store.delete(id);
+      return void 0;
+    }
+    session.lastAccessAt = /* @__PURE__ */ new Date();
     return session;
   }
   set(id, data) {
@@ -37,14 +434,22 @@ var SessionStore = class {
     this.store.set(id, session);
     return session;
   }
-  delete(id) {
+  updateSession(id, updater) {
+    const current = this.get(id);
+    if (!current) return void 0;
+    return this.set(id, updater(current));
+  }
+  clearSession(id) {
     return this.store.delete(id);
   }
+  delete(id) {
+    return this.clearSession(id);
+  }
   has(id) {
-    return this.store.has(id);
+    return this.get(id) !== void 0;
   }
   /** Removes sessions older than maxAgeHours. Returns count removed. */
-  cleanup(maxAgeHours) {
+  cleanup(maxAgeHours = 4) {
     const cutoff = Date.now() - maxAgeHours * 60 * 60 * 1e3;
     let removed = 0;
     for (const [id, session] of this.store.entries()) {
@@ -778,20 +1183,20 @@ function parseMatrix(matrix) {
     totalClosingDr += row.closingDr;
     totalClosingCr += row.closingCr;
   }
-  const round2 = (n) => Math.round(n * 100) / 100;
-  totalClosingDr = round2(totalClosingDr);
-  totalClosingCr = round2(totalClosingCr);
-  const difference = round2(totalClosingDr - totalClosingCr);
+  const round22 = (n) => Math.round(n * 100) / 100;
+  totalClosingDr = round22(totalClosingDr);
+  totalClosingCr = round22(totalClosingCr);
+  const difference = round22(totalClosingDr - totalClosingCr);
   const isBalanced = Math.abs(difference) < 1;
   if (!isBalanced) {
     warnings.push(`Trial Balance not balanced. Difference: ${Math.abs(difference).toLocaleString("en-IN")}.`);
   }
   return {
     rows: rowsWithParents,
-    totalOpeningDr: round2(totalOpeningDr),
-    totalOpeningCr: round2(totalOpeningCr),
-    totalDuringDr: round2(totalDuringDr),
-    totalDuringCr: round2(totalDuringCr),
+    totalOpeningDr: round22(totalOpeningDr),
+    totalOpeningCr: round22(totalOpeningCr),
+    totalDuringDr: round22(totalDuringDr),
+    totalDuringCr: round22(totalDuringCr),
     totalClosingDr,
     totalClosingCr,
     isBalanced,
@@ -3130,25 +3535,934 @@ var adjustments_default = router3;
 // server/routes/financials.ts
 import { Router as Router4 } from "express";
 
-// server/services/financialEngine.ts
-function sumCr(rows, ...categories) {
-  const catSet = new Set(categories);
-  return rows.filter((r) => catSet.has(r.nfrsCategory)).reduce((acc, r) => acc + (r.closingCr ?? 0), 0);
+// server/services/taxEngine.ts
+function computePrivateFirmTax(taxableIncome) {
+  if (taxableIncome <= 5e5) return 0;
+  if (taxableIncome <= 7e5) return (taxableIncome - 5e5) * 0.15;
+  return 5e4 * 0.15 + (taxableIncome - 7e5) * 0.25;
 }
+function computeTax(input) {
+  const {
+    accountingProfit,
+    accountingDepreciation,
+    taxDepreciation,
+    disallowedForTax,
+    staffBonus,
+    profitBeforeBonus,
+    donations = 0,
+    researchDevelopment = 0,
+    advanceTaxPaid,
+    incomeTaxRate,
+    entityType
+  } = input;
+  const reconciliation = [];
+  reconciliation.push({ label: "Accounting profit before tax", amount: accountingProfit });
+  reconciliation.push({ label: "Add: Accounting depreciation", amount: accountingDepreciation });
+  reconciliation.push({ label: "Less: Tax depreciation (ITA pools)", amount: -taxDepreciation });
+  const totalDisallowed = disallowedForTax.reduce((s, d) => s + d.amount, 0);
+  if (totalDisallowed > 0) {
+    reconciliation.push({ label: "Add: Disallowed expenses", amount: totalDisallowed });
+  }
+  const maxBonusAllowed = profitBeforeBonus * 0.1;
+  const staffBonusAllowed = Math.min(staffBonus, maxBonusAllowed);
+  let adjustedProfit = accountingProfit + accountingDepreciation - taxDepreciation + totalDisallowed;
+  const donationAllowed = Math.min(donations, adjustedProfit * 0.05);
+  adjustedProfit -= donationAllowed;
+  const rdAllowance = researchDevelopment * 0.5;
+  adjustedProfit -= rdAllowance;
+  const taxableIncome = Math.max(0, Math.round(adjustedProfit * 100) / 100);
+  reconciliation.push({ label: "Taxable income", amount: taxableIncome });
+  let currentTaxExpense;
+  if (entityType === "Sole Proprietorship" || entityType === "Partnership") {
+    currentTaxExpense = computePrivateFirmTax(taxableIncome);
+  } else {
+    currentTaxExpense = Math.round(taxableIncome * incomeTaxRate * 100) / 100;
+  }
+  const netTaxPayable = Math.max(0, Math.round((currentTaxExpense - advanceTaxPaid) * 100) / 100);
+  reconciliation.push({
+    label: `Income tax at ${(incomeTaxRate * 100).toFixed(0)}%`,
+    amount: currentTaxExpense
+  });
+  return {
+    taxableIncome,
+    currentTaxExpense,
+    netTaxPayable,
+    staffBonusAllowed,
+    bookTaxReconciliation: reconciliation
+  };
+}
+function computeIncomeTax(params) {
+  const result = computeTax({
+    accountingProfit: params.bookProfit,
+    accountingDepreciation: 0,
+    taxDepreciation: 0,
+    disallowedForTax: Object.entries(params.disallowableExpenses).map(([description, amount]) => ({
+      description,
+      amount,
+      section: "Section 21 ITA"
+    })),
+    staffBonus: 0,
+    profitBeforeBonus: params.bookProfit,
+    advanceTaxPaid: params.advanceTaxPaid + params.tdsCredit,
+    incomeTaxRate: params.taxRate / 100,
+    entityType: "Company"
+  });
+  const netAfterCredits = result.currentTaxExpense - params.advanceTaxPaid - params.tdsCredit;
+  return {
+    taxableIncome: result.taxableIncome,
+    currentTaxExpense: result.currentTaxExpense,
+    taxPayable: netAfterCredits > 0 ? netAfterCredits : 0,
+    taxRecoverable: netAfterCredits < 0 ? -netAfterCredits : 0,
+    effectiveTaxRate: params.bookProfit > 0 ? Math.round(result.currentTaxExpense / params.bookProfit * 1e4) / 100 : 0
+  };
+}
+
+// server/services/notesEngine.ts
+function sumTB(rows, categories, field = "closingDr") {
+  const cats = Array.isArray(categories) ? categories : [categories];
+  return rows.filter((r) => cats.includes(r.nfrsCategory) && !r.isGroupRow).reduce((s, r) => s + (r[field] ?? 0), 0);
+}
+function netClosing(rows, categories) {
+  const cats = Array.isArray(categories) ? categories : [categories];
+  return rows.filter((r) => cats.includes(r.nfrsCategory) && !r.isGroupRow).reduce((s, r) => s + (r.closingDr ?? 0) - (r.closingCr ?? 0), 0);
+}
+function rowsByCategory(rows, category) {
+  return rows.filter((r) => r.nfrsCategory === category && !r.isGroupRow);
+}
+function safeSum(...vals) {
+  return vals.reduce((a, v) => a + (v ?? 0), 0);
+}
+var round = (n) => Math.round(n * 100) / 100;
+var TAX_DEPN_RATES = {
+  ppe_buildings: 0.05,
+  ppe_furniture: 0.25,
+  ppe_vehicles: 0.2,
+  ppe_plant_machinery: 0.15,
+  ppe_intangibles: 0.15,
+  ppe_computers: 0.25,
+  ppe_office_equipment: 0.15
+};
+function buildNotesData(params) {
+  const { tb, adj, bs, is: IS, company } = params;
+  const rows = tb.rows ?? [];
+  const provisions = adj.provisions ?? [];
+  const taxRate = (company.accountingPolicies?.incomeTaxRatePercent ?? 25) / 100;
+  const roundingLevel = company.accountingPolicies?.roundingLevel ?? 1;
+  const PPE_CLASSES = [
+    { categoryId: "ppe_land", label: "Land" },
+    { categoryId: "ppe_buildings", label: "Buildings" },
+    { categoryId: "ppe_furniture", label: "Furniture & Office Equipment" },
+    { categoryId: "ppe_vehicles", label: "Vehicles" },
+    { categoryId: "ppe_plant_machinery", label: "Plant & Machinery" },
+    { categoryId: "ppe_computers", label: "Computer & IT Equipment" },
+    { categoryId: "ppe_intangibles", label: "Intangibles / Software" },
+    { categoryId: "ppe_office_equipment", label: "Other Equipment" },
+    { categoryId: "ppe_cwip", label: "Capital Work in Progress" }
+  ];
+  const depnSummaryMap = new Map(
+    (adj.depreciationSummary ?? []).map((d) => [d.categoryId, d])
+  );
+  const note31_ppe = PPE_CLASSES.map((cls) => {
+    const d = depnSummaryMap.get(cls.categoryId);
+    const tbGross = sumTB(rows, cls.categoryId, "closingDr");
+    const tbOpenGross = sumTB(rows, cls.categoryId, "openingDr");
+    const openingCost = d?.openingCost ?? tbOpenGross;
+    const additions = d?.additions ?? 0;
+    const disposals = d?.disposals ?? 0;
+    const closingCost = d?.closingCost ?? openingCost + additions - disposals;
+    const openingAccumDepn = d?.openingAccumDepn ?? 0;
+    const depnForYear = d?.depnForYear ?? 0;
+    const depnOnDisposal = d?.depnOnDisposal ?? 0;
+    const closingAccumDepn = d?.closingAccumDepn ?? openingAccumDepn + depnForYear - depnOnDisposal;
+    const nbvClosing = d?.netBookValueClosing ?? Math.max(0, closingCost - closingAccumDepn);
+    const nbvOpening = Math.max(0, openingCost - openingAccumDepn);
+    const assetsSecured = (adj.assets ?? []).filter((a) => a.categoryId === cls.categoryId && a.isMortgaged).reduce((s, a) => s + a.originalCost, 0);
+    return {
+      categoryId: cls.categoryId,
+      categoryName: cls.label,
+      // Cost movement
+      openingCost,
+      additions,
+      disposals,
+      closingCost,
+      // Accumulated depreciation movement
+      openingAccumDepn,
+      depnForYear,
+      impairmentLosses: 0,
+      depnOnDisposal,
+      closingAccumDepn,
+      // NBV
+      netBookValueClosing: nbvClosing,
+      nbvClosing,
+      nbvOpening,
+      // Assets pledged
+      securedAmount: assetsSecured,
+      hasSecuredAssets: assetsSecured > 0,
+      // Individual assets
+      assets: adj.depreciationSummary?.find((ds) => ds.categoryId === cls.categoryId)?.assets ?? []
+    };
+  }).filter(
+    (item) => (
+      // Only include categories that have any balance or movement
+      item.openingCost > 0 || item.additions > 0 || item.closingCost > 0
+    )
+  );
+  const investmentAdjs = adj.investmentAdjustments ?? [];
+  const listedShares = investmentAdjs.filter(
+    (i) => i.investmentType === "listed_trading" || i.investmentType === "listed_ats"
+  ).map((inv) => ({
+    companyName: inv.investmentName,
+    openingUnits: inv.units ?? 0,
+    purchasesDuringYear: 0,
+    salesDuringYear: 0,
+    closingUnits: inv.units ?? 0,
+    costPerUnit: inv.totalCost && inv.units ? inv.totalCost / inv.units : 0,
+    totalCost: inv.totalCost ?? 0,
+    ltp: inv.ltp ?? 0,
+    marketValue: inv.marketValue ?? (inv.units ?? 0) * (inv.ltp ?? 0),
+    fairValueGainLoss: inv.fairValueGainLoss ?? 0,
+    impairmentAmount: inv.impairmentAmount ?? 0,
+    carryingAmount: inv.carryingAmount ?? 0
+  }));
+  const unlistedShares = investmentAdjs.filter(
+    (i) => i.investmentType === "unlisted"
+  ).map((inv) => ({
+    companyName: inv.investmentName,
+    openingCost: inv.totalCost ?? 0,
+    additions: 0,
+    disposals: 0,
+    impairmentAmount: inv.impairmentAmount ?? 0,
+    closingCarrying: inv.carryingAmount ?? 0
+  }));
+  const fdrNonCurrent = sumTB(rows, "investment_fixed_deposit_noncurrent", "closingDr");
+  const fdrCurrent = sumTB(rows, "bank_fixed_deposit_current", "closingDr");
+  const note32_investments = {
+    listedShares,
+    unlistedShares,
+    fdrNonCurrent,
+    fdrCurrent,
+    totalNonCurrent: listedShares.reduce((s, i) => s + i.carryingAmount, 0) + unlistedShares.reduce((s, i) => s + i.closingCarrying, 0) + fdrNonCurrent,
+    totalCurrent: listedShares.reduce((s, i) => s + i.marketValue, 0) + fdrCurrent
+  };
+  const grossReceivables = sumTB(rows, "trade_receivables", "closingDr");
+  const grossReceivablesOpen = sumTB(rows, "trade_receivables", "openingDr");
+  const provisionBadDebt = provisions.find((p) => p.provisionType === "doubtful_debts");
+  const provisionImpairment = Math.abs(safeSum(
+    sumTB(rows, "provision_impairment_debtors", "closingCr"),
+    provisionBadDebt?.closingBalance ?? 0
+  ));
+  const provisionImpairmentOpen = Math.abs(safeSum(
+    sumTB(rows, "provision_impairment_debtors", "openingCr"),
+    provisionBadDebt?.openingBalance ?? 0
+  ));
+  const provisionAdditions = provisionBadDebt?.additionForYear ?? 0;
+  const provisionWriteOffs = provisionBadDebt?.utilisedDuringYear ?? 0;
+  const provisionReversals = 0;
+  const note33_tradeReceivables = {
+    grossReceivables_cy: grossReceivables,
+    grossReceivables_py: grossReceivablesOpen,
+    provisionMovement: {
+      opening: provisionImpairmentOpen,
+      additions: provisionAdditions,
+      writeOffs: provisionWriteOffs,
+      reversals: provisionReversals,
+      closing: provisionImpairment
+    },
+    provisionForImpairment_cy: provisionImpairment,
+    provisionForImpairment_py: provisionImpairmentOpen,
+    netReceivables_cy: round(grossReceivables - provisionImpairment),
+    netReceivables_py: round(grossReceivablesOpen - provisionImpairmentOpen),
+    relatedPartyReceivables: sumTB(rows, "related_party_receivable", "closingDr"),
+    prepayments: sumTB(rows, "other_receivables_prepayments", "closingDr"),
+    tdsReceivable: sumTB(rows, "other_receivables_tds", "closingDr"),
+    staffAdvances: sumTB(rows, "other_receivables_staff_advance", "closingDr"),
+    advanceToSuppliers: sumTB(rows, "other_receivables_advance_supplier", "closingDr"),
+    otherLoansAdvances: sumTB(rows, "other_receivables_loans", "closingDr"),
+    nonCurrentPortion: safeSum(
+      sumTB(rows, "nca_loans_advances", "closingDr"),
+      sumTB(rows, "nca_deposits", "closingDr")
+    ),
+    currentPortion: round(
+      grossReceivables - provisionImpairment + sumTB(rows, "other_receivables_prepayments", "closingDr") + sumTB(rows, "other_receivables_tds", "closingDr") + sumTB(rows, "other_receivables_staff_advance", "closingDr") + sumTB(rows, "other_receivables_advance_supplier", "closingDr") + sumTB(rows, "other_receivables_loans", "closingDr")
+    ),
+    agingAnalysis: []
+    // populated if subledger data provided
+  };
+  const note34_otherCurrentAssets = {
+    securityDeposits: sumTB(rows, "nca_deposits", "closingDr"),
+    // current portion
+    guaranteeMargins: 0,
+    advanceIncomeTax: sumTB(rows, "advance_tax_paid", "closingDr"),
+    otherPrepaidExpenses: sumTB(rows, "other_receivables_other", "closingDr"),
+    total: round(
+      sumTB(rows, "nca_deposits", "closingDr") + sumTB(rows, "advance_tax_paid", "closingDr") + sumTB(rows, "other_receivables_other", "closingDr")
+    )
+  };
+  const bioOpeningBalance = sumTB(rows, "biological_assets", "openingDr");
+  const bioClosingBalance = sumTB(rows, "biological_assets", "closingDr");
+  const note35_biologicalAssets = {
+    hasBalance: bioClosingBalance > 0 || bioOpeningBalance > 0,
+    openingCarrying: bioOpeningBalance,
+    additionsPurchases: Math.max(0, sumTB(rows, "biological_assets", "duringDr")),
+    disposalsSales: Math.max(0, sumTB(rows, "biological_assets", "duringCr")),
+    fairValueAdjustment: 0,
+    closingCarrying: bioClosingBalance
+  };
+  const hfsBalance = sumTB(rows, "nca_held_for_sale", "closingDr");
+  const note36_heldForSale = {
+    hasBalance: hfsBalance > 0,
+    assets: hfsBalance > 0 ? [{
+      description: "Non-Current Assets Held for Sale",
+      carryingAmount: hfsBalance,
+      expectedSaleDate: null
+    }] : [],
+    total: hfsBalance
+  };
+  const invAdjs = adj.inventoryAdjustments ?? [];
+  const rmClosing = round(sumTB(rows, "inventory_raw_materials", "closingDr") - (invAdjs.find((i) => i.category === "raw_materials")?.impairmentAmount ?? 0));
+  const wipClosing = round(sumTB(rows, "inventory_wip", "closingDr") - (invAdjs.find((i) => i.category === "wip")?.impairmentAmount ?? 0));
+  const fgClosing = round(sumTB(rows, "inventory_finished_goods", "closingDr") - (invAdjs.find((i) => i.category === "finished_goods")?.impairmentAmount ?? 0));
+  const rmOpening = sumTB(rows, "inventory_raw_materials", "openingDr");
+  const wipOpening = sumTB(rows, "inventory_wip", "openingDr");
+  const fgOpening = sumTB(rows, "inventory_finished_goods", "openingDr");
+  const note37_inventories = {
+    rawMaterials: { opening: rmOpening, closing: rmClosing },
+    wip: { opening: wipOpening, closing: wipClosing },
+    finishedGoods: { opening: fgOpening, closing: fgClosing },
+    totalOpening: round(rmOpening + wipOpening + fgOpening),
+    totalClosing: round(rmClosing + wipClosing + fgClosing),
+    impairmentRecognised: invAdjs.reduce((s, i) => s + (i.impairmentAmount ?? 0), 0),
+    inventoryAtNRV: invAdjs.filter((i) => i.writtenDownTo !== void 0).reduce((s, i) => s + (i.writtenDownTo ?? 0), 0),
+    pledgedAsSecurityAmt: 0,
+    costFormula: company.accountingPolicies?.inventoryCostMethod ?? "WeightedAverage"
+  };
+  const cashRows = rowsByCategory(rows, "cash_in_hand");
+  const bankCurrentRows = rowsByCategory(rows, "bank_current_account");
+  const bankSavingsRows = rowsByCategory(rows, "bank_savings_account");
+  const fdCurrentRows = rowsByCategory(rows, "bank_fixed_deposit_current");
+  const note38_cashEquivalents = {
+    cashInHand_cy: cashRows.reduce((s, r) => s + (r.closingDr ?? 0), 0),
+    cashInHand_py: cashRows.reduce((s, r) => s + (r.openingDr ?? 0), 0),
+    bankAccounts: [
+      ...bankCurrentRows.map((r) => ({
+        accountName: r.rawLabel,
+        bankName: r.rawLabel,
+        accountType: "Current",
+        closingBalance: round((r.closingDr ?? 0) - (r.closingCr ?? 0)),
+        openingBalance: round((r.openingDr ?? 0) - (r.openingCr ?? 0))
+      })),
+      ...bankSavingsRows.map((r) => ({
+        accountName: r.rawLabel,
+        bankName: r.rawLabel,
+        accountType: "Savings",
+        closingBalance: round((r.closingDr ?? 0) - (r.closingCr ?? 0)),
+        openingBalance: round((r.openingDr ?? 0) - (r.openingCr ?? 0))
+      })),
+      ...fdCurrentRows.map((r) => ({
+        accountName: r.rawLabel,
+        bankName: r.rawLabel,
+        accountType: "Fixed Deposit (\u22643 months)",
+        closingBalance: round(r.closingDr ?? 0),
+        openingBalance: round(r.openingDr ?? 0)
+      }))
+    ],
+    totalCash_cy: round(
+      cashRows.reduce((s, r) => s + (r.closingDr ?? 0), 0) + bankCurrentRows.reduce((s, r) => s + (r.closingDr ?? 0) - (r.closingCr ?? 0), 0) + bankSavingsRows.reduce((s, r) => s + (r.closingDr ?? 0) - (r.closingCr ?? 0), 0) + fdCurrentRows.reduce((s, r) => s + (r.closingDr ?? 0), 0)
+    ),
+    totalCash_py: round(
+      cashRows.reduce((s, r) => s + (r.openingDr ?? 0), 0) + bankCurrentRows.reduce((s, r) => s + (r.openingDr ?? 0) - (r.openingCr ?? 0), 0) + bankSavingsRows.reduce((s, r) => s + (r.openingDr ?? 0) - (r.openingCr ?? 0), 0) + fdCurrentRows.reduce((s, r) => s + (r.openingDr ?? 0), 0)
+    )
+  };
+  const paidUpCapital = Math.abs(netClosing(rows, "share_capital"));
+  const paidUpCapitalOpen = Math.abs(
+    rows.filter((r) => r.nfrsCategory === "share_capital" && !r.isGroupRow).reduce((s, r) => s + (r.openingCr ?? 0) - (r.openingDr ?? 0), 0)
+  );
+  const sharesIssued = Math.round(paidUpCapital / 100);
+  const note39_shareCapital = {
+    ordinaryShares: {
+      authorizedAmount: paidUpCapital,
+      authorizedShares: sharesIssued,
+      parValuePerShare: 100,
+      openingIssuedShares: Math.round(paidUpCapitalOpen / 100),
+      openingPaidUp: paidUpCapitalOpen,
+      issuedDuringYear: 0,
+      issuedForCash: 0,
+      closingIssuedShares: sharesIssued,
+      closingPaidUp: paidUpCapital
+    },
+    preferenceShares: null,
+    restrictionsOnDistribution: null,
+    sharesReservedForOptions: 0
+  };
+  const sharePremiumClose = Math.abs(netClosing(rows, "share_premium"));
+  const sharePremiumOpen = Math.abs(
+    rows.filter((r) => r.nfrsCategory === "share_premium" && !r.isGroupRow).reduce((s, r) => s + (r.openingCr ?? 0) - (r.openingDr ?? 0), 0)
+  );
+  const genReserveClose = Math.abs(netClosing(rows, "general_reserve"));
+  const genReserveOpen = Math.abs(
+    rows.filter((r) => r.nfrsCategory === "general_reserve" && !r.isGroupRow).reduce((s, r) => s + (r.openingCr ?? 0) - (r.openingDr ?? 0), 0)
+  );
+  const retainedClose = Math.abs(netClosing(rows, "retained_earnings"));
+  const retainedOpen = Math.abs(
+    rows.filter((r) => r.nfrsCategory === "retained_earnings" && !r.isGroupRow).reduce((s, r) => s + (r.openingCr ?? 0) - (r.openingDr ?? 0), 0)
+  );
+  const note310_reserves = {
+    sharePremium: {
+      opening: sharePremiumOpen,
+      additions: round(sharePremiumClose - sharePremiumOpen),
+      closing: sharePremiumClose
+    },
+    generalReserve: {
+      opening: genReserveOpen,
+      transferFromProfit: round(genReserveClose - genReserveOpen),
+      closing: genReserveClose
+    },
+    retainedEarnings: {
+      opening: retainedOpen,
+      netProfitForYear: IS.netProfit ?? 0,
+      dividendsDeclared: 0,
+      transferToReserve: round(genReserveClose - genReserveOpen),
+      closing: retainedClose
+    },
+    otherReserves: Math.abs(netClosing(rows, "other_reserves"))
+  };
+  const ltBankRows = rowsByCategory(rows, "borrowings_noncurrent_bank");
+  const ltOtherRows = rowsByCategory(rows, "borrowings_noncurrent_other");
+  const stOdRows = rowsByCategory(rows, "borrowings_current_od");
+  const stCcRows = rowsByCategory(rows, "borrowings_current_cc");
+  const stWcRows = rowsByCategory(rows, "borrowings_current_wc");
+  const stPortionRows = rowsByCategory(rows, "borrowings_current_portion_lt");
+  const rpPayableRows = rowsByCategory(rows, "related_party_payable");
+  const note311_borrowings = {
+    nonCurrent: [
+      ...ltBankRows.map((r) => ({
+        lenderName: r.rawLabel,
+        type: "Bank Term Loan",
+        secured: true,
+        interestRate: 0,
+        maturityDate: null,
+        balance_cy: Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)),
+        balance_py: Math.abs((r.openingCr ?? 0) - (r.openingDr ?? 0))
+      })),
+      ...ltOtherRows.map((r) => ({
+        lenderName: r.rawLabel,
+        type: "Other Loan",
+        secured: false,
+        interestRate: 0,
+        maturityDate: null,
+        balance_cy: Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)),
+        balance_py: Math.abs((r.openingCr ?? 0) - (r.openingDr ?? 0))
+      }))
+    ],
+    current: [
+      ...stOdRows.map((r) => ({
+        lenderName: r.rawLabel,
+        type: "Bank Overdraft",
+        secured: true,
+        balance_cy: Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)),
+        balance_py: Math.abs((r.openingCr ?? 0) - (r.openingDr ?? 0))
+      })),
+      ...stCcRows.map((r) => ({
+        lenderName: r.rawLabel,
+        type: "Cash Credit",
+        secured: true,
+        balance_cy: Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)),
+        balance_py: Math.abs((r.openingCr ?? 0) - (r.openingDr ?? 0))
+      })),
+      ...stWcRows.map((r) => ({
+        lenderName: r.rawLabel,
+        type: "Working Capital Loan",
+        secured: true,
+        balance_cy: Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)),
+        balance_py: Math.abs((r.openingCr ?? 0) - (r.openingDr ?? 0))
+      })),
+      ...stPortionRows.map((r) => ({
+        lenderName: r.rawLabel,
+        type: "Current Portion of Long-Term Loan",
+        secured: true,
+        balance_cy: Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)),
+        balance_py: Math.abs((r.openingCr ?? 0) - (r.openingDr ?? 0))
+      })),
+      ...rpPayableRows.map((r) => ({
+        lenderName: r.rawLabel,
+        type: "Related Party Loan",
+        secured: false,
+        balance_cy: Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)),
+        balance_py: Math.abs((r.openingCr ?? 0) - (r.openingDr ?? 0))
+      }))
+    ],
+    totalNonCurrent_cy: ltBankRows.reduce((s, r) => s + Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)), 0) + ltOtherRows.reduce((s, r) => s + Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)), 0),
+    totalCurrent_cy: [stOdRows, stCcRows, stWcRows, stPortionRows, rpPayableRows].flat().reduce((s, r) => s + Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)), 0)
+  };
+  const gratuityProv = provisions.find((p) => p.provisionType === "gratuity");
+  const leaveProv = provisions.find((p) => p.provisionType === "leave_encashment");
+  const bonusProv = provisions.find((p) => p.provisionType === "bonus");
+  const note312_employeeBenefits = {
+    definedBenefit: {
+      description: "Gratuity (as per Labour Act 2074)",
+      openingBalance: gratuityProv?.openingBalance ?? 0,
+      expenseForYear: gratuityProv?.additionForYear ?? 0,
+      paidDuringYear: gratuityProv?.utilisedDuringYear ?? 0,
+      closingBalance: gratuityProv?.closingBalance ?? sumTB(rows, "employee_benefit_gratuity", "closingCr"),
+      nonCurrentPortion: gratuityProv?.closingBalance ?? 0,
+      currentPortion: 0
+    },
+    definedContribution: {
+      pfContribution: sumTB(rows, "employee_payables_pf", "closingCr"),
+      ssfContribution: 0
+    },
+    leaveEncashment: {
+      openingBalance: leaveProv?.openingBalance ?? 0,
+      expenseForYear: leaveProv?.additionForYear ?? 0,
+      paidDuringYear: leaveProv?.utilisedDuringYear ?? 0,
+      closingBalance: leaveProv?.closingBalance ?? 0
+    },
+    salaryPayable: sumTB(rows, "employee_payables_salary", "closingCr"),
+    bonusPayable: bonusProv?.closingBalance ?? sumTB(rows, "employee_payables_bonus", "closingCr"),
+    totalCurrentEmployeeLiabilities: round(
+      sumTB(rows, "employee_payables_salary", "closingCr") + (bonusProv?.closingBalance ?? sumTB(rows, "employee_payables_bonus", "closingCr")) + sumTB(rows, "employee_payables_pf", "closingCr")
+    ),
+    totalNonCurrentEmployeeLiabilities: gratuityProv?.closingBalance ?? 0
+  };
+  const creditorRows = rowsByCategory(rows, "trade_payables_creditors");
+  const advFromCustRows = rowsByCategory(rows, "trade_payables_advance_customers");
+  const auditFeeRows = rowsByCategory(rows, "audit_fee_payable");
+  const vatRows = rowsByCategory(rows, "other_payables");
+  const tdsPayRows = rowsByCategory(rows, "tds_payable");
+  const note313_tradePayables = {
+    tradeCreditors: creditorRows.reduce((s, r) => s + Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)), 0),
+    advanceFromCustomers: advFromCustRows.reduce((s, r) => s + Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)), 0),
+    auditFeePayable: auditFeeRows.reduce((s, r) => s + Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)), 0),
+    vatPayable: vatRows.reduce((s, r) => s + Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)), 0),
+    tdsPayableBreakdown: tdsPayRows.map((r) => ({
+      ledgerName: r.rawLabel,
+      amount: Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0))
+    })),
+    tdsPayableTotal: tdsPayRows.reduce((s, r) => s + Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)), 0),
+    otherAccruals: 0,
+    total: round(
+      creditorRows.reduce((s, r) => s + Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)), 0) + advFromCustRows.reduce((s, r) => s + Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)), 0) + auditFeeRows.reduce((s, r) => s + Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)), 0) + vatRows.reduce((s, r) => s + Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)), 0) + tdsPayRows.reduce((s, r) => s + Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)), 0)
+    ),
+    // Previous year
+    tradeCreditors_py: creditorRows.reduce((s, r) => s + Math.abs((r.openingCr ?? 0) - (r.openingDr ?? 0)), 0),
+    auditFeePayable_py: auditFeeRows.reduce((s, r) => s + Math.abs((r.openingCr ?? 0) - (r.openingDr ?? 0)), 0),
+    vatPayable_py: vatRows.reduce((s, r) => s + Math.abs((r.openingCr ?? 0) - (r.openingDr ?? 0)), 0),
+    tdsPayableTotal_py: tdsPayRows.reduce((s, r) => s + Math.abs((r.openingCr ?? 0) - (r.openingDr ?? 0)), 0)
+  };
+  const advanceTaxPaid = sumTB(rows, "advance_tax_paid", "closingDr");
+  const tdsCredit = sumTB(rows, "other_receivables_tds", "closingDr");
+  const taxPayable = Math.abs(sumTB(rows, "income_tax_payable", "closingCr"));
+  const currentTaxExpense = IS.incomeTaxExpense ?? 0;
+  const note314_taxComputation = {
+    advanceTaxPaid,
+    tdsCreditAvailable: tdsCredit,
+    incomeTaxForYear: currentTaxExpense,
+    netTaxLiability: Math.max(0, currentTaxExpense - advanceTaxPaid - tdsCredit),
+    taxRecoverable: Math.max(0, advanceTaxPaid + tdsCredit - currentTaxExpense)
+  };
+  const saleOfGoods = sumTB(rows, "revenue_sales", "closingCr");
+  const saleOfServices = sumTB(rows, "revenue_services", "closingCr");
+  const note315_revenue = {
+    saleOfGoods_cy: saleOfGoods,
+    saleOfServices_cy: saleOfServices,
+    totalRevenue_cy: round(saleOfGoods + saleOfServices),
+    saleOfGoods_py: sumTB(rows, "revenue_sales", "openingCr"),
+    saleOfServices_py: sumTB(rows, "revenue_services", "openingCr"),
+    totalRevenue_py: round(
+      sumTB(rows, "revenue_sales", "openingCr") + sumTB(rows, "revenue_services", "openingCr")
+    )
+  };
+  const dividendPayableBalance = Math.abs(
+    sumTB(rows, "dividend_payable", "closingCr")
+  );
+  const paidUpForDividend = note39_shareCapital.ordinaryShares.closingPaidUp;
+  const declaredRate = paidUpForDividend > 0 && dividendPayableBalance > 0 ? round(dividendPayableBalance / paidUpForDividend * 100) : 0;
+  const note316_dividendPayable = {
+    hasDividend: dividendPayableBalance > 0,
+    paidUpCapital: paidUpForDividend,
+    declaredRatePercent: declaredRate,
+    amountPerShare: note39_shareCapital.ordinaryShares.closingIssuedShares > 0 ? round(dividendPayableBalance / note39_shareCapital.ordinaryShares.closingIssuedShares) : 0,
+    totalDividendDeclared: dividendPayableBalance,
+    tdsOnDividend: round(dividendPayableBalance * 0.05),
+    netDividendPayable: round(dividendPayableBalance * 0.95)
+  };
+  const otherIncomeRows = [
+    "other_income_interest",
+    "other_income_dividend",
+    "other_income_rental",
+    "other_income_disposal_gain",
+    "other_income_misc"
+  ];
+  const note317_revenueDetailed = {
+    saleOfGoods: {
+      cy: sumTB(rows, "revenue_sales", "closingCr"),
+      py: sumTB(rows, "revenue_sales", "openingCr")
+    },
+    renderingOfServices: {
+      cy: sumTB(rows, "revenue_services", "closingCr"),
+      py: sumTB(rows, "revenue_services", "openingCr")
+    },
+    interestIncome: {
+      cy: sumTB(rows, "other_income_interest", "closingCr"),
+      py: sumTB(rows, "other_income_interest", "openingCr")
+    },
+    dividendIncome: {
+      cy: sumTB(rows, "other_income_dividend", "closingCr"),
+      py: sumTB(rows, "other_income_dividend", "openingCr")
+    },
+    otherIncome: {
+      cy: otherIncomeRows.reduce((s, c) => s + sumTB(rows, c, "closingCr"), 0),
+      py: otherIncomeRows.reduce((s, c) => s + sumTB(rows, c, "openingCr"), 0)
+    },
+    totalIncome: {
+      cy: IS.totalIncome ?? 0,
+      py: IS.totalIncome_py ?? 0
+    }
+  };
+  const rmOpenForConsumed = sumTB(rows, "inventory_raw_materials", "openingDr");
+  const purchases = sumTB(rows, "cogs_purchases", "closingDr");
+  const rmCloseForConsumed = sumTB(rows, "inventory_raw_materials", "closingDr");
+  const materialConsumed = round(rmOpenForConsumed + purchases - rmCloseForConsumed);
+  const fgWipOpenForChange = round(fgOpening + wipOpening);
+  const fgWipCloseForChange = round(fgClosing + wipClosing);
+  const changeInInventories = round(fgWipOpenForChange - fgWipCloseForChange);
+  const directWages = sumTB(rows, "direct_wages", "closingDr");
+  const directOther = sumTB(rows, "direct_expenses_other", "closingDr");
+  const note318_materialConsumed = {
+    openingRawMaterial: rmOpenForConsumed,
+    purchasesDuringYear: purchases,
+    closingRawMaterial: rmCloseForConsumed,
+    rawMaterialConsumed: materialConsumed,
+    changeInInventoriesFGWIP: changeInInventories,
+    openingFGWIP: fgWipOpenForChange,
+    closingFGWIP: fgWipCloseForChange,
+    directWages,
+    otherDirectExpenses: directOther,
+    totalCostOfProduction: round(materialConsumed + changeInInventories + directWages + directOther)
+  };
+  const note319_otherIncome = {
+    interestIncome: { cy: sumTB(rows, "other_income_interest", "closingCr"), py: 0 },
+    commissionIncome: { cy: 0, py: 0 },
+    rentalIncome: { cy: sumTB(rows, "other_income_rental", "closingCr"), py: 0 },
+    dividendReceived: { cy: sumTB(rows, "other_income_dividend", "closingCr"), py: 0 },
+    gainOnDisposalAssets: { cy: sumTB(rows, "other_income_disposal_gain", "closingCr"), py: 0 },
+    insuranceClaims: { cy: 0, py: 0 },
+    fairValueGainOnInvestments: {
+      cy: investmentAdjs.filter((i) => (i.fairValueGainLoss ?? 0) > 0).reduce((s, i) => s + (i.fairValueGainLoss ?? 0), 0),
+      py: 0
+    },
+    miscellaneousIncome: { cy: sumTB(rows, "other_income_misc", "closingCr"), py: 0 },
+    total: {
+      cy: round(
+        sumTB(rows, "other_income_interest", "closingCr") + sumTB(rows, "other_income_rental", "closingCr") + sumTB(rows, "other_income_dividend", "closingCr") + sumTB(rows, "other_income_disposal_gain", "closingCr") + sumTB(rows, "other_income_misc", "closingCr") + investmentAdjs.filter((i) => (i.fairValueGainLoss ?? 0) > 0).reduce((s, i) => s + (i.fairValueGainLoss ?? 0), 0)
+      ),
+      py: 0
+    }
+  };
+  const salariesExp = sumTB(rows, "emp_expense_salaries", "closingDr");
+  const pfExp = sumTB(rows, "emp_expense_pf", "closingDr");
+  const gratuityExp = gratuityProv?.additionForYear ?? sumTB(rows, "emp_expense_gratuity", "closingDr");
+  const welfareExp = sumTB(rows, "emp_expense_welfare", "closingDr");
+  const bonusExp = IS.staffBonus ?? bonusProv?.additionForYear ?? 0;
+  const leaveExp = leaveProv?.additionForYear ?? sumTB(rows, "emp_expense_leave", "closingDr");
+  const otherEmpExp = sumTB(rows, "emp_expense_other", "closingDr");
+  const note320_employeeExpenses = {
+    salariesWages: { cy: salariesExp, py: 0 },
+    allowances: { cy: 0, py: 0 },
+    pfSsfContribution: { cy: pfExp, py: 0 },
+    gratuityExpense: { cy: gratuityExp, py: 0 },
+    leaveEncashment: { cy: leaveExp, py: 0 },
+    staffBonusExpense: { cy: bonusExp, py: 0 },
+    staffWelfare: { cy: welfareExp, py: 0 },
+    otherEmployeeCosts: { cy: otherEmpExp, py: 0 },
+    totalEmployeeExpenses: { cy: round(salariesExp + pfExp + gratuityExp + welfareExp + bonusExp + leaveExp + otherEmpExp), py: 0 },
+    kmpCompensation: {
+      description: "Key Management Personnel Compensation",
+      salary: 0,
+      bonus: 0,
+      otherBenefits: 0,
+      total: 0
+    }
+  };
+  const note321_depreciation = {
+    byClass: note31_ppe.map((item) => ({
+      categoryName: item.categoryName,
+      depreciationForYear: item.depnForYear
+    })),
+    totalDepreciation: round(note31_ppe.reduce((s, item) => s + item.depnForYear, 0)),
+    totalDepreciation_py: 0
+  };
+  const ADMIN_CATEGORIES2 = [
+    { cat: "admin_rent", label: "Rent / Lease Rentals" },
+    { cat: "admin_communication", label: "Communication Expenses" },
+    { cat: "admin_printing", label: "Printing & Stationery" },
+    { cat: "admin_traveling", label: "Travel & Conveyance" },
+    { cat: "admin_advertisement", label: "Advertisement & Promotion" },
+    { cat: "admin_audit_fee", label: "Audit Fees" },
+    { cat: "admin_legal_professional", label: "Professional & Legal Fees" },
+    { cat: "admin_rates_taxes", label: "Board & AGM / Rates & Taxes" },
+    { cat: "admin_repairs", label: "Repairs & Maintenance" },
+    { cat: "admin_insurance", label: "Insurance Premium" },
+    { cat: "finance_cost_bank_charges", label: "Bank Charges" },
+    { cat: "admin_other", label: "CSR & Other Miscellaneous" }
+  ];
+  const note322_adminExpenses = {
+    lineItems: ADMIN_CATEGORIES2.map((ac) => ({
+      label: ac.label,
+      cy: sumTB(rows, ac.cat, "closingDr"),
+      py: 0
+    })).filter((li) => li.cy > 0),
+    total_cy: round(ADMIN_CATEGORIES2.reduce((s, ac) => s + sumTB(rows, ac.cat, "closingDr"), 0)),
+    total_py: 0
+  };
+  const bookProfit = IS.profitBeforeTax ?? 0;
+  const bookDepreciation = adj.depreciationSummary?.reduce((s, d) => s + d.depnForYear, 0) ?? 0;
+  const taxDepreciation = (adj.depreciationSummary ?? []).reduce((total, d) => {
+    const rate = TAX_DEPN_RATES[d.categoryId] ?? 0.1;
+    const basis = d.openingCost + d.additions - d.disposals - d.openingAccumDepn;
+    return total + Math.max(0, basis) * rate;
+  }, 0);
+  const disallowableExpenses = {
+    "Accounting Depreciation": bookDepreciation,
+    "Provisions (non-deductible)": provisions.reduce((s, p) => s + (p.closingBalance ?? 0), 0)
+  };
+  const allowableDeductions = {
+    "Tax Depreciation (ITA 2058)": taxDepreciation
+  };
+  const taxResult = computeIncomeTax({
+    bookProfit,
+    taxRate,
+    disallowableExpenses,
+    allowableExpenses: allowableDeductions,
+    advanceTaxPaid: advanceTaxPaid + tdsCredit,
+    tdsCredit: 0,
+    previousYearLoss: 0
+  });
+  const note323_taxExpense = {
+    currentTaxExpense: round(taxResult.currentTaxExpense),
+    deferredTaxExpense: 0,
+    priorYearAdjustment: 0,
+    totalTaxExpense: round(taxResult.currentTaxExpense),
+    effectiveTaxRate: taxResult.effectiveTaxRate,
+    reconciliation: {
+      profitBeforeTax: bookProfit,
+      disallowableExpenses,
+      allowableDeductions,
+      taxableProfit: round(taxResult.taxableIncome),
+      taxAtStatutoryRate: round(taxResult.taxableIncome * taxRate),
+      taxAdjustments: 0,
+      totalCurrentTax: round(taxResult.currentTaxExpense)
+    },
+    taxDepreciationByPool: (adj.taxDepreciationPools ?? []).map((pool) => ({
+      poolName: pool.poolName,
+      rate: pool.rate,
+      openingBasis: pool.openingBasis,
+      additions: pool.additionsFullYear + pool.additionsTwoThirds + pool.additionsOneThird,
+      disposals: pool.disposals,
+      depreciationBasis: pool.depreciationBasis,
+      taxDepreciation: pool.taxDepreciation,
+      closingBasis: pool.closingBasis
+    })),
+    advanceTaxPaid,
+    tdsCreditAvailable: tdsCredit,
+    netTaxPayable: round(taxResult.taxPayable)
+  };
+  const rpReceivableRows = rowsByCategory(rows, "related_party_receivable");
+  const rpPayRows = rowsByCategory(rows, "related_party_payable");
+  const note324_relatedParty = {
+    relatedParties: [
+      ...rpPayRows.map((r) => ({
+        partyName: r.rawLabel,
+        relationship: "Director / Related Party",
+        natureOfTransaction: "Loan Received",
+        transactionAmount: 0,
+        outstandingBalance: Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)),
+        balanceType: "Payable",
+        atArmSLength: false
+      })),
+      ...rpReceivableRows.map((r) => ({
+        partyName: r.rawLabel,
+        relationship: "Director / Related Party",
+        natureOfTransaction: "Loan Given",
+        transactionAmount: 0,
+        outstandingBalance: Math.abs((r.closingDr ?? 0) - (r.closingCr ?? 0)),
+        balanceType: "Receivable",
+        atArmSLength: false
+      }))
+    ],
+    kmpCompensationTotal: 0,
+    noRelatedPartyTransactions: rpPayRows.length === 0 && rpReceivableRows.length === 0
+  };
+  const note325_contingencies = {
+    hasContingencies: false,
+    bankGuaranteesIssued: 0,
+    lcOpened: 0,
+    legalCasesPending: [],
+    capitalCommitments: 0,
+    operatingLeaseCommitments: 0,
+    defaultText: "The Company has no contingent liabilities or commitments as at the reporting date."
+  };
+  const note326_subsequentEvents = {
+    hasSubsequentEvents: false,
+    events: [],
+    defaultText: "There are no significant events after the reporting date that require adjustment to or disclosure in these financial statements."
+  };
+  return {
+    note31_ppe,
+    note32_investments,
+    note33_tradeReceivables,
+    note34_otherCurrentAssets,
+    note35_biologicalAssets,
+    note36_heldForSale,
+    note37_inventories,
+    note38_cashEquivalents,
+    note39_shareCapital,
+    note310_reserves,
+    note311_borrowings,
+    note312_employeeBenefits,
+    note313_tradePayables,
+    note314_taxComputation,
+    note315_revenue,
+    note316_dividendPayable,
+    note317_revenueDetailed,
+    note318_materialConsumed,
+    note319_otherIncome,
+    note320_employeeExpenses,
+    note321_depreciation,
+    note322_adminExpenses,
+    note323_taxExpense,
+    note324_relatedParty,
+    note325_contingencies,
+    note326_subsequentEvents
+  };
+}
+
+// server/services/financialEngine.ts
 function sumDr(rows, ...categories) {
   const catSet = new Set(categories);
-  return rows.filter((r) => catSet.has(r.nfrsCategory)).reduce((acc, r) => acc + (r.closingDr ?? 0), 0);
+  return rows.filter((r) => catSet.has(r.nfrsCategory) && !r.isGroupRow).reduce((acc, r) => acc + (r.closingDr ?? 0), 0);
+}
+function sumCr(rows, ...categories) {
+  const catSet = new Set(categories);
+  return rows.filter((r) => catSet.has(r.nfrsCategory) && !r.isGroupRow).reduce((acc, r) => acc + (r.closingCr ?? 0), 0);
 }
 function sumOpeningDr(rows, ...categories) {
   const catSet = new Set(categories);
-  return rows.filter((r) => catSet.has(r.nfrsCategory)).reduce((acc, r) => acc + (r.openingDr ?? 0), 0);
+  return rows.filter((r) => catSet.has(r.nfrsCategory) && !r.isGroupRow).reduce((acc, r) => acc + (r.openingDr ?? 0), 0);
 }
 function sumOpeningCr(rows, ...categories) {
   const catSet = new Set(categories);
-  return rows.filter((r) => catSet.has(r.nfrsCategory)).reduce((acc, r) => acc + (r.openingCr ?? 0), 0);
+  return rows.filter((r) => catSet.has(r.nfrsCategory) && !r.isGroupRow).reduce((acc, r) => acc + (r.openingCr ?? 0), 0);
 }
-var round = (n) => Math.round(n * 100) / 100;
-function computeBalanceSheet(tb, adj, is, previousYearBS = {}) {
+function netBalance(rows, ...categories) {
+  return sumDr(rows, ...categories) - sumCr(rows, ...categories);
+}
+var round2 = (n) => Math.round(n * 100) / 100;
+function splitCashAndOverdrafts(rows) {
+  const cashCats = /* @__PURE__ */ new Set(["cash_in_hand", "bank_current_account", "bank_fixed_deposit_current"]);
+  let cash = 0;
+  let overdrafts = 0;
+  for (const row of rows) {
+    if (!cashCats.has(row.nfrsCategory) || row.isGroupRow) continue;
+    const net = (row.closingDr ?? 0) - (row.closingCr ?? 0);
+    if (net >= 0) cash += net;
+    else overdrafts += -net;
+  }
+  return { cash: round2(cash), overdrafts: round2(overdrafts) };
+}
+var ADMIN_CATEGORIES = [
+  "admin_rent",
+  "admin_rates_taxes",
+  "admin_insurance",
+  "admin_repairs",
+  "admin_electricity",
+  "admin_communication",
+  "admin_printing",
+  "admin_legal_professional",
+  "admin_audit_fee",
+  "admin_traveling",
+  "admin_advertisement",
+  "admin_other"
+];
+function inventoryFromAdj(adj, rows) {
+  const inv = adj.inventoryDetails;
+  const openingPY = inv ? inv.rawMaterialsPY + inv.wipPY + inv.finishedGoodsPY : sumOpeningDr(rows, "inventory_raw_materials", "inventory_wip", "inventory_finished_goods");
+  const closingCY = inv ? inv.rawMaterialsCY + inv.wipCY + inv.finishedGoodsCY : sumDr(rows, "inventory_raw_materials", "inventory_wip", "inventory_finished_goods");
+  return { openingPY, closingCY };
+}
+function computeIncomeStatement(tb, adj, company, previousYearIS = {}) {
+  const rows = tb.rows;
+  const revenue = round2(sumCr(rows, "revenue_sales", "revenue_services"));
+  const interestIncome = round2(sumCr(rows, "other_income_interest"));
+  const otherIncome = round2(
+    sumCr(rows, "other_income_dividend", "other_income_rental", "other_income_misc", "other_income_disposal_gain") + adj.gainOnDisposals + adj.investmentAdjustments.filter((i) => (i.fairValueGainLoss ?? 0) > 0).reduce((s, i) => s + (i.fairValueGainLoss ?? 0), 0)
+  );
+  const totalIncome = round2(revenue + interestIncome + otherIncome);
+  const { openingPY, closingCY } = inventoryFromAdj(adj, rows);
+  const materialConsumed = round2(
+    openingPY + sumDr(rows, "cogs_purchases", "cogs_opening_stock") - closingCY
+  );
+  const directExpenses = round2(sumDr(rows, "direct_wages", "direct_expenses_other"));
+  const staffBonusProvision = adj.staffBonusProvision ?? round2(sumDr(rows, "emp_expense_bonus"));
+  const employeeBenefitExpense = round2(
+    sumDr(rows, "emp_expense_salaries", "emp_expense_welfare") + sumDr(rows, "emp_expense_pf", "emp_expense_gratuity", "emp_expense_other") + staffBonusProvision + sumDr(rows, "emp_expense_leave")
+  );
+  const financeCharges = round2(sumDr(rows, "finance_cost_interest", "finance_cost_bank_charges"));
+  const depreciation = round2(adj.totalDepreciationExpense);
+  const impairment = round2(
+    sumDr(rows, "impairment_expense") + adj.investmentAdjustments.reduce((s, i) => s + (i.impairmentAmount ?? 0), 0) + adj.investmentAdjustments.filter((i) => (i.fairValueGainLoss ?? 0) < 0).reduce((s, i) => s + Math.abs(i.fairValueGainLoss ?? 0), 0)
+  );
+  const adminAndOtherExpenses = round2(
+    ADMIN_CATEGORIES.reduce((s, cat) => s + sumDr(rows, cat), 0)
+  );
+  const totalExpenses = round2(
+    materialConsumed + directExpenses + employeeBenefitExpense + financeCharges + depreciation + impairment + adminAndOtherExpenses
+  );
+  const profitBeforeStaffBonus = round2(totalIncome - (totalExpenses - staffBonusProvision));
+  const staffBonus = round2(staffBonusProvision);
+  const profitBeforeTax = round2(profitBeforeStaffBonus - staffBonus);
+  const incomeTaxExpense = round2(
+    adj.incomeTaxProvision ?? adj.currentTaxExpense ?? sumDr(rows, "income_tax_expense")
+  );
+  const netProfit = round2(profitBeforeTax - incomeTaxExpense);
+  return {
+    revenue,
+    interestIncome,
+    otherIncome,
+    totalIncome,
+    materialConsumed,
+    directExpenses,
+    employeeBenefitExpense,
+    financeCharges,
+    depreciation,
+    impairment,
+    adminAndOtherExpenses,
+    totalExpenses,
+    profitBeforeStaffBonus,
+    staffBonus,
+    profitBeforeTax,
+    incomeTaxExpense,
+    netProfit,
+    revenue_py: previousYearIS.revenue ?? 0,
+    interestIncome_py: previousYearIS.interestIncome ?? 0,
+    otherIncome_py: previousYearIS.otherIncome ?? 0,
+    totalIncome_py: previousYearIS.totalIncome ?? 0,
+    materialConsumed_py: previousYearIS.materialConsumed ?? 0,
+    directExpenses_py: previousYearIS.directExpenses ?? 0,
+    employeeBenefitExpense_py: previousYearIS.employeeBenefitExpense ?? 0,
+    financeCharges_py: previousYearIS.financeCharges ?? 0,
+    depreciation_py: previousYearIS.depreciation ?? 0,
+    impairment_py: previousYearIS.impairment ?? 0,
+    adminAndOtherExpenses_py: previousYearIS.adminAndOtherExpenses ?? 0,
+    totalExpenses_py: previousYearIS.totalExpenses ?? 0,
+    profitBeforeStaffBonus_py: previousYearIS.profitBeforeStaffBonus ?? 0,
+    staffBonus_py: previousYearIS.staffBonus ?? 0,
+    profitBeforeTax_py: previousYearIS.profitBeforeTax ?? 0,
+    incomeTaxExpense_py: previousYearIS.incomeTaxExpense ?? 0,
+    netProfit_py: previousYearIS.netProfit ?? 0
+  };
+}
+function computeBalanceSheet(tb, adj, is, company, previousYearBS = {}) {
   const rows = tb.rows;
   const grossPPE = sumDr(
     rows,
@@ -3162,65 +4476,114 @@ function computeBalanceSheet(tb, adj, is, previousYearBS = {}) {
     "ppe_intangibles",
     "ppe_cwip"
   );
-  const accumDepnTB = sumCr(rows, "accum_depreciation");
-  const totalAccumDepn = accumDepnTB + adj.totalDepreciationExpense;
-  const nca_ppe = Math.max(0, grossPPE - totalAccumDepn);
-  const investmentNonCurrent = sumDr(rows, "investment_listed_trading", "investment_unlisted", "investment_fixed_deposit_noncurrent") - adj.investmentAdjustments.reduce((sum, inv) => sum + (inv.impairmentAmount ?? 0), 0);
-  const nca_investments = Math.max(0, investmentNonCurrent);
-  const nca_receivables = Math.max(
+  const accumDepn = sumCr(rows, "accum_depreciation");
+  const depnInTB = round2(sumCr(rows, "accum_depreciation") - sumOpeningCr(rows, "accum_depreciation"));
+  const totalAccumDepn = depnInTB >= adj.totalDepreciationExpense * 0.99 ? accumDepn : accumDepn + adj.totalDepreciationExpense;
+  const nca_ppe = round2(Math.max(0, grossPPE - totalAccumDepn));
+  const listedFVAdj = adj.investmentAdjustments.filter((i) => i.investmentType === "listed_trading" || i.investmentType === "listed_ats").reduce((s, i) => s + (i.fairValueGainLoss ?? 0), 0);
+  const unlistedImpair = adj.investmentAdjustments.filter((i) => i.investmentType === "unlisted").reduce((s, i) => s + (i.impairmentAmount ?? 0), 0);
+  const invImpairmentProvision = sumCr(rows, "provision_impairment_investment");
+  const investmentListed = sumDr(rows, "investment_listed_trading") + listedFVAdj;
+  const investmentUnlisted = sumDr(rows, "investment_unlisted") - unlistedImpair;
+  const investmentFD_NC = sumDr(rows, "investment_fixed_deposit_noncurrent");
+  const nca_investments = round2(Math.max(
     0,
-    sumDr(rows, "nca_deposits", "nca_loans_advances")
+    investmentListed + investmentUnlisted + investmentFD_NC - invImpairmentProvision
+  ));
+  const relatedPartyRecNC = sumDr(rows, "related_party_receivable");
+  const nca_receivables = round2(
+    sumDr(rows, "nca_deposits", "nca_loans_advances") + relatedPartyRecNC
   );
-  const nca_other = Math.max(0, sumDr(rows, "other_noncurrent_assets"));
-  const totalNonCurrentAssets = round(nca_ppe + nca_investments + nca_receivables + nca_other);
+  const nca_other = round2(
+    sumDr(rows, "biological_assets", "other_noncurrent_assets", "nca_other")
+  );
+  const totalNonCurrentAssets = round2(nca_ppe + nca_investments + nca_receivables + nca_other);
   const ca_investments = 0;
-  const grossInventory = sumDr(rows, "inventory_raw_materials", "inventory_wip", "inventory_finished_goods");
-  const ca_inventories = Math.max(0, grossInventory - adj.totalInventoryImpairment);
+  const { closingCY } = inventoryFromAdj(adj, rows);
+  const ca_inventories = round2(Math.max(0, closingCY - adj.totalInventoryImpairment));
   const tradeRec = sumDr(rows, "trade_receivables");
   const impairmentOnRec = sumCr(rows, "provision_impairment_debtors");
-  const otherRec = sumDr(
-    rows,
-    "other_receivables_advance_supplier",
-    "other_receivables_prepayments",
-    "other_receivables_staff_advance",
-    "other_receivables_tds",
-    "other_receivables_loans"
-  );
-  const ca_tradeReceivables = Math.max(0, tradeRec - impairmentOnRec + otherRec);
-  const ca_cashAndEquivalents = Math.max(
+  const ca_tradeReceivables = round2(Math.max(
     0,
-    sumDr(rows, "cash_in_hand", "bank_current_account", "bank_fixed_deposit_current") - sumCr(rows, "bank_current_account")
-    // overdraft offsets bank balance
+    tradeRec - impairmentOnRec + sumDr(rows, "related_party_receivable") + sumDr(
+      rows,
+      "other_receivables_advance_supplier",
+      "other_receivables_prepayments",
+      "other_receivables_staff_advance",
+      "other_receivables_tds",
+      "other_receivables_loans"
+    )
+  ));
+  const { cash: cashNet, overdrafts: bankOverdrafts } = splitCashAndOverdrafts(rows);
+  const ca_cashAndEquivalents = cashNet;
+  const ca_other = round2(sumDr(rows, "lc_bg_margin", "other_current_assets", "nca_held_for_sale"));
+  const totalCurrentAssets = round2(
+    ca_investments + ca_inventories + ca_tradeReceivables + ca_cashAndEquivalents + ca_other
   );
-  const ca_other = Math.max(0, sumDr(rows, "other_current_assets"));
-  const totalCurrentAssets = round(ca_investments + ca_inventories + ca_tradeReceivables + ca_cashAndEquivalents + ca_other);
-  const totalAssets = round(totalNonCurrentAssets + totalCurrentAssets);
-  const eq_shareCapital = round(sumCr(rows, "share_capital", "share_premium"));
-  const eq_reserves = round(sumCr(rows, "general_reserve"));
-  const openingRetained = sumOpeningCr(rows, "retained_earnings");
-  const eq_retainedEarnings = round(sumCr(rows, "retained_earnings") + is.netProfit);
-  const totalEquity = round(eq_shareCapital + eq_reserves + eq_retainedEarnings);
-  const ncl_borrowings = round(sumCr(rows, "borrowings_noncurrent_bank"));
-  const ncl_employeeBenefits = 0;
+  const totalAssets = round2(totalNonCurrentAssets + totalCurrentAssets);
+  const shareCapital = round2(sumCr(rows, "share_capital"));
+  const sharePremium = round2(sumCr(rows, "share_premium"));
+  const reserves = round2(sumCr(rows, "capital_reserve", "revaluation_reserve"));
+  const dividendDeclared = adj.dividendPayable ?? sumCr(rows, "dividend_payable") ?? round2((company.dividendDeclaredPercent ?? 0) / 100 * shareCapital);
+  const openingRE = round2(
+    sumOpeningCr(rows, "retained_earnings", "general_reserve") - sumOpeningDr(rows, "retained_earnings", "general_reserve")
+  );
+  const eq_retainedEarnings = round2(openingRE + is.netProfit - dividendDeclared);
+  const eq_shareCapital = round2(shareCapital + sharePremium);
+  const eq_reserves = round2(reserves);
+  const totalEquity = round2(eq_shareCapital + eq_reserves + eq_retainedEarnings);
+  const ncl_borrowings = round2(
+    sumCr(rows, "borrowings_noncurrent_bank", "borrowings_noncurrent_other", "borrowings_noncurrent_related")
+  );
+  const ncl_employeeBenefits = round2(sumCr(rows, "employee_benefit_noncurrent", "employee_benefit_gratuity"));
   const ncl_provisions = 0;
   const ncl_deferredTax = 0;
-  const totalNonCurrentLiabilities = round(ncl_borrowings + ncl_employeeBenefits + ncl_provisions + ncl_deferredTax);
-  const cl_borrowings = round(
-    sumCr(rows, "borrowings_current_od", "borrowings_current_cc", "borrowings_current_wc")
+  const totalNonCurrentLiabilities = round2(
+    ncl_borrowings + ncl_employeeBenefits + ncl_provisions + ncl_deferredTax
   );
-  const cl_tradePayables = round(
-    sumCr(rows, "trade_payables_creditors", "tds_payable", "other_payables", "audit_fee_payable", "trade_payables_advance_customers")
+  const cl_borrowings = round2(
+    sumCr(
+      rows,
+      "borrowings_current_od",
+      "borrowings_current_cc",
+      "borrowings_current_wc",
+      "borrowings_current_portion_lt",
+      "borrowings_related_current",
+      "related_party_payable"
+    ) + bankOverdrafts
   );
-  const incomeTaxPayable = round(sumCr(rows, "income_tax_payable") + is.incomeTaxExpense);
-  const advanceTax = round(sumDr(rows, "other_receivables_tds"));
-  const cl_incomeTaxPayable = round(Math.max(0, incomeTaxPayable - advanceTax));
-  const cl_provisions = round(
-    sumCr(rows, "employee_payables_pf", "employee_payables_bonus", "employee_payables_salary") + is.staffBonus
+  const cl_tradePayables = round2(
+    sumCr(
+      rows,
+      "trade_payables_creditors",
+      "audit_fee_payable",
+      "tds_payable",
+      "other_payables",
+      "trade_payables_advance_customers"
+    )
   );
-  const cl_other = 0;
-  const totalCurrentLiabilities = round(cl_borrowings + cl_tradePayables + cl_incomeTaxPayable + cl_provisions + cl_other);
-  const totalEquityAndLiabilities = round(totalEquity + totalNonCurrentLiabilities + totalCurrentLiabilities);
-  const checkDifference = round(totalAssets - totalEquityAndLiabilities);
+  const incomeTaxPayable = round2(sumCr(rows, "income_tax_payable"));
+  const advanceTax = round2(sumDr(rows, "advance_tax_paid", "other_receivables_tds"));
+  const cl_incomeTaxPayable = round2(Math.max(
+    0,
+    incomeTaxPayable - advanceTax - (adj.incomeTaxPaidPY ?? 0) + Math.max(0, (adj.incomeTaxProvision ?? 0) - sumDr(rows, "income_tax_expense"))
+  ));
+  const cl_provisions = round2(
+    sumCr(
+      rows,
+      "provisions_csr",
+      "provisions_current",
+      "employee_payables_pf",
+      "employee_payables_salary",
+      "employee_payables_bonus"
+    )
+  );
+  const cl_other = round2(sumCr(rows, "advance_from_customers", "dividend_payable"));
+  const totalCurrentLiabilities = round2(
+    cl_borrowings + cl_tradePayables + cl_incomeTaxPayable + cl_provisions + cl_other
+  );
+  const totalEquityAndLiabilities = round2(totalEquity + totalNonCurrentLiabilities + totalCurrentLiabilities);
+  const checkDifference = round2(totalAssets - totalEquityAndLiabilities);
   return {
     nca_ppe,
     nca_investments,
@@ -3251,7 +4614,6 @@ function computeBalanceSheet(tb, adj, is, previousYearBS = {}) {
     totalCurrentLiabilities,
     totalEquityAndLiabilities,
     checkDifference,
-    // Previous year fields
     nca_ppe_py: previousYearBS.nca_ppe ?? 0,
     nca_investments_py: previousYearBS.nca_investments ?? 0,
     nca_receivables_py: previousYearBS.nca_receivables ?? 0,
@@ -3283,135 +4645,40 @@ function computeBalanceSheet(tb, adj, is, previousYearBS = {}) {
     checkDifference_py: previousYearBS.checkDifference ?? 0
   };
 }
-function computeIncomeStatement(tb, adj, accountingPolicies, previousYearIS = {}) {
+function computeChangesInEquity(tb, adj, is, company, previousCIE) {
   const rows = tb.rows;
-  const revenue = round(sumCr(rows, "revenue_sales", "revenue_services"));
-  const interestIncome = round(sumCr(rows, "other_income_interest"));
-  const otherIncomeTB = round(
-    sumCr(rows, "other_income_dividend", "other_income_rental", "other_income_misc", "other_income_disposal_gain")
+  const shareCapital = sumCr(rows, "share_capital");
+  const sharePremium = sumCr(rows, "share_premium");
+  const otherReserves = sumCr(rows, "general_reserve", "capital_reserve", "revaluation_reserve");
+  const openingShareCapital = sumOpeningCr(rows, "share_capital");
+  const openingSharePremium = sumOpeningCr(rows, "share_premium");
+  const openingOtherReserves = sumOpeningCr(rows, "general_reserve", "capital_reserve", "revaluation_reserve");
+  const openingRetained = round2(
+    sumOpeningCr(rows, "retained_earnings", "general_reserve") - sumOpeningDr(rows, "retained_earnings", "general_reserve")
   );
-  const otherIncome = round(otherIncomeTB + adj.gainOnDisposals);
-  const totalIncome = round(revenue + interestIncome + otherIncome);
-  const openingStock = round(
-    sumOpeningDr(rows, "inventory_raw_materials", "inventory_wip", "inventory_finished_goods")
-  );
-  const purchases = round(sumDr(rows, "cogs_purchases", "cogs_opening_stock"));
-  const closingStock = round(
-    sumDr(rows, "inventory_raw_materials", "inventory_wip", "inventory_finished_goods")
-  );
-  const materialConsumed = round(openingStock + purchases - closingStock);
-  const directExpenses = round(sumDr(rows, "direct_wages", "direct_expenses_other"));
-  const employeeSalaries = round(sumDr(rows, "emp_expense_salaries", "emp_expense_pf", "emp_expense_gratuity", "emp_expense_welfare"));
-  const provisionExpenses = adj.provisions.filter((p) => p.provisionType === "gratuity" || p.provisionType === "leave_encashment").reduce((sum, p) => sum + p.additionForYear, 0);
-  const employeeBenefitExpense = round(employeeSalaries + provisionExpenses);
-  const financeCharges = round(sumDr(rows, "finance_cost_interest", "finance_cost_bank_charges"));
-  const depreciation = round(adj.totalDepreciationExpense);
-  const impairmentTB = round(sumDr(rows, "impairment_expense"));
-  const impairment = round(impairmentTB + adj.totalInventoryImpairment);
-  const adminAndOtherExpenses = round(
-    sumDr(
-      rows,
-      "admin_rent",
-      "admin_rates_taxes",
-      "admin_insurance",
-      "admin_repairs",
-      "admin_electricity",
-      "admin_communication",
-      "admin_printing",
-      "admin_legal_professional",
-      "admin_audit_fee",
-      "admin_traveling",
-      "admin_advertisement",
-      "admin_other"
-    )
-  );
-  const totalExpenses = round(materialConsumed + directExpenses + employeeBenefitExpense + financeCharges + depreciation + impairment + adminAndOtherExpenses);
-  const profitBeforeStaffBonus = round(totalIncome - totalExpenses);
-  const bonusRate = (accountingPolicies.bonusRatePercent ?? 10) / 100;
-  const staffBonus = round(
-    profitBeforeStaffBonus > 0 ? profitBeforeStaffBonus * bonusRate : 0
-  );
-  const profitBeforeTax = round(profitBeforeStaffBonus - staffBonus);
-  const taxFromAdj = adj.currentTaxExpense ?? 0;
-  const taxFromTB = round(sumDr(rows, "income_tax_expense"));
-  const incomeTaxExpense = round(taxFromAdj > 0 ? taxFromAdj : taxFromTB);
-  const netProfit = round(profitBeforeTax - incomeTaxExpense);
+  const shareIssued = company.shareIssuedDuringYear ? round2(company.shareIssuedDuringYear * 100) : round2(shareCapital - openingShareCapital);
+  const dividendDeclared = adj.dividendPayable ?? sumCr(rows, "dividend_payable") ?? round2((company.dividendDeclaredPercent ?? 0) / 100 * openingShareCapital);
+  const closingRetained = round2(openingRetained + is.netProfit - dividendDeclared);
   return {
-    revenue,
-    interestIncome,
-    otherIncome,
-    totalIncome,
-    materialConsumed,
-    directExpenses,
-    employeeBenefitExpense,
-    financeCharges,
-    depreciation,
-    impairment,
-    adminAndOtherExpenses,
-    totalExpenses,
-    profitBeforeStaffBonus,
-    staffBonus,
-    profitBeforeTax,
-    incomeTaxExpense,
-    netProfit,
-    // Previous year
-    revenue_py: previousYearIS.revenue ?? 0,
-    interestIncome_py: previousYearIS.interestIncome ?? 0,
-    otherIncome_py: previousYearIS.otherIncome ?? 0,
-    totalIncome_py: previousYearIS.totalIncome ?? 0,
-    materialConsumed_py: previousYearIS.materialConsumed ?? 0,
-    directExpenses_py: previousYearIS.directExpenses ?? 0,
-    employeeBenefitExpense_py: previousYearIS.employeeBenefitExpense ?? 0,
-    financeCharges_py: previousYearIS.financeCharges ?? 0,
-    depreciation_py: previousYearIS.depreciation ?? 0,
-    impairment_py: previousYearIS.impairment ?? 0,
-    adminAndOtherExpenses_py: previousYearIS.adminAndOtherExpenses ?? 0,
-    totalExpenses_py: previousYearIS.totalExpenses ?? 0,
-    profitBeforeStaffBonus_py: previousYearIS.profitBeforeStaffBonus ?? 0,
-    staffBonus_py: previousYearIS.staffBonus ?? 0,
-    profitBeforeTax_py: previousYearIS.profitBeforeTax ?? 0,
-    incomeTaxExpense_py: previousYearIS.incomeTaxExpense ?? 0,
-    netProfit_py: previousYearIS.netProfit ?? 0
+    cyOpeningShareCapital: round2(openingShareCapital),
+    cyOpeningSharePremium: round2(openingSharePremium),
+    cyOpeningGeneralReserve: round2(openingOtherReserves),
+    cyOpeningRetainedEarnings: round2(openingRetained),
+    cyOpeningTotal: round2(openingShareCapital + openingSharePremium + openingOtherReserves + openingRetained),
+    cyNetProfit: round2(is.netProfit),
+    cyShareCapitalIssued: shareIssued,
+    cySharePremiumReceived: round2(sharePremium - openingSharePremium),
+    cyTransferToReserve: 0,
+    cyDividends: round2(dividendDeclared),
+    cyClosingShareCapital: round2(shareCapital),
+    cyClosingSharePremium: round2(sharePremium),
+    cyClosingGeneralReserve: round2(otherReserves),
+    cyClosingRetainedEarnings: closingRetained,
+    cyClosingTotal: round2(shareCapital + sharePremium + otherReserves + closingRetained),
+    ...previousCIE
   };
 }
-function computeChangesInEquity(tb, is, _company) {
-  const rows = tb.rows;
-  const openingShareCapital = round(sumOpeningCr(rows, "share_capital"));
-  const openingSharePremium = round(sumOpeningCr(rows, "share_premium"));
-  const openingGeneralReserve = round(sumOpeningCr(rows, "general_reserve"));
-  const openingRetainedEarnings = round(sumOpeningCr(rows, "retained_earnings"));
-  const openingTotal = round(openingShareCapital + openingSharePremium + openingGeneralReserve + openingRetainedEarnings);
-  const addProfitForYear = round(is.netProfit);
-  const addNewShareCapital = round(sumCr(rows, "share_capital") - sumOpeningCr(rows, "share_capital"));
-  const addSharePremiumOnNewIssue = round(sumCr(rows, "share_premium") - openingSharePremium);
-  const addTransferToReserve = 0;
-  const lessTransferFromReserve = 0;
-  const lessDividendPaid = 0;
-  const lessBonusShareIssued = 0;
-  const closingShareCapital = round(sumCr(rows, "share_capital"));
-  const closingSharePremium = round(sumCr(rows, "share_premium"));
-  const closingGeneralReserve = round(sumCr(rows, "general_reserve"));
-  const closingRetainedEarnings = round(openingRetainedEarnings + addProfitForYear - lessDividendPaid);
-  const closingTotal = round(closingShareCapital + closingSharePremium + closingGeneralReserve + closingRetainedEarnings);
-  return {
-    cyOpeningShareCapital: openingShareCapital,
-    cyOpeningSharePremium: openingSharePremium,
-    cyOpeningGeneralReserve: openingGeneralReserve,
-    cyOpeningRetainedEarnings: openingRetainedEarnings,
-    cyOpeningTotal: openingTotal,
-    cyNetProfit: addProfitForYear,
-    cyShareCapitalIssued: addNewShareCapital,
-    cySharePremiumReceived: addSharePremiumOnNewIssue,
-    cyTransferToReserve: addTransferToReserve,
-    cyDividends: lessDividendPaid,
-    cyClosingShareCapital: closingShareCapital,
-    cyClosingSharePremium: closingSharePremium,
-    cyClosingGeneralReserve: closingGeneralReserve,
-    cyClosingRetainedEarnings: closingRetainedEarnings,
-    cyClosingTotal: closingTotal
-  };
-}
-function computeCashFlow(tb, bs, is, adj) {
+function computeCashFlow(tb, adj, is, bs, previousCF) {
   const rows = tb.rows;
   const profitBeforeTax = is.profitBeforeTax;
   const addDepreciation = adj.totalDepreciationExpense;
@@ -3425,77 +4692,86 @@ function computeCashFlow(tb, bs, is, adj) {
   const fvGain = adj.investmentAdjustments.filter((i) => (i.fairValueGainLoss ?? 0) > 0).reduce((s, i) => s + (i.fairValueGainLoss ?? 0), 0);
   const addFVLossOnInvestment = fvLoss;
   const lessFVGainOnInvestment = -fvGain;
-  const closingRec = bs.ca_tradeReceivables;
-  const openingRec = round(
+  const prevTradeRec = previousCF?.decreaseIncreaseReceivables !== void 0 ? bs.ca_tradeReceivables + previousCF.decreaseIncreaseReceivables : round2(
     sumOpeningDr(
       rows,
       "trade_receivables",
       "other_receivables_advance_supplier",
       "other_receivables_prepayments",
       "other_receivables_staff_advance",
-      "other_receivables_loans"
-    )
+      "other_receivables_loans",
+      "related_party_receivable"
+    ) - sumOpeningCr(rows, "provision_impairment_debtors")
   );
-  const decreaseIncreaseReceivables = round(openingRec - closingRec);
-  const closingInv = bs.ca_inventories;
-  const openingInv = round(
-    sumOpeningDr(rows, "inventory_raw_materials", "inventory_wip", "inventory_finished_goods")
+  const decreaseIncreaseReceivables = round2(prevTradeRec - bs.ca_tradeReceivables);
+  const { openingPY, closingCY } = inventoryFromAdj(adj, rows);
+  const prevInv = previousCF?.decreaseIncreaseInventory !== void 0 ? bs.ca_inventories + previousCF.decreaseIncreaseInventory : openingPY;
+  const decreaseIncreaseInventory = round2(prevInv - bs.ca_inventories);
+  const prevOtherCA = sumOpeningDr(rows, "other_current_assets", "nca_held_for_sale");
+  const decreaseIncreaseOtherCurrentAssets = round2(prevOtherCA - bs.ca_other);
+  const prevPayables = sumOpeningCr(
+    rows,
+    "trade_payables_creditors",
+    "tds_payable",
+    "other_payables",
+    "audit_fee_payable",
+    "trade_payables_advance_customers"
   );
-  const decreaseIncreaseInventory = round(openingInv - closingInv);
-  const decreaseIncreaseOtherCurrentAssets = round(
-    sumOpeningDr(rows, "other_current_assets") - bs.ca_other
+  const increaseDecreasePayables = round2(bs.cl_tradePayables - prevPayables);
+  const prevTaxPayable = sumOpeningCr(rows, "income_tax_payable");
+  const increaseDecreaseIncomeTaxPayable = round2(bs.cl_incomeTaxPayable - prevTaxPayable);
+  const prevEmpLiab = sumOpeningCr(
+    rows,
+    "employee_payables_pf",
+    "employee_payables_bonus",
+    "employee_payables_salary",
+    "employee_benefit_noncurrent"
   );
-  const closingPayables = bs.cl_tradePayables;
-  const openingPayables = round(
-    sumOpeningCr(rows, "trade_payables_creditors", "tds_payable", "other_payables", "audit_fee_payable")
+  const currentEmpLiab = round2(
+    sumCr(rows, "employee_payables_pf", "employee_payables_bonus", "employee_payables_salary") + (adj.staffBonusProvision ?? is.staffBonus)
   );
-  const increaseDecreasePayables = round(closingPayables - openingPayables);
-  const increaseDecreaseIncomeTaxPayable = round(bs.cl_incomeTaxPayable - sumOpeningCr(rows, "income_tax_payable"));
-  const increaseDecreaseEmployeeLiability = round(
-    sumCr(rows, "employee_payables_pf", "employee_payables_bonus", "employee_payables_salary") - sumOpeningCr(rows, "employee_payables_pf", "employee_payables_bonus", "employee_payables_salary")
-  );
-  const increaseDecreaseProvisions = 0;
-  const cashGeneratedFromOperations = round(
+  const increaseDecreaseEmployeeLiability = round2(currentEmpLiab - prevEmpLiab);
+  const prevProvisions = sumOpeningCr(rows, "provisions_csr", "provisions_current");
+  const increaseDecreaseProvisions = round2(bs.cl_provisions - prevProvisions - (adj.staffBonusProvision ?? 0));
+  const cashGeneratedFromOperations = round2(
     profitBeforeTax + addDepreciation + addImpairment + lessInterestIncome + lessDividendIncome + addInterestExpense + addLossOnDisposal + lessGainOnDisposal + addFVLossOnInvestment + lessFVGainOnInvestment + decreaseIncreaseReceivables + decreaseIncreaseInventory + decreaseIncreaseOtherCurrentAssets + increaseDecreasePayables + increaseDecreaseIncomeTaxPayable + increaseDecreaseEmployeeLiability + increaseDecreaseProvisions
   );
   const interestPaid = -Math.abs(is.financeCharges);
-  const incomeTaxPaid = -Math.abs(is.incomeTaxExpense);
-  const netCashFromOperating = round(cashGeneratedFromOperations + interestPaid + incomeTaxPaid);
+  const incomeTaxPaid = -Math.abs(
+    sumDr(rows, "advance_tax_paid") + (adj.incomeTaxPaidPY ?? 0)
+  );
+  const netCashFromOperating = round2(cashGeneratedFromOperations + interestPaid + incomeTaxPaid);
   const proceedsFromPPEDisposal = adj.depreciationResults.reduce((s, r) => s + (r.disposalProceeds ?? 0), 0);
   const proceedsFromInvestmentDisposal = 0;
   const interestReceived = is.interestIncome;
-  const dividendReceived = Math.abs(lessDividendIncome);
+  const dividendReceived = sumCr(rows, "other_income_dividend");
   const purchaseOfPPE = -adj.assets.reduce((s, a) => s + (a.additionalCost ?? 0), 0);
-  const purchaseOfInvestments = -(sumDr(rows, "investment_listed_trading", "investment_unlisted", "investment_fixed_deposit_noncurrent") - sumOpeningDr(rows, "investment_listed_trading", "investment_unlisted", "investment_fixed_deposit_noncurrent"));
-  const netCashFromInvesting = round(
+  const purchaseOfInvestments = -Math.max(
+    0,
+    netBalance(rows, "investment_listed_trading", "investment_unlisted", "investment_fixed_deposit_noncurrent") - (sumOpeningDr(rows, "investment_listed_trading", "investment_unlisted", "investment_fixed_deposit_noncurrent") - sumOpeningCr(rows, "investment_listed_trading", "investment_unlisted", "investment_fixed_deposit_noncurrent"))
+  );
+  const netCashFromInvesting = round2(
     proceedsFromPPEDisposal + proceedsFromInvestmentDisposal + interestReceived + dividendReceived + purchaseOfPPE + purchaseOfInvestments
   );
-  const proceedsFromShareIssue = round(
-    sumCr(rows, "share_capital") - sumOpeningCr(rows, "share_capital") + sumCr(rows, "share_premium") - sumOpeningCr(rows, "share_premium")
+  const proceedsFromShareIssue = round2(
+    sumCr(rows, "share_capital") - sumOpeningCr(rows, "share_capital") + (sumCr(rows, "share_premium") - sumOpeningCr(rows, "share_premium"))
   );
-  const proceedsFromBorrowingsNonCurrent = round(
-    Math.max(0, sumCr(rows, "borrowings_noncurrent_bank") - sumOpeningCr(rows, "borrowings_noncurrent_bank"))
-  );
-  const repaymentOfBorrowingsNonCurrent = round(
-    Math.min(0, sumCr(rows, "borrowings_noncurrent_bank") - sumOpeningCr(rows, "borrowings_noncurrent_bank"))
-  );
-  const proceedsFromBorrowingsCurrent = round(
-    Math.max(0, sumCr(rows, "borrowings_current_od", "borrowings_current_cc", "borrowings_current_wc") - sumOpeningCr(rows, "borrowings_current_od", "borrowings_current_cc", "borrowings_current_wc"))
-  );
-  const repaymentOfBorrowingsCurrent = round(
-    Math.min(0, sumCr(rows, "borrowings_current_od", "borrowings_current_cc", "borrowings_current_wc") - sumOpeningCr(rows, "borrowings_current_od", "borrowings_current_cc", "borrowings_current_wc"))
-  );
-  const dividendPaid = 0;
-  const netCashFromFinancing = round(
+  const ncBorrowChange = sumCr(rows, "borrowings_noncurrent_bank", "borrowings_noncurrent_other") - sumOpeningCr(rows, "borrowings_noncurrent_bank", "borrowings_noncurrent_other");
+  const proceedsFromBorrowingsNonCurrent = round2(Math.max(0, ncBorrowChange));
+  const repaymentOfBorrowingsNonCurrent = round2(Math.min(0, ncBorrowChange));
+  const cBorrowChange = sumCr(rows, "borrowings_current_od", "borrowings_current_cc", "borrowings_current_wc") - sumOpeningCr(rows, "borrowings_current_od", "borrowings_current_cc", "borrowings_current_wc");
+  const proceedsFromBorrowingsCurrent = round2(Math.max(0, cBorrowChange));
+  const repaymentOfBorrowingsCurrent = round2(Math.min(0, cBorrowChange));
+  const dividendPaid = -round2(adj.incomeTaxPaidPY ? 0 : adj.dividendPayable ?? sumCr(rows, "dividend_payable"));
+  const netCashFromFinancing = round2(
     proceedsFromShareIssue + proceedsFromBorrowingsNonCurrent + repaymentOfBorrowingsNonCurrent + proceedsFromBorrowingsCurrent + repaymentOfBorrowingsCurrent + dividendPaid
   );
-  const netIncreaseDecrease = round(netCashFromOperating + netCashFromInvesting + netCashFromFinancing);
-  const openingCash = round(
+  const netIncreaseDecrease = round2(netCashFromOperating + netCashFromInvesting + netCashFromFinancing);
+  const openingCash = round2(
     sumOpeningDr(rows, "cash_in_hand", "bank_current_account", "bank_fixed_deposit_current") - sumOpeningCr(rows, "bank_current_account")
-    // opening overdraft offset
   );
   const closingCash = bs.ca_cashAndEquivalents;
-  const reconciliationDifference = round(closingCash - (openingCash + netIncreaseDecrease));
+  const reconciliationDifference = round2(closingCash - (openingCash + netIncreaseDecrease));
   return {
     profitBeforeTax,
     addDepreciation,
@@ -3535,207 +4811,11 @@ function computeCashFlow(tb, bs, is, adj) {
     netIncreaseDecrease,
     openingCash,
     closingCash,
-    reconciliationDifference
-  };
-}
-function computeNotesData(tb, adj, bs, is) {
-  const rows = tb.rows;
-  const categoryRecord = (cats) => {
-    const out = {};
-    for (const row of rows) {
-      if (cats.includes(row.nfrsCategory)) {
-        const net = round((row.closingCr ?? 0) - (row.closingDr ?? 0));
-        const existing = out[row.rawLabel] ?? { cy: 0, py: 0 };
-        out[row.rawLabel] = { cy: round(existing.cy + net), py: 0 };
-      }
-    }
-    return out;
-  };
-  const expenseRecord = (cats) => {
-    const out = {};
-    for (const row of rows) {
-      if (cats.includes(row.nfrsCategory)) {
-        const net = round((row.closingDr ?? 0) - (row.closingCr ?? 0));
-        const existing = out[row.rawLabel] ?? { cy: 0, py: 0 };
-        out[row.rawLabel] = { cy: round(existing.cy + net), py: 0 };
-      }
-    }
-    return out;
-  };
-  return {
-    note31_ppe: adj.depreciationSummary,
-    note32_investments: {
-      listedShares: adj.investmentAdjustments.filter(
-        (i) => i.investmentType === "listed_trading" || i.investmentType === "listed_ats"
-      ),
-      otherInvestments: adj.investmentAdjustments.filter((i) => i.investmentType === "unlisted")
-    },
-    note33_tradeReceivables: {
-      grossReceivables_cy: round(sumDr(rows, "trade_receivables")),
-      grossReceivables_py: 0,
-      provisionForImpairment_cy: round(sumCr(rows, "provision_impairment_debtors")),
-      provisionForImpairment_py: 0,
-      netReceivables_cy: bs.ca_tradeReceivables,
-      netReceivables_py: 0
-    },
-    note34_otherReceivables: {
-      "Loans and Advances": { cy: round(sumDr(rows, "other_receivables_loans", "nca_loans_advances")), py: 0 },
-      "Prepayments": { cy: round(sumDr(rows, "other_receivables_prepayments")), py: 0 },
-      "Deposits": { cy: round(sumDr(rows, "nca_deposits")), py: 0 },
-      "Staff Advances": { cy: round(sumDr(rows, "other_receivables_staff_advance")), py: 0 },
-      "Advance to Suppliers": { cy: round(sumDr(rows, "other_receivables_advance_supplier")), py: 0 }
-    },
-    note35_otherNonCurrentAssets: { "Other Non-Current Assets": { cy: bs.nca_other, py: 0 } },
-    note36_otherCurrentAssets: { "Other Current Assets": { cy: bs.ca_other, py: 0 } },
-    note37_inventories: {
-      rawMaterials_cy: round(sumDr(rows, "inventory_raw_materials")),
-      rawMaterials_py: 0,
-      wip_cy: round(sumDr(rows, "inventory_wip")),
-      wip_py: 0,
-      finishedGoods_cy: round(sumDr(rows, "inventory_finished_goods")),
-      finishedGoods_py: 0,
-      totalInventory_cy: bs.ca_inventories,
-      totalInventory_py: 0,
-      impairmentRecognized_cy: adj.totalInventoryImpairment
-    },
-    note38_cashAndEquivalents: {
-      cashInHand_cy: round(sumDr(rows, "cash_in_hand")),
-      cashInHand_py: 0,
-      bankBalances: rows.filter((r) => ["bank_current_account", "bank_fixed_deposit_current"].includes(r.nfrsCategory)).map((r) => ({
-        bankName: r.rawLabel,
-        accountType: r.nfrsCategory === "bank_fixed_deposit_current" ? "fixed_deposit" : "current",
-        cy: round((r.closingDr ?? 0) - (r.closingCr ?? 0)),
-        py: 0
-      })),
-      totalCash_cy: bs.ca_cashAndEquivalents,
-      totalCash_py: 0
-    },
-    note39_shareCapital: {
-      authorizedShares: 0,
-      faceValuePerShare: 100,
-      issuedShares: 0,
-      paidUpShares: 0,
-      paidUpAmount_cy: round(sumCr(rows, "share_capital")),
-      paidUpAmount_py: round(sumOpeningCr(rows, "share_capital"))
-    },
-    note310_reserves: {
-      "General Reserve": {
-        openingCY: round(sumOpeningCr(rows, "general_reserve")),
-        additionCY: 0,
-        closingCY: round(sumCr(rows, "general_reserve")),
-        py: round(sumOpeningCr(rows, "general_reserve"))
-      },
-      "Retained Earnings": {
-        openingCY: round(sumOpeningCr(rows, "retained_earnings")),
-        additionCY: is.netProfit,
-        closingCY: round(sumCr(rows, "retained_earnings")),
-        py: round(sumOpeningCr(rows, "retained_earnings"))
-      }
-    },
-    note311_borrowings: {
-      nonCurrentBank: rows.filter((r) => r.nfrsCategory === "borrowings_noncurrent_bank").map((r) => ({
-        lenderName: r.rawLabel,
-        amount_cy: round(r.closingCr ?? 0),
-        amount_py: round(r.openingCr ?? 0),
-        interestRate: 0,
-        security: ""
-      })),
-      currentLoans: rows.filter(
-        (r) => ["borrowings_current_od", "borrowings_current_cc", "borrowings_current_wc"].includes(r.nfrsCategory)
-      ).map((r) => ({
-        lenderName: r.rawLabel,
-        amount_cy: round(r.closingCr ?? 0),
-        amount_py: round(r.openingCr ?? 0),
-        loanType: r.nfrsCategory
-      }))
-    },
-    note312_employeeBenefits: {
-      "Salary Payable": {
-        opening: round(sumOpeningCr(rows, "employee_payables_salary")),
-        expense: is.employeeBenefitExpense,
-        paid: 0,
-        closing: round(sumCr(rows, "employee_payables_salary"))
-      },
-      "Bonus Payable": {
-        opening: round(sumOpeningCr(rows, "employee_payables_bonus")),
-        expense: is.staffBonus,
-        paid: 0,
-        closing: round(sumCr(rows, "employee_payables_bonus"))
-      }
-    },
-    note313_tradePayables: {
-      "Trade Payables": { cy: round(sumCr(rows, "trade_payables_creditors")), py: round(sumOpeningCr(rows, "trade_payables_creditors")) },
-      "TDS Payable": { cy: round(sumCr(rows, "tds_payable")), py: round(sumOpeningCr(rows, "tds_payable")) },
-      "VAT Payable": { cy: round(sumCr(rows, "other_payables")), py: round(sumOpeningCr(rows, "other_payables")) },
-      "Audit Fee Payable": { cy: round(sumCr(rows, "audit_fee_payable")), py: round(sumOpeningCr(rows, "audit_fee_payable")) }
-    },
-    note314_provisions: adj.provisions,
-    note317_revenue: {
-      "Sale of Goods": { cy: round(sumCr(rows, "revenue_sales")), py: 0 },
-      "Rendering of Services": { cy: round(sumCr(rows, "revenue_services")), py: 0 },
-      "Interest Income": { cy: is.interestIncome, py: 0 },
-      "Other Income": { cy: is.otherIncome, py: 0 }
-    },
-    note318_materialConsumed: {
-      openingInventory: round(sumOpeningDr(rows, "inventory_raw_materials", "inventory_wip", "inventory_finished_goods")),
-      purchases: round(sumDr(rows, "cogs_purchases")),
-      closingInventory: round(sumDr(rows, "inventory_raw_materials", "inventory_wip", "inventory_finished_goods")),
-      consumed: is.materialConsumed
-    },
-    note319_directExpenses: expenseRecord(["direct_wages", "direct_expenses_other"]),
-    note320_employeeBenefitExpenses: expenseRecord([
-      "emp_expense_salaries",
-      "emp_expense_pf",
-      "emp_expense_gratuity",
-      "emp_expense_welfare",
-      "emp_expense_bonus"
-    ]),
-    note321_impairment: [
-      { description: "Impairment on Trade Receivables", cy: round(sumDr(rows, "impairment_expense")), py: 0 },
-      { description: "Inventory Write-down", cy: adj.totalInventoryImpairment, py: 0 },
-      { description: "Investment Impairment", cy: adj.investmentAdjustments.reduce((s, i) => s + (i.impairmentAmount ?? 0), 0), py: 0 }
-    ],
-    note322_adminExpenses: expenseRecord([
-      "admin_rent",
-      "admin_rates_taxes",
-      "admin_insurance",
-      "admin_repairs",
-      "admin_electricity",
-      "admin_communication",
-      "admin_printing",
-      "admin_legal_professional",
-      "admin_audit_fee",
-      "admin_traveling",
-      "admin_advertisement",
-      "admin_other"
-    ]),
-    note323_incomeTax: {
-      currentTax: is.incomeTaxExpense,
-      profitBeforeTax: is.profitBeforeTax,
-      taxRate: (adj.currentTaxExpense ?? 0) > 0 && is.profitBeforeTax > 0 ? adj.currentTaxExpense / is.profitBeforeTax : 0.25,
-      addDisallowableExpenses: {},
-      lessAllowableExpenses: {
-        "Tax Depreciation (excess over book)": Math.max(
-          0,
-          adj.taxDepreciationPools.reduce((s, p) => s + p.taxDepreciation, 0) - adj.totalDepreciationExpense
-        )
-      },
-      taxableIncome: adj.taxableProfit ?? is.profitBeforeTax,
-      advanceTaxPaid: round(sumDr(rows, "other_receivables_tds")),
-      tdsCreditAvailable: 0,
-      netTaxPayable: bs.cl_incomeTaxPayable
-    }
+    reconciliationDifference,
+    ...previousCF
   };
 }
 function computeAllFinancials(tb, adj, company, previousYearData) {
-  const policies = company.accountingPolicies ?? {
-    bonusRatePercent: 10,
-    incomeTaxRatePercent: 25,
-    gratuityDaysPerYear: 15,
-    roundingLevel: 100,
-    assetCategories: [],
-    depreciationMethod: "StraightLine"
-  };
   const pyBS = previousYearData ? {
     nca_ppe: previousYearData.ppe,
     nca_investments: previousYearData.investments,
@@ -3757,66 +4837,113 @@ function computeAllFinancials(tb, adj, company, previousYearData) {
     depreciation: previousYearData.depreciation,
     incomeTaxExpense: previousYearData.incomeTaxExpense
   } : {};
-  const incomeStatement = computeIncomeStatement(
-    tb,
-    adj,
-    policies,
-    pyIS
-  );
-  const balanceSheet = computeBalanceSheet(
-    tb,
-    adj,
-    incomeStatement,
-    pyBS
-  );
-  const changesInEquity = computeChangesInEquity(tb, incomeStatement, company);
-  const cashFlow = computeCashFlow(tb, balanceSheet, incomeStatement, adj);
-  const notes = computeNotesData(tb, adj, balanceSheet, incomeStatement);
+  const incomeStatement = computeIncomeStatement(tb, adj, company, pyIS);
+  const balanceSheet = computeBalanceSheet(tb, adj, incomeStatement, company, pyBS);
+  const changesInEquity = computeChangesInEquity(tb, adj, incomeStatement, company);
+  const cashFlow = computeCashFlow(tb, adj, incomeStatement, balanceSheet);
+  const notes = buildNotesData({ tb, adj, bs: balanceSheet, is: incomeStatement, company });
   return { balanceSheet, incomeStatement, changesInEquity, cashFlow, notes };
 }
 
 // server/routes/financials.ts
 var router4 = Router4();
-router4.post("/:companyId/generate", asyncHandler(async (req, res) => {
-  const session = sessionStore.get(req.params.companyId);
-  if (!session) return res.status(404).json({ error: "Session not found" });
+function getSessionId(req) {
+  return req.params.companyId || req.cookies?.sessionId || "";
+}
+function requireSession(req, res) {
+  const sessionId = getSessionId(req);
+  const session = sessionStore.get(sessionId);
+  if (!session) {
+    res.status(404).json({ success: false, error: "Session not found" });
+    return null;
+  }
+  return { session, sessionId };
+}
+router4.post("/compute", asyncHandler(async (req, res) => {
+  const ctx = requireSession(req, res);
+  if (!ctx) return;
+  const { session } = ctx;
   const missing = [];
-  if (!session?.company) missing.push("company profile");
-  if (!session?.trialBalance) missing.push("trial balance");
-  if (!session?.adjustments) missing.push("year-end adjustments");
-  if (missing.length > 0) return res.status(400).json({ error: `Missing data: ${missing.join(", ")}.` });
-  const result = computeAllFinancials(session.trialBalance, session.adjustments, session.company, session.company.previousYearData);
-  sessionStore.set(req.params.companyId, {
-    adjustments: { ...session.adjustments, taxableProfit: result.incomeStatement.profitBeforeTax, currentTaxExpense: result.incomeStatement.incomeTaxExpense },
-    financials: result
+  if (!session.company) missing.push("company profile");
+  if (!session.trialBalance) missing.push("trial balance");
+  if (!session.adjustments) missing.push("year-end adjustments");
+  if (missing.length > 0) {
+    return res.status(400).json({ success: false, error: `Missing data: ${missing.join(", ")}.` });
+  }
+  const result = computeAllFinancials(
+    session.trialBalance,
+    session.adjustments,
+    session.company,
+    session.company?.previousYearData
+  );
+  sessionStore.set(ctx.sessionId, {
+    financials: result,
+    statements: result,
+    notes: result.notes
   });
-  session.financials = result;
-  return res.json(result);
+  return res.json({ success: true, data: result });
+}));
+router4.post("/:companyId/generate", asyncHandler(async (req, res) => {
+  const ctx = requireSession(req, res);
+  if (!ctx) return;
+  const { session } = ctx;
+  const missing = [];
+  if (!session.company) missing.push("company profile");
+  if (!session.trialBalance) missing.push("trial balance");
+  if (!session.adjustments) missing.push("year-end adjustments");
+  if (missing.length > 0) return res.status(400).json({ success: false, error: `Missing data: ${missing.join(", ")}.` });
+  const result = computeAllFinancials(session.trialBalance, session.adjustments, session.company, session.company?.previousYearData);
+  sessionStore.set(ctx.sessionId, { financials: result, statements: result, notes: result.notes });
+  return res.json({ success: true, data: result });
+}));
+router4.get("/validation", asyncHandler(async (req, res) => {
+  const ctx = requireSession(req, res);
+  if (!ctx) return;
+  const financials = ctx.session.financials;
+  if (!financials?.balanceSheet) {
+    return res.status(404).json({ success: false, error: "Financial statements not computed yet." });
+  }
+  const bs = financials.balanceSheet;
+  const cf = financials.cashFlow;
+  const errors = [];
+  if (Math.abs(bs.checkDifference ?? 0) > 1) errors.push(`Balance sheet difference: NPR ${bs.checkDifference}`);
+  if (Math.abs(cf.reconciliationDifference ?? 0) > 1) errors.push(`Cash flow reconciliation difference: NPR ${cf.reconciliationDifference}`);
+  return res.json({ success: true, data: { isValid: errors.length === 0, errors, warnings: [] } });
 }));
 router4.get("/:companyId/balance-sheet", asyncHandler(async (req, res) => {
-  const s = sessionStore.get(req.params.companyId);
-  if (!s?.financials?.balanceSheet) return res.status(404).json({ error: "Not generated yet." });
-  return res.json(s.financials.balanceSheet);
+  const ctx = requireSession(req, res);
+  if (!ctx) return;
+  const bs = ctx.session.financials?.balanceSheet;
+  if (!bs) return res.status(404).json({ success: false, error: "Not generated yet." });
+  return res.json({ success: true, data: bs });
 }));
 router4.get("/:companyId/income-statement", asyncHandler(async (req, res) => {
-  const s = sessionStore.get(req.params.companyId);
-  if (!s?.financials?.incomeStatement) return res.status(404).json({ error: "Not generated yet." });
-  return res.json(s.financials.incomeStatement);
+  const ctx = requireSession(req, res);
+  if (!ctx) return;
+  const is = ctx.session.financials?.incomeStatement;
+  if (!is) return res.status(404).json({ success: false, error: "Not generated yet." });
+  return res.json({ success: true, data: is });
 }));
 router4.get("/:companyId/cash-flow", asyncHandler(async (req, res) => {
-  const s = sessionStore.get(req.params.companyId);
-  if (!s?.financials?.cashFlow) return res.status(404).json({ error: "Not generated yet." });
-  return res.json(s.financials.cashFlow);
+  const ctx = requireSession(req, res);
+  if (!ctx) return;
+  const cf = ctx.session.financials?.cashFlow;
+  if (!cf) return res.status(404).json({ success: false, error: "Not generated yet." });
+  return res.json({ success: true, data: cf });
 }));
 router4.get("/:companyId/changes-in-equity", asyncHandler(async (req, res) => {
-  const s = sessionStore.get(req.params.companyId);
-  if (!s?.financials?.changesInEquity) return res.status(404).json({ error: "Not generated yet." });
-  return res.json(s.financials.changesInEquity);
+  const ctx = requireSession(req, res);
+  if (!ctx) return;
+  const cie = ctx.session.financials?.changesInEquity;
+  if (!cie) return res.status(404).json({ success: false, error: "Not generated yet." });
+  return res.json({ success: true, data: cie });
 }));
 router4.get("/:companyId/notes", asyncHandler(async (req, res) => {
-  const s = sessionStore.get(req.params.companyId);
-  if (!s?.financials?.notes) return res.status(404).json({ error: "Not generated yet." });
-  return res.json(s.financials.notes);
+  const ctx = requireSession(req, res);
+  if (!ctx) return;
+  const notes = ctx.session.financials?.notes;
+  if (!notes) return res.status(404).json({ success: false, error: "Not generated yet." });
+  return res.json({ success: true, data: notes });
 }));
 var financials_default = router4;
 
@@ -4516,7 +5643,7 @@ function writeNote38_Cash(ws, note38) {
   cashRow.getCell(2).value = note38.cashInHand_cy || null;
   cashRow.getCell(2).numFmt = NUMBER_FORMAT;
   cashRow.getCell(2).alignment = { horizontal: "right" };
-  note38.bankBalances.forEach((b) => {
+  note38.bankBalances?.forEach((b) => {
     const row = ws.getRow(r++);
     row.getCell(1).value = b.bankName;
     row.getCell(2).value = b.cy || null;
@@ -4535,10 +5662,16 @@ function writeNote38_Cash(ws, note38) {
 function writeNote39_ShareCapital(ws, note39) {
   ws.getRow(1).getCell(1).value = "3.9  Share Capital";
   ws.getRow(1).getCell(1).font = { name: "Arial", size: 11, bold: true };
-  const rows = [
-    ["Authorised Share Capital (shares)", note39.authorizedShares],
-    ["Issued and Fully Paid Shares (shares)", note39.issuedShares],
-    ["Paid-up Capital (NPR)", note39.paidUpAmount_cy]
+  const n39 = note39;
+  const ordinary = n39.ordinaryShares;
+  const rows = ordinary ? [
+    ["Authorised Share Capital (shares)", ordinary.authorizedShares ?? 0],
+    ["Issued and Fully Paid Shares (shares)", ordinary.closingIssuedShares ?? 0],
+    ["Paid-up Capital (NPR)", ordinary.closingPaidUp ?? 0]
+  ] : [
+    ["Authorised Share Capital (shares)", n39.authorizedShares ?? 0],
+    ["Issued and Fully Paid Shares (shares)", n39.issuedShares ?? 0],
+    ["Paid-up Capital (NPR)", n39.paidUpAmount_cy ?? 0]
   ];
   rows.forEach(([label, val], i) => {
     const r = ws.getRow(3 + i);
@@ -4562,9 +5695,11 @@ function writeNote311_Borrowings(ws, note311) {
     applyAllBorders(c);
   });
   let r = 4;
-  note311.nonCurrentBank.forEach((b) => {
+  const n311 = note311;
+  const nonCurrent = n311.nonCurrentBank ?? n311.nonCurrent ?? [];
+  nonCurrent.forEach((b) => {
     const row = ws.getRow(r++);
-    [b.lenderName, `${b.interestRate}%`, b.security, b.amount_cy, b.amount_py].forEach((v, i) => {
+    [b.lenderName, `${b.interestRate ?? 0}%`, b.security ?? "", b.amount_cy ?? b.balance_cy, b.amount_py ?? b.balance_py].forEach((v, i) => {
       const c = row.getCell(i + 1);
       c.value = v || null;
       if (i >= 3) {
@@ -4577,9 +5712,10 @@ function writeNote311_Borrowings(ws, note311) {
   ws.getRow(r).getCell(1).value = "Current Borrowings";
   ws.getRow(r).getCell(1).font = FONTS.SUBHEADING;
   r++;
-  note311.currentLoans.forEach((b) => {
+  const currentLoans = n311.currentLoans ?? n311.current ?? [];
+  currentLoans.forEach((b) => {
     const row = ws.getRow(r++);
-    [b.lenderName, b.loanType, "", b.amount_cy, b.amount_py].forEach((v, i) => {
+    [b.lenderName, b.loanType ?? b.type, "", b.amount_cy ?? b.balance_cy, b.amount_py ?? b.balance_py].forEach((v, i) => {
       const c = row.getCell(i + 1);
       c.value = v || null;
       if (i >= 3) {
@@ -4594,8 +5730,8 @@ function writeNote323_Tax(ws, note323) {
   ws.getRow(1).getCell(1).font = { name: "Arial", size: 11, bold: true };
   const items = [
     ["Profit Before Tax (per Income Statement)", note323.profitBeforeTax],
-    ...Object.entries(note323.addDisallowableExpenses).map(([k, v]) => [`Add: ${k}`, v]),
-    ...Object.entries(note323.lessAllowableExpenses).map(([k, v]) => [`Less: ${k}`, -v]),
+    ...Object.entries(note323.addDisallowableExpenses ?? {}).map(([k, v]) => [`Add: ${k}`, v]),
+    ...Object.entries(note323.lessAllowableExpenses ?? {}).map(([k, v]) => [`Less: ${k}`, -v]),
     ["Taxable Income", note323.taxableIncome],
     [`Income Tax at ${(note323.taxRate * 100).toFixed(0)}%`, note323.currentTax],
     ["Less: Advance Tax / TDS Credit", -note323.advanceTaxPaid],
@@ -4665,7 +5801,7 @@ function writeBankAccounts(ws, note38) {
     c.font = FONTS.SUBHEADING;
     applyHeaderFill(c, COLORS.SUBHEADER_BG);
   });
-  note38.bankBalances.forEach((b, i) => {
+  (note38.bankBalances ?? []).forEach((b, i) => {
     const r = ws.getRow(4 + i);
     r.getCell(1).value = b.bankName;
     r.getCell(2).value = b.accountType;
@@ -4746,8 +5882,8 @@ function writeTaxCalculation(ws, note323) {
   ws.getRow(2).getCell(1).value = `Tax Rate: ${(note323.taxRate * 100).toFixed(0)}%`;
   const items = [
     ["Profit Before Tax", note323.profitBeforeTax],
-    ...Object.entries(note323.addDisallowableExpenses).map(([k, v]) => [`Add: ${k}`, v]),
-    ...Object.entries(note323.lessAllowableExpenses).map(([k, v]) => [`Less: ${k}`, v]),
+    ...Object.entries(note323.addDisallowableExpenses ?? {}).map(([k, v]) => [`Add: ${k}`, v]),
+    ...Object.entries(note323.lessAllowableExpenses ?? {}).map(([k, v]) => [`Less: ${k}`, v]),
     ["Taxable Income", note323.taxableIncome],
     ["Income Tax", note323.currentTax],
     ["Advance Tax / TDS Credit", note323.advanceTaxPaid + note323.tdsCreditAvailable],
@@ -4761,7 +5897,186 @@ function writeTaxCalculation(ws, note323) {
     r.getCell(2).alignment = { horizontal: "right" };
   });
 }
+function normalizeNotesForExcel(notes, is, bs) {
+  if (notes.note34_otherReceivables || notes.note317_revenue) {
+    return {
+      ...notes,
+      note38_cashAndEquivalents: notes.note38_cashAndEquivalents ?? notes.note38_cashEquivalents ?? {
+        cashInHand_cy: 0,
+        cashInHand_py: 0,
+        bankBalances: [],
+        totalCash_cy: 0,
+        totalCash_py: 0
+      },
+      note323_incomeTax: notes.note323_incomeTax ?? notes.note323_taxExpense,
+      note321_impairment: notes.note321_impairment ?? []
+    };
+  }
+  const n34 = notes.note34_otherCurrentAssets;
+  const n35 = notes.note35_biologicalAssets;
+  const n36 = notes.note36_heldForSale;
+  const n37 = notes.note37_inventories;
+  const n38 = notes.note38_cashEquivalents;
+  const n39 = notes.note39_shareCapital;
+  const n310 = notes.note310_reserves;
+  const n311 = notes.note311_borrowings;
+  const n312 = notes.note312_employeeBenefits;
+  const n313 = notes.note313_tradePayables;
+  const n317 = notes.note317_revenueDetailed;
+  const n318 = notes.note318_materialConsumed;
+  const n320 = notes.note320_employeeExpenses;
+  const n322 = notes.note322_adminExpenses;
+  const n323 = notes.note323_taxExpense;
+  const note31_ppe = (notes.note31_ppe ?? []).map((item) => {
+    const d = item;
+    return {
+      ...d,
+      netBookValueClosing: d.netBookValueClosing ?? d.nbvClosing ?? Math.max(0, (d.closingCost ?? 0) - (d.closingAccumDepn ?? 0))
+    };
+  });
+  const note37_inventories = n37?.rawMaterials ? {
+    rawMaterials_cy: n37.rawMaterials.closing ?? 0,
+    rawMaterials_py: n37.rawMaterials.opening ?? 0,
+    wip_cy: n37.wip.closing ?? 0,
+    wip_py: n37.wip.opening ?? 0,
+    finishedGoods_cy: n37.finishedGoods.closing ?? 0,
+    finishedGoods_py: n37.finishedGoods.opening ?? 0,
+    totalInventory_cy: n37.totalClosing ?? bs.ca_inventories,
+    totalInventory_py: n37.totalOpening ?? 0
+  } : notes.note37_inventories;
+  const note38_cashAndEquivalents = {
+    cashInHand_cy: n38?.cashInHand_cy ?? 0,
+    cashInHand_py: n38?.cashInHand_py ?? 0,
+    bankBalances: (n38?.bankAccounts ?? []).map((b) => ({
+      bankName: b.bankName,
+      accountType: b.accountType,
+      cy: b.closingBalance,
+      py: b.openingBalance
+    })),
+    totalCash_cy: n38?.totalCash_cy ?? bs.ca_cashAndEquivalents,
+    totalCash_py: n38?.totalCash_py ?? 0
+  };
+  const os = n39?.ordinaryShares ?? {};
+  const note39_shareCapital = {
+    authorizedShares: os.authorizedShares ?? 0,
+    issuedShares: os.closingIssuedShares ?? 0,
+    faceValuePerShare: os.parValuePerShare ?? 100,
+    paidUpAmount_cy: os.closingPaidUp ?? bs.eq_shareCapital,
+    paidUpAmount_py: os.openingPaidUp ?? 0
+  };
+  const note310_reserves = {};
+  if (n310) {
+    if (n310.sharePremium) {
+      note310_reserves["Share Premium"] = { closingCY: n310.sharePremium.closing ?? 0, py: n310.sharePremium.opening ?? 0 };
+    }
+    if (n310.generalReserve) {
+      note310_reserves["General Reserve"] = { closingCY: n310.generalReserve.closing ?? 0, py: n310.generalReserve.opening ?? 0 };
+    }
+    if (n310.retainedEarnings) {
+      note310_reserves["Retained Earnings"] = { closingCY: n310.retainedEarnings.closing ?? 0, py: n310.retainedEarnings.opening ?? 0 };
+    }
+  }
+  const note311_borrowings = {
+    nonCurrentBank: (n311?.nonCurrent ?? []).map((b) => ({
+      lenderName: b.lenderName,
+      amount_cy: b.balance_cy,
+      amount_py: b.balance_py,
+      interestRate: b.interestRate ?? 0,
+      security: b.secured ? "Secured" : ""
+    })),
+    currentLoans: (n311?.current ?? []).map((b) => ({
+      lenderName: b.lenderName,
+      amount_cy: b.balance_cy,
+      amount_py: b.balance_py,
+      loanType: b.type ?? "Loan"
+    }))
+  };
+  const db = n312?.definedBenefit;
+  const le = n312?.leaveEncashment;
+  const note312_employeeBenefits = {
+    Gratuity: { opening: db?.openingBalance ?? 0, closing: db?.closingBalance ?? 0 },
+    "Leave Encashment": { opening: le?.openingBalance ?? 0, closing: le?.closingBalance ?? 0 },
+    "Salary Payable": { opening: 0, closing: n312?.salaryPayable ?? 0 },
+    "Bonus Payable": { opening: 0, closing: n312?.bonusPayable ?? 0 }
+  };
+  const note313_tradePayables = n313 ? {
+    "Trade Creditors": { cy: n313.tradeCreditors ?? 0, py: n313.tradeCreditors_py ?? 0 },
+    "Advance from Customers": { cy: n313.advanceFromCustomers ?? 0, py: 0 },
+    "Audit Fee Payable": { cy: n313.auditFeePayable ?? 0, py: n313.auditFeePayable_py ?? 0 },
+    "VAT Payable": { cy: n313.vatPayable ?? 0, py: n313.vatPayable_py ?? 0 },
+    "TDS Payable": { cy: n313.tdsPayableTotal ?? 0, py: n313.tdsPayableTotal_py ?? 0 }
+  } : {};
+  const note317_revenue = n317 ? {
+    "Sale of Goods": n317.saleOfGoods ?? { cy: 0, py: 0 },
+    "Rendering of Services": n317.renderingOfServices ?? { cy: 0, py: 0 },
+    "Interest Income": n317.interestIncome ?? { cy: 0, py: 0 },
+    "Other Income": n317.otherIncome ?? { cy: 0, py: 0 }
+  } : {};
+  const note318_materialConsumed = n318 ? {
+    openingInventory: n318.openingRawMaterial ?? 0,
+    purchases: n318.purchasesDuringYear ?? 0,
+    closingInventory: n318.closingRawMaterial ?? 0,
+    consumed: n318.rawMaterialConsumed ?? is.materialConsumed
+  } : notes.note318_materialConsumed;
+  const note319_directExpenses = n318 ? {
+    "Direct Wages": { cy: n318.directWages ?? 0, py: 0 },
+    "Other Direct Expenses": { cy: n318.otherDirectExpenses ?? 0, py: 0 }
+  } : notes.note319_directExpenses ?? {};
+  const note320_employeeBenefitExpenses = n320 ? {
+    "Salaries & Wages": n320.salariesWages ?? { cy: 0, py: 0 },
+    "PF / SSF / CIT": n320.pfSsfContribution ?? { cy: 0, py: 0 },
+    "Gratuity": n320.gratuityExpense ?? { cy: 0, py: 0 },
+    "Staff Bonus": n320.staffBonusExpense ?? { cy: 0, py: 0 },
+    "Staff Welfare": n320.staffWelfare ?? { cy: 0, py: 0 },
+    "Other Employee Costs": n320.otherEmployeeCosts ?? { cy: 0, py: 0 }
+  } : notes.note320_employeeBenefitExpenses ?? {};
+  const note322_adminExpenses = n322?.lineItems ? Object.fromEntries(n322.lineItems.map((li) => [li.label, { cy: li.cy, py: li.py }])) : notes.note322_adminExpenses ?? {};
+  const recon = n323?.reconciliation;
+  const note323_incomeTax = {
+    profitBeforeTax: recon?.profitBeforeTax ?? is.profitBeforeTax,
+    addDisallowableExpenses: recon?.disallowableExpenses ?? {},
+    lessAllowableExpenses: recon?.allowableDeductions ?? {},
+    taxableIncome: recon?.taxableProfit ?? is.profitBeforeTax,
+    currentTax: recon?.totalCurrentTax ?? is.incomeTaxExpense,
+    taxRate: n323?.effectiveTaxRate ?? 0.25,
+    advanceTaxPaid: n323?.advanceTaxPaid ?? 0,
+    tdsCreditAvailable: n323?.tdsCreditAvailable ?? 0,
+    netTaxPayable: n323?.netTaxPayable ?? bs.cl_incomeTaxPayable
+  };
+  return {
+    ...notes,
+    note31_ppe,
+    note34_otherReceivables: {
+      "Security Deposits": { cy: n34?.securityDeposits ?? 0, py: 0 },
+      "Advance Income Tax": { cy: n34?.advanceIncomeTax ?? 0, py: 0 },
+      "Other Prepaid Expenses": { cy: n34?.otherPrepaidExpenses ?? 0, py: 0 }
+    },
+    note35_otherNonCurrentAssets: {
+      "Biological Assets": { cy: n35?.closingCarrying ?? 0, py: n35?.openingCarrying ?? 0 }
+    },
+    note36_otherCurrentAssets: {
+      "Held for Sale": { cy: n36?.total ?? 0, py: 0 }
+    },
+    note37_inventories,
+    note38_cashAndEquivalents,
+    note39_shareCapital,
+    note310_reserves,
+    note311_borrowings,
+    note312_employeeBenefits,
+    note313_tradePayables,
+    note317_revenue,
+    note318_materialConsumed,
+    note319_directExpenses,
+    note320_employeeBenefitExpenses,
+    note321_impairment: notes.note321_impairment ?? [
+      { description: "Impairment on Receivables", cy: is.impairment ?? 0, py: 0 }
+    ],
+    note322_adminExpenses,
+    note323_incomeTax
+  };
+}
 function writeGenericNoteRecord(ws, title, data) {
+  const safeData = data ?? {};
   ws.getRow(1).getCell(1).value = title;
   ws.getRow(1).getCell(1).font = { name: "Arial", size: 11, bold: true };
   const hRow = ws.getRow(3);
@@ -4772,7 +6087,7 @@ function writeGenericNoteRecord(ws, title, data) {
     applyHeaderFill(c, COLORS.SUBHEADER_BG);
     applyAllBorders(c);
   });
-  Object.entries(data).forEach(([label, vals], i) => {
+  Object.entries(safeData).forEach(([label, vals], i) => {
     const r = ws.getRow(4 + i);
     r.getCell(1).value = label;
     r.getCell(2).value = vals.cy || null;
@@ -4785,7 +6100,8 @@ function writeGenericNoteRecord(ws, title, data) {
 }
 async function generateNFRSWorkbook(params) {
   try {
-    const { company, trialBalance, balanceSheet, incomeStatement, changesInEquity, cashFlow, notes, adjustments } = params;
+    const { company, trialBalance, balanceSheet, incomeStatement, changesInEquity, cashFlow, notes: rawNotes, adjustments } = params;
+    const notes = normalizeNotesForExcel(rawNotes, incomeStatement, balanceSheet);
     const wb = new ExcelJS2.Workbook();
     wb.creator = "NFRS Reporter";
     wb.lastModifiedBy = "NFRS Reporter";
@@ -4815,25 +6131,57 @@ async function generateNFRSWorkbook(params) {
     });
     writeNote31_PPE(addSheet("Note 3.1 - PPE", "16A34A"), notes.note31_ppe);
     writeGenericNoteRecord(addSheet("Note 3.2 - Investments", "16A34A"), "3.2  Investments", {});
-    writeGenericNoteRecord(addSheet("Note 3.3 - Receivables", "16A34A"), "3.3  Trade Receivables", { "Net Trade Receivables": { cy: notes.note33_tradeReceivables.netReceivables_cy, py: notes.note33_tradeReceivables.netReceivables_py } });
+    writeGenericNoteRecord(addSheet("Note 3.3 - Receivables", "16A34A"), "3.3  Trade Receivables", {
+      "Net Trade Receivables": {
+        cy: notes.note33_tradeReceivables?.netReceivables_cy ?? 0,
+        py: notes.note33_tradeReceivables?.netReceivables_py ?? 0
+      }
+    });
     writeGenericNoteRecord(addSheet("Note 3.4 - Other Recv", "16A34A"), "3.4  Other Receivables", notes.note34_otherReceivables);
     writeGenericNoteRecord(addSheet("Note 3.5 - NC Assets", "16A34A"), "3.5  Other Non-Current Assets", notes.note35_otherNonCurrentAssets);
     writeGenericNoteRecord(addSheet("Note 3.6 - CA Other", "16A34A"), "3.6  Other Current Assets", notes.note36_otherCurrentAssets);
     writeNote37_Inventories(addSheet("Note 3.7 - Inventories", "16A34A"), notes.note37_inventories);
     writeNote38_Cash(addSheet("Note 3.8 - Cash", "16A34A"), notes.note38_cashAndEquivalents);
     writeNote39_ShareCapital(addSheet("Note 3.9 - Share Capital", "16A34A"), notes.note39_shareCapital);
-    writeGenericNoteRecord(addSheet("Note 3.10 - Reserves", "16A34A"), "3.10  Reserves", Object.fromEntries(Object.entries(notes.note310_reserves).map(([k, v]) => [k, { cy: v.closingCY, py: v.py }])));
-    writeNote311_Borrowings(addSheet("Note 3.11 - Borrowings", "16A34A"), notes.note311_borrowings);
-    writeGenericNoteRecord(addSheet("Note 3.12 - Emp Benefits", "16A34A"), "3.12  Employee Benefits", Object.fromEntries(Object.entries(notes.note312_employeeBenefits).map(([k, v]) => [k, { cy: v.closing, py: v.opening }])));
+    writeGenericNoteRecord(addSheet("Note 3.10 - Reserves", "16A34A"), "3.10  Reserves", Object.fromEntries(
+      Object.entries(notes.note310_reserves ?? {}).map(([k, v]) => {
+        const entry = v;
+        return [k, { cy: entry.closingCY ?? entry.closing ?? 0, py: entry.py ?? entry.opening ?? 0 }];
+      })
+    ));
+    writeNote311_Borrowings(addSheet("Note 3.11 - Borrowings", "16A34A"), notes.note311_borrowings ?? { nonCurrentBank: [], currentLoans: [] });
+    writeGenericNoteRecord(addSheet("Note 3.12 - Emp Benefits", "16A34A"), "3.12  Employee Benefits", Object.fromEntries(
+      Object.entries(notes.note312_employeeBenefits ?? {}).map(([k, v]) => {
+        const entry = v;
+        return [k, { cy: entry.closing ?? 0, py: entry.opening ?? 0 }];
+      })
+    ));
     writeGenericNoteRecord(addSheet("Note 3.13 - Payables", "16A34A"), "3.13  Trade and Other Payables", notes.note313_tradePayables);
     writeGenericNoteRecord(addSheet("Note 3.14 - Provisions", "16A34A"), "3.14  Provisions", {});
     writeGenericNoteRecord(addSheet("Note 3.17 - Revenue", "16A34A"), "3.17  Revenue", notes.note317_revenue);
-    writeGenericNoteRecord(addSheet("Note 3.18 - Materials", "16A34A"), "3.18  Material Consumed", { "Opening Stock": { cy: notes.note318_materialConsumed.openingInventory, py: 0 }, "Purchases": { cy: notes.note318_materialConsumed.purchases, py: 0 }, "Less: Closing Stock": { cy: -notes.note318_materialConsumed.closingInventory, py: 0 }, "Material Consumed": { cy: notes.note318_materialConsumed.consumed, py: 0 } });
+    writeGenericNoteRecord(addSheet("Note 3.18 - Materials", "16A34A"), "3.18  Material Consumed", {
+      "Opening Stock": { cy: notes.note318_materialConsumed?.openingInventory ?? 0, py: 0 },
+      "Purchases": { cy: notes.note318_materialConsumed?.purchases ?? 0, py: 0 },
+      "Less: Closing Stock": { cy: -(notes.note318_materialConsumed?.closingInventory ?? 0), py: 0 },
+      "Material Consumed": { cy: notes.note318_materialConsumed?.consumed ?? 0, py: 0 }
+    });
     writeGenericNoteRecord(addSheet("Note 3.19 - Direct Exp", "16A34A"), "3.19  Direct Expenses", notes.note319_directExpenses);
     writeGenericNoteRecord(addSheet("Note 3.20 - Emp Expense", "16A34A"), "3.20  Employee Benefit Expenses", notes.note320_employeeBenefitExpenses);
-    writeGenericNoteRecord(addSheet("Note 3.21 - Impairment", "16A34A"), "3.21  Impairment", Object.fromEntries(notes.note321_impairment.map((n) => [n.description, { cy: n.cy, py: n.py }])));
+    writeGenericNoteRecord(addSheet("Note 3.21 - Impairment", "16A34A"), "3.21  Impairment", Object.fromEntries(
+      (notes.note321_impairment ?? []).map((item) => [item.description, { cy: item.cy, py: item.py }])
+    ));
     writeGenericNoteRecord(addSheet("Note 3.22 - Admin Exp", "16A34A"), "3.22  Administrative Expenses", notes.note322_adminExpenses);
-    writeNote323_Tax(addSheet("Note 3.23 - Tax", "16A34A"), notes.note323_incomeTax);
+    writeNote323_Tax(addSheet("Note 3.23 - Tax", "16A34A"), notes.note323_incomeTax ?? {
+      profitBeforeTax: 0,
+      addDisallowableExpenses: {},
+      lessAllowableExpenses: {},
+      taxableIncome: 0,
+      currentTax: 0,
+      taxRate: 0.25,
+      advanceTaxPaid: 0,
+      tdsCreditAvailable: 0,
+      netTaxPayable: 0
+    });
     writeAdjustments(addSheet("Adjustments", COLORS.LIGHT_GRAY), adjustments);
     writeTaxCalculation(addSheet("Tax Calculation", COLORS.LIGHT_GRAY), notes.note323_incomeTax);
     writeSundryDebtors(addSheet("Sundry Debtors", "16A34A"), trialBalance);
@@ -5458,7 +6806,7 @@ app.get("/api/health", (_req, res) => {
   res.json({
     status: "ok",
     service: "NFRS Financial Reporter",
-    version: "1.0.0",
+    version: "2.0.0",
     env: process.env.NODE_ENV ?? "development",
     uptime: `${Math.floor(process.uptime())}s`,
     memory: {
@@ -5517,7 +6865,7 @@ server.listen(PORT, () => {
   console.log("\u2550".repeat(50) + "\n");
 });
 var SESSION_CLEANUP_INTERVAL_MS = 6 * 60 * 60 * 1e3;
-var SESSION_MAX_AGE_HOURS = 24;
+var SESSION_MAX_AGE_HOURS = 4;
 setInterval(() => {
   const removed = sessionStore.cleanup(SESSION_MAX_AGE_HOURS);
   console.log(`[Session Cleanup] Removed ${removed} expired session(s) (older than ${SESSION_MAX_AGE_HOURS}h)`);
