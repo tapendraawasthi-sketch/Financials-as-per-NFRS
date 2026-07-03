@@ -13,36 +13,47 @@ import type {
   NFRSCategory,
 } from '../../src/types';
 import { buildNotesData } from './notesEngine.js';
+import { computeTax, computeStaffBonus } from './taxEngine.js';
+import { normalizeCategoryAlias } from './accountMatcher.js';
+import { CHART_OF_ACCOUNTS } from '../../src/data/chartOfAccounts.js';
 
 // ---------------------------------------------------------------------------
 // TB aggregation helpers
 // ---------------------------------------------------------------------------
 
+function rowMatchesCategory(rowCategory: string | undefined, categories: string[]): boolean {
+  if (!rowCategory) return false;
+  const rowNorm = normalizeCategoryAlias(rowCategory);
+  for (const cat of categories) {
+    const catNorm = normalizeCategoryAlias(cat);
+    if (rowCategory === cat || rowNorm === catNorm || rowCategory === catNorm || rowNorm === cat) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function sumDr(rows: MappedTBRow[], ...categories: (NFRSCategory | string)[]): number {
-  const catSet = new Set(categories);
   return rows
-    .filter((r) => catSet.has(r.nfrsCategory as string) && !(r as { isGroupRow?: boolean }).isGroupRow)
+    .filter((r) => !r.isGroupRow && rowMatchesCategory(r.nfrsCategory as string, categories))
     .reduce((acc, r) => acc + (r.closingDr ?? 0), 0);
 }
 
 function sumCr(rows: MappedTBRow[], ...categories: (NFRSCategory | string)[]): number {
-  const catSet = new Set(categories);
   return rows
-    .filter((r) => catSet.has(r.nfrsCategory as string) && !(r as { isGroupRow?: boolean }).isGroupRow)
+    .filter((r) => !r.isGroupRow && rowMatchesCategory(r.nfrsCategory as string, categories))
     .reduce((acc, r) => acc + (r.closingCr ?? 0), 0);
 }
 
 function sumOpeningDr(rows: MappedTBRow[], ...categories: (NFRSCategory | string)[]): number {
-  const catSet = new Set(categories);
   return rows
-    .filter((r) => catSet.has(r.nfrsCategory as string) && !(r as { isGroupRow?: boolean }).isGroupRow)
+    .filter((r) => !r.isGroupRow && rowMatchesCategory(r.nfrsCategory as string, categories))
     .reduce((acc, r) => acc + (r.openingDr ?? 0), 0);
 }
 
 function sumOpeningCr(rows: MappedTBRow[], ...categories: (NFRSCategory | string)[]): number {
-  const catSet = new Set(categories);
   return rows
-    .filter((r) => catSet.has(r.nfrsCategory as string) && !(r as { isGroupRow?: boolean }).isGroupRow)
+    .filter((r) => !r.isGroupRow && rowMatchesCategory(r.nfrsCategory as string, categories))
     .reduce((acc, r) => acc + (r.openingCr ?? 0), 0);
 }
 
@@ -65,11 +76,13 @@ function splitCashAndOverdrafts(rows: MappedTBRow[]): { cash: number; overdrafts
   return { cash: round2(cash), overdrafts: round2(overdrafts) };
 }
 
-const ADMIN_CATEGORIES = [
-  'admin_rent', 'admin_rates_taxes', 'admin_insurance', 'admin_repairs',
-  'admin_electricity', 'admin_communication', 'admin_printing', 'admin_legal_professional',
-  'admin_audit_fee', 'admin_traveling', 'admin_advertisement', 'admin_other',
-] as const;
+const ADMIN_CATEGORIES = CHART_OF_ACCOUNTS
+  .filter((e) => e.statementLine === 'IS Admin' && !e.isGroup)
+  .map((e) => e.category)
+  .concat([
+    'admin_electricity', 'admin_printing', 'admin_legal_professional', 'admin_other',
+    'admin_traveling', 'admin_repairs', 'admin_rates_taxes',
+  ]);
 
 function inventoryFromAdj(adj: YearEndAdjustments, rows: MappedTBRow[]) {
   const inv = adj.inventoryDetails;
@@ -94,7 +107,9 @@ export function computeIncomeStatement(
   const rows = tb.rows;
 
   const revenue = round2(sumCr(rows, 'revenue_sales', 'revenue_services'));
-  const interestIncome = round2(sumCr(rows, 'other_income_interest'));
+  const interestIncome = round2(
+    sumCr(rows, 'other_income_interest', 'interest_income'),
+  );
   const otherIncome = round2(
     sumCr(rows, 'other_income_dividend', 'other_income_rental', 'other_income_misc', 'other_income_disposal_gain', 'commission_income' as NFRSCategory, 'insurance_claim_income' as NFRSCategory)
     + adj.gainOnDisposals
@@ -106,7 +121,9 @@ export function computeIncomeStatement(
 
   const { openingPY, closingCY } = inventoryFromAdj(adj, rows);
   const materialConsumed = round2(
-    openingPY + sumDr(rows, 'cogs_purchases', 'cogs_opening_stock') - closingCY,
+    openingPY
+    + sumDr(rows, 'cogs_purchases', 'cogs_opening_stock', 'materials_consumed', 'purchase')
+    - closingCY,
   );
 
   const directExpenses = round2(sumDr(rows, 'direct_wages', 'direct_expenses_other'));
@@ -203,7 +220,11 @@ export function computeBalanceSheet(
     .filter((i) => i.investmentType === 'unlisted')
     .reduce((s, i) => s + (i.impairmentAmount ?? 0), 0);
 
-  const invImpairmentProvision = sumCr(rows, 'provision_impairment_investment');
+  const invImpairmentProvision = sumCr(
+    rows,
+    'provision_impairment_investment',
+    'provision_impairment_investments',
+  );
   const investmentListed = sumDr(rows, 'investment_listed_trading') + listedFVAdj;
   const investmentUnlisted = sumDr(rows, 'investment_unlisted') - unlistedImpair;
   const investmentFD_NC = sumDr(rows, 'investment_fixed_deposit_noncurrent');
@@ -211,9 +232,8 @@ export function computeBalanceSheet(
     investmentListed + investmentUnlisted + investmentFD_NC - invImpairmentProvision,
   ));
 
-  const relatedPartyRecNC = sumDr(rows, 'related_party_receivable');
   const nca_receivables = round2(
-    sumDr(rows, 'nca_deposits', 'nca_loans_advances') + relatedPartyRecNC,
+    sumDr(rows, 'nca_deposits', 'nca_loans_advances'),
   );
 
   const nca_other = round2(
@@ -277,8 +297,8 @@ export function computeBalanceSheet(
     + bankOverdrafts,
   );
   const cl_tradePayables = round2(
-    sumCr(rows, 'trade_payables_creditors', 'audit_fee_payable', 'tds_payable',
-      'other_payables', 'trade_payables_advance_customers'),
+    sumCr(rows, 'trade_payables_creditors', 'trade_payables', 'audit_fee_payable', 'tds_payable',
+      'other_payables', 'trade_payables_advance_customers', 'vat_payable'),
   );
 
   const incomeTaxPayable = round2(sumCr(rows, 'income_tax_payable'));
@@ -559,6 +579,8 @@ export function computeAllFinancials(
   cashFlow: CashFlowStatement;
   notes: NotesData;
 } {
+  const enrichedAdj: YearEndAdjustments = { ...adj };
+
   const pyBS: Partial<BalanceSheet> = previousYearData ? {
     nca_ppe: previousYearData.ppe,
     nca_investments: previousYearData.investments,
@@ -582,11 +604,37 @@ export function computeAllFinancials(
     incomeTaxExpense: previousYearData.incomeTaxExpense,
   } : {};
 
-  const incomeStatement = computeIncomeStatement(tb, adj, company, pyIS);
-  const balanceSheet = computeBalanceSheet(tb, adj, incomeStatement, company, pyBS);
-  const changesInEquity = computeChangesInEquity(tb, adj, incomeStatement, company);
-  const cashFlow = computeCashFlow(tb, adj, incomeStatement, balanceSheet);
-  const notes = buildNotesData({ tb, adj, bs: balanceSheet, is: incomeStatement, company });
+  const incomeStatement = computeIncomeStatement(tb, enrichedAdj, company, pyIS);
+
+  if (enrichedAdj.staffBonusProvision == null && incomeStatement.profitBeforeStaffBonus > 0) {
+    enrichedAdj.staffBonusProvision = computeStaffBonus(incomeStatement.profitBeforeStaffBonus);
+    incomeStatement.staffBonus = enrichedAdj.staffBonusProvision;
+    incomeStatement.profitBeforeTax = round2(incomeStatement.profitBeforeStaffBonus - incomeStatement.staffBonus);
+  }
+
+  if (enrichedAdj.incomeTaxProvision == null && incomeStatement.profitBeforeTax > 0) {
+    const taxRate = (company.accountingPolicies?.incomeTaxRatePercent ?? 25) / 100;
+    const taxResult = computeTax({
+      accountingProfit: incomeStatement.profitBeforeTax,
+      accountingDepreciation: enrichedAdj.totalDepreciationExpense ?? incomeStatement.depreciation ?? 0,
+      taxDepreciation: enrichedAdj.taxDepreciationPools?.reduce((s, p) => s + (p.taxDepreciation ?? 0), 0) ?? 0,
+      disallowedForTax: enrichedAdj.disallowedForTax ?? [],
+      staffBonus: enrichedAdj.staffBonusProvision ?? 0,
+      profitBeforeBonus: incomeStatement.profitBeforeStaffBonus,
+      advanceTaxPaid: sumDr(tb.rows, 'advance_tax_paid'),
+      incomeTaxRate: taxRate,
+      entityType: (company.entityType as 'Company' | 'Partnership' | 'Sole Proprietorship' | 'Cooperative' | 'Other') ?? 'Company',
+    });
+    enrichedAdj.incomeTaxProvision = taxResult.currentTaxExpense;
+    enrichedAdj.currentTaxExpense = taxResult.currentTaxExpense;
+    incomeStatement.incomeTaxExpense = taxResult.currentTaxExpense;
+    incomeStatement.netProfit = round2(incomeStatement.profitBeforeTax - incomeStatement.incomeTaxExpense);
+  }
+
+  const balanceSheet = computeBalanceSheet(tb, enrichedAdj, incomeStatement, company, pyBS);
+  const changesInEquity = computeChangesInEquity(tb, enrichedAdj, incomeStatement, company);
+  const cashFlow = computeCashFlow(tb, enrichedAdj, incomeStatement, balanceSheet);
+  const notes = buildNotesData({ tb, adj: enrichedAdj, bs: balanceSheet, is: incomeStatement, company });
 
   return { balanceSheet, incomeStatement, changesInEquity, cashFlow, notes };
 }

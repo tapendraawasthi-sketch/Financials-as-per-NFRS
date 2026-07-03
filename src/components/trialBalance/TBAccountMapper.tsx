@@ -4,97 +4,13 @@ import { Loader2 } from 'lucide-react';
 import Button      from '../ui/Button';
 import ProgressBar from '../ui/ProgressBar';
 import { MappedTBRow, NFRSCategory } from '../../types/trialBalance';
-import { NFRS_CATEGORY_INFO } from '../../data/nfrsCategories';
+import { buildCategoryGroups, buildCategoryLabelMap } from '../../data/categoryGroups';
 import { tbApi } from '../../api/client';
 import { useAppStore } from '../../store/appStore';
 
-// ── Category grouping for <optgroup> ─────────────────────────────────────────
-// item 72: grouped categories for fast scanning
-const CATEGORY_GROUPS: { label: string; categories: NFRSCategory[] }[] = [
-  {
-    label: 'Non-Current Assets',
-    categories: [
-      'ppe_land','ppe_buildings','ppe_plant_machinery','ppe_furniture',
-      'ppe_vehicles','ppe_computers','ppe_office_equipment','ppe_cwip',
-      'ppe_intangibles','accum_depreciation',
-      'investment_listed_trading','investment_unlisted','investment_fixed_deposit_noncurrent',
-      'nca_other','nca_loans_advances','nca_deposits',
-    ],
-  },
-  {
-    label: 'Current Assets',
-    categories: [
-      'trade_receivables','provision_impairment_debtors',
-      'cash_in_hand','bank_current_account','bank_fixed_deposit_current',
-      'inventory_raw_materials','inventory_wip','inventory_finished_goods',
-      'other_receivables_tds','other_receivables_advance_supplier','other_receivables_prepayments',
-      'other_receivables_staff_advance','other_receivables_loans','other_receivables_other',
-    ],
-  },
-  {
-    label: 'Equity',
-    categories: [
-      'share_capital','share_premium','general_reserve',
-      'retained_earnings','other_reserves',
-    ],
-  },
-  {
-    label: 'Non-Current Liabilities',
-    categories: [
-      'borrowings_noncurrent_bank','borrowings_noncurrent_other',
-      'deferred_tax_liability','employee_benefit_gratuity','provisions_noncurrent',
-    ],
-  },
-  {
-    label: 'Current Liabilities',
-    categories: [
-      'borrowings_current_od','borrowings_current_wc','borrowings_current_portion_lt',
-      'trade_payables_creditors','trade_payables_advance_customers',
-      'employee_payables_salary','employee_payables_bonus','employee_payables_pf',
-      'tds_payable','other_payables','income_tax_payable','audit_fee_payable',
-      'provisions_current',
-    ],
-  },
-  {
-    label: 'Income / Revenue',
-    categories: [
-      'revenue_sales','revenue_services','other_income_interest',
-      'other_income_dividend','other_income_rental','other_income_disposal_gain','other_income_misc',
-      'commission_income','insurance_claim_income',
-    ],
-  },
-  {
-    label: 'Cost of Goods Sold',
-    categories: [
-      'cogs_purchases','cogs_opening_stock','direct_wages','direct_expenses_other',
-    ],
-  },
-  {
-    label: 'Employee Expenses',
-    categories: [
-      'emp_expense_salaries','emp_expense_pf','emp_expense_gratuity',
-      'emp_expense_welfare','emp_expense_bonus','emp_expense_other','allowances_expense',
-    ],
-  },
-  {
-    label: 'Operating Expenses',
-    categories: [
-      'admin_rent','admin_electricity','admin_communication','admin_printing',
-      'admin_repairs','admin_audit_fee','admin_legal_professional',
-      'admin_other','admin_traveling','admin_insurance','admin_rates_taxes',
-      'finance_cost_interest','finance_cost_bank_charges',
-      'depreciation_expense','impairment_expense',
-    ],
-  },
-  {
-    label: 'Tax',
-    categories: ['income_tax_expense','advance_tax_paid'],
-  },
-];
-
-// Build label lookup
-const NFRS_LABELS: Record<string, string> = {};
-NFRS_CATEGORY_INFO.forEach(c => { NFRS_LABELS[c.value] = c.label; });
+// ── Category grouping for <optgroup> — full COA taxonomy ───────────────────
+const CATEGORY_GROUPS = buildCategoryGroups();
+const NFRS_LABELS = buildCategoryLabelMap();
 
 // ── Similarity helpers ───────────────────────────────────────────────────────
 function normalize(s: string): string {

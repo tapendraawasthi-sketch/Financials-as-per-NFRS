@@ -10,6 +10,7 @@ export interface SessionData {
   statements?: unknown;
   notes?: unknown;
   financials?: unknown;
+  mappingProfile?: Record<string, { nfrsCategory: string; matchedLabel?: string }>;
 }
 
 const SESSION_TTL_MS = 4 * 60 * 60 * 1000; // 4 hours

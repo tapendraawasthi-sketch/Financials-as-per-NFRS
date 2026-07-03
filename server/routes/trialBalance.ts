@@ -6,6 +6,7 @@ import { sessionStore } from '../store/sessionStore';
 import { parseTrialBalance } from '../services/tbParser';
 import { classifyAll } from '../services/accountMatcher';
 import { classifyWithAI, aiMatchUnresolved } from '../services/aiAccountMatcher';
+import { applyMappingProfile, upsertMappingProfile } from '../services/mappingProfile';
 import { validateTrialBalanceTotals } from '../../src/utils/validation';
 import type { ParsedTrialBalance, NFRSCategory } from '../../src/types';
 
@@ -55,6 +56,7 @@ router.post('/:companyId/upload', tbUploadMiddleware, async (req: Request, res: 
     }
 
     let rows = classifyAll(parsed.rows);
+    rows = applyMappingProfile(rows, session.mappingProfile);
 
     if (req.query.useAI === 'true' && process.env.ANTHROPIC_API_KEY) {
       try {
@@ -140,7 +142,8 @@ router.put('/:companyId/mapping', asyncHandler(async (req: Request, res: Respons
   const updatedTB = { ...session.trialBalance, rows: updatedRows };
   const validation = validateTrialBalanceTotals(updatedRows);
   (updatedTB as any).validation = validation;
-  sessionStore.set(req.params.companyId, { trialBalance: updatedTB });
+  const mappingProfile = upsertMappingProfile(session.mappingProfile ?? {}, updatedRows);
+  sessionStore.set(req.params.companyId, { trialBalance: updatedTB, mappingProfile });
   return res.json(updatedTB);
 }));
 
@@ -168,7 +171,8 @@ router.put('/:companyId/mapping/:rowIndex', asyncHandler(async (req: Request, re
   const updatedTB = { ...session.trialBalance, rows: updatedRows };
   const validation = validateTrialBalanceTotals(updatedRows);
   (updatedTB as any).validation = validation;
-  sessionStore.set(req.params.companyId, { trialBalance: updatedTB });
+  const mappingProfile = upsertMappingProfile(session.mappingProfile ?? {}, updatedRows);
+  sessionStore.set(req.params.companyId, { trialBalance: updatedTB, mappingProfile });
   return res.json({ updated: true, row: updatedRows[idx] });
 }));
 

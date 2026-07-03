@@ -39,6 +39,13 @@ const CATEGORY_ALIAS_MAP: Record<string, string> = {
   other_income: 'other_income_misc',
   interest_expense: 'finance_cost_interest',
   advance_tax: 'advance_tax_paid',
+  admin_water_electricity: 'admin_electricity',
+  provision_impairment_investments: 'provision_impairment_investment',
+  materials_consumed: 'cogs_purchases',
+  fv_gain_listed: 'other_income_misc',
+  fv_loss_listed: 'impairment_expense',
+  borrowings_current_bank: 'borrowings_current_od',
+  borrowings_related_current: 'related_party_payable',
 };
 
 export function normalizeCategoryAlias(category: string): string {
