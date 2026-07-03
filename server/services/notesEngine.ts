@@ -76,15 +76,13 @@ export function buildNotesData(params: {
   // ─── Note 3.1 — PPE ────────────────────────────────────────────────────────
 
   const PPE_CLASSES: Array<{ categoryId: string; label: string }> = [
-    { categoryId: 'ppe_land',            label: 'Land' },
-    { categoryId: 'ppe_buildings',       label: 'Buildings' },
-    { categoryId: 'ppe_furniture',       label: 'Furniture & Office Equipment' },
-    { categoryId: 'ppe_vehicles',        label: 'Vehicles' },
-    { categoryId: 'ppe_plant_machinery', label: 'Plant & Machinery' },
-    { categoryId: 'ppe_computers',       label: 'Computer & IT Equipment' },
-    { categoryId: 'ppe_intangibles',     label: 'Intangibles / Software' },
-    { categoryId: 'ppe_office_equipment',label: 'Other Equipment' },
-    { categoryId: 'ppe_cwip',            label: 'Capital Work in Progress' },
+    { categoryId: 'Land',              label: 'Land' },
+    { categoryId: 'Building',          label: 'Buildings' },
+    { categoryId: 'OfficeEquipment',   label: 'Furniture, Computers & Office Equipment' },
+    { categoryId: 'Vehicle',           label: 'Vehicles' },
+    { categoryId: 'PlantMachinery',    label: 'Plant & Machinery' },
+    { categoryId: 'Intangible',        label: 'Intangibles / Software' },
+    { categoryId: 'UnderConstruction', label: 'Capital Work in Progress' },
   ];
 
   const depnSummaryMap = new Map<string, DepreciationSummary>(
