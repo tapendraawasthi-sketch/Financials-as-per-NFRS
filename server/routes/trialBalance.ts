@@ -5,7 +5,7 @@ import { asyncHandler } from '../middleware/errorHandler';
 import { sessionStore } from '../store/sessionStore';
 import { parseTrialBalance } from '../services/tbParser';
 import { classifyAll } from '../services/accountMatcher';
-import { classifyWithAI } from '../services/aiAccountMatcher';
+import { classifyWithAI, aiMatchUnresolved } from '../services/aiAccountMatcher';
 import { validateTrialBalanceTotals } from '../../src/utils/validation';
 import type { ParsedTrialBalance, NFRSCategory } from '../../src/types';
 
