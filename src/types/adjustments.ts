@@ -151,4 +151,8 @@ export interface YearEndAdjustments {
     amount: number;
     section: string;
   }>;
+  assets?: import('./index').AssetItem[];
+  depreciationResults?: import('./index').DepreciationResult[];
+  journalEntries?: import('./index').JournalEntry[];
+  taxDepreciationPools?: import('./index').TaxDepreciationPool[];
 }
