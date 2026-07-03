@@ -42,10 +42,10 @@ const NAV_ITEMS: NavItem[] = [
 
 const STEP_ORDER = NAV_ITEMS.map(n => n.step);
 
-function isAccessible(step: AppStep, currentStep: AppStep, completedSteps: AppStep[]): boolean {
-  const stepIdx    = STEP_ORDER.indexOf(step);
-  const currentIdx = STEP_ORDER.indexOf(currentStep);
-  return stepIdx <= currentIdx || completedSteps.includes(step);
+// All steps are always visible and clickable.
+// Visual state (done / active / pending) is shown, but nothing is locked.
+function isAccessible(_step: AppStep, _currentStep: AppStep, _completedSteps: AppStep[]): boolean {
+  return true;
 }
 
 export default function Sidebar({
@@ -166,14 +166,13 @@ export default function Sidebar({
           return (
             <button
               key={item.step}
-              onClick={() => accessible && onNavigate(item.step)}
-              disabled={!accessible}
+              onClick={() => onNavigate(item.step)}
               aria-current={isActive ? 'step' : undefined}
               aria-label={`Step ${idx + 1}: ${item.label}${isDone ? ' (completed)' : ''}${!accessible ? ' (not yet available)' : ''}`}
               className="w-full flex items-center gap-3 px-3 py-2.5 text-left relative transition-all duration-150"
               style={{
                 color: labelColor,
-                cursor: accessible ? 'pointer' : 'default',
+                cursor: 'pointer',
                 opacity: 1,
                 background: isActive
                   ? 'linear-gradient(90deg, rgba(99,102,241,0.22) 0%, transparent 100%)'
