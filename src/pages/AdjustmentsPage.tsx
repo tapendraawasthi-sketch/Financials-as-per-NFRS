@@ -6,10 +6,9 @@ import { adjustmentsApi } from '../api/client';
 import Tabs from '../components/ui/Tabs';
 import AssetRegisterTable from '../components/adjustments/AssetRegisterTable';
 import ProvisionInputs from '../components/adjustments/ProvisionInputs';
-import SubledgerInputPanel from '../components/adjustments/SubledgerInputPanel';
 import Button from '../components/ui/Button';
 
-type TabId = 'assets' | 'provisions' | 'subledger';
+type TabId = 'assets' | 'provisions';
 
 export default function AdjustmentsPage() {
   const { state, dispatch } = useAppStore();
@@ -32,18 +31,9 @@ export default function AdjustmentsPage() {
     dispatch({ type: 'SET_STEP', payload: 'review_statements' });
   };
 
-  const tbRows = state.trialBalance?.rows ?? [];
-  const tbDebtorTotal = tbRows
-    .filter(r => r.nfrsCategory === 'trade_receivables' && !r.isGroupRow)
-    .reduce((s, r) => s + (r.closingDr ?? 0), 0);
-  const tbCreditorTotal = tbRows
-    .filter(r => r.nfrsCategory === 'trade_payables_creditors' && !r.isGroupRow)
-    .reduce((s, r) => s + (r.closingCr ?? 0), 0);
-
   const tabs = [
     { id: 'assets', label: 'PPE / Depreciation' },
     { id: 'provisions', label: 'Provisions & Tax' },
-    { id: 'subledger', label: 'Subledger Details' },
   ];
 
   return (
@@ -66,14 +56,6 @@ export default function AdjustmentsPage() {
 
         {activeTab === 'provisions' && (
           <ProvisionInputs onSave={handleSaveProvisions} />
-        )}
-
-        {activeTab === 'subledger' && state.company?.id && (
-          <SubledgerInputPanel
-            companyId={state.company.id}
-            tbDebtorTotal={tbDebtorTotal}
-            tbCreditorTotal={tbCreditorTotal}
-          />
         )}
       </div>
 
