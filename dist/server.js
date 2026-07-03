@@ -2863,6 +2863,9 @@ function parseBSMonth(dateStr) {
   return months[(parts[1] ?? "").toLowerCase()] ?? 1;
 }
 function monthsHeldInFY(purchaseDate) {
+  if (typeof purchaseDate === "number") {
+    return 12;
+  }
   const month = parseBSMonth(purchaseDate);
   if (month <= 6) return 12;
   if (month <= 9) return 12 - (month - 6) * 2;
@@ -2883,27 +2886,40 @@ function getRateAndMethod(asset, policies) {
   };
 }
 function computeAccountingDepreciation(asset, policies) {
+  const raw = asset;
+  const assetLabel = asset.assetName ?? raw.name ?? asset.id;
+  let purchaseDateForCalc;
+  if (raw.purchaseDateBS) {
+    purchaseDateForCalc = raw.purchaseDateBS;
+  } else if (typeof raw.purchaseDate === "number") {
+    purchaseDateForCalc = raw.purchaseDate;
+  } else if (raw.purchaseDate) {
+    purchaseDateForCalc = raw.purchaseDate;
+  } else {
+    throw new Error(`Asset '${assetLabel}': purchaseDate or purchaseDateBS required.`);
+  }
   const { rate, method } = getRateAndMethod(asset, policies);
   const costBase = asset.originalCost + asset.additionsCY;
-  const months = monthsHeldInFY(asset.purchaseDate);
+  const months = monthsHeldInFY(purchaseDateForCalc);
   const fraction = asset.disposalDate ? months / 12 : months / 12;
+  const accumulatedDepnPY = raw.accumDepn ?? asset.accumulatedDepnPY ?? raw.accumulatedDepreciation ?? 0;
   let depreciationCY = 0;
   if (asset.assetClass === "Land" || rate === 0) {
     depreciationCY = 0;
   } else if (method === "SLM") {
     depreciationCY = costBase * rate * fraction;
   } else {
-    const wdv = costBase - asset.accumulatedDepnPY;
+    const wdv = costBase - accumulatedDepnPY;
     depreciationCY = wdv * rate * fraction;
   }
   if (asset.disposalDate && asset.disposalValue !== void 0) {
-    const nbv = costBase - asset.accumulatedDepnPY - depreciationCY;
+    const nbv = costBase - accumulatedDepnPY - depreciationCY;
     const gainLoss = asset.disposalValue - nbv;
     void gainLoss;
   }
-  const accumulatedDepnCY = asset.accumulatedDepnPY + depreciationCY;
+  const accumulatedDepnCY = accumulatedDepnPY + depreciationCY;
   const netBookValueCY = costBase - accumulatedDepnCY;
-  const netBookValuePY = asset.originalCost - asset.accumulatedDepnPY;
+  const netBookValuePY = asset.originalCost - accumulatedDepnPY;
   return {
     ...asset,
     depreciationCY: Math.round(depreciationCY * 100) / 100,
@@ -3338,6 +3354,52 @@ function safeSum(...vals) {
   return vals.reduce((a, v) => a + (v ?? 0), 0);
 }
 var round = (n) => Math.round(n * 100) / 100;
+function debtorDaysOutstanding(d) {
+  if (typeof d.daysOutstanding === "number") return d.daysOutstanding;
+  if (typeof d.agingDays === "number") return d.agingDays;
+  const cat = String(d.ageCategory ?? "");
+  if (cat === "<30days") return 15;
+  if (cat === "31-60days") return 45;
+  if (cat === "61-90days") return 75;
+  if (cat === ">90days") return 120;
+  return 0;
+}
+function debtorAmount(d) {
+  return Number(d.debitBalance ?? d.balanceCY ?? d.amount ?? 0);
+}
+function buildAgingAnalysis(debtors, grossReceivables) {
+  const buckets = [
+    { bucket: "0-30 days", min: 0, max: 30, amount: 0 },
+    { bucket: "31-60 days", min: 31, max: 60, amount: 0 },
+    { bucket: "61-90 days", min: 61, max: 90, amount: 0 },
+    { bucket: ">90 days", min: 91, max: Number.POSITIVE_INFINITY, amount: 0 }
+  ];
+  for (const d of debtors) {
+    const amt = debtorAmount(d);
+    if (amt <= 0) continue;
+    const days = debtorDaysOutstanding(d);
+    const bucket = buckets.find((b) => days >= b.min && days <= b.max) ?? buckets[3];
+    bucket.amount += amt;
+  }
+  const total = buckets.reduce((s, b) => s + b.amount, 0);
+  if (total > 0 && grossReceivables > 0 && Math.abs(total - grossReceivables) > 1) {
+    const factor = grossReceivables / total;
+    buckets.forEach((b) => {
+      b.amount = round(b.amount * factor);
+    });
+  }
+  return buckets.map(({ bucket, amount }) => ({ bucket, amount: round(amount) }));
+}
+function mapSubledgerBankType(accountType) {
+  const t = accountType.toLowerCase();
+  if (t === "savings") return "Savings";
+  if (t === "fixed_deposit") return "Fixed Deposit (\u22643 months)";
+  return "Current";
+}
+function isLoanBankType(accountType) {
+  const t = accountType.toLowerCase();
+  return t === "loan" || t === "overdraft" || t === "cash_credit" || t === "working_capital";
+}
 var TAX_DEPN_RATES = {
   ppe_buildings: 0.05,
   ppe_furniture: 0.25,
@@ -3351,6 +3413,7 @@ function buildNotesData(params) {
   const { tb, adj, bs, is: IS, company } = params;
   const rows = tb.rows ?? [];
   const provisions = adj.provisions ?? [];
+  const subledger = company.id ? subledgerStore.get(company.id) : null;
   const taxRate = (company.accountingPolicies?.incomeTaxRatePercent ?? 25) / 100;
   const roundingLevel = company.accountingPolicies?.roundingLevel ?? 1;
   const PPE_CLASSES = [
@@ -3461,6 +3524,8 @@ function buildNotesData(params) {
   const provisionAdditions = provisionBadDebt?.additionForYear ?? 0;
   const provisionWriteOffs = provisionBadDebt?.utilisedDuringYear ?? 0;
   const provisionReversals = 0;
+  const debtorRows = subledger?.debtors?.length ? subledger.debtors : adj.debtors ?? [];
+  const agingAnalysis = debtorRows.length > 0 ? buildAgingAnalysis(debtorRows, grossReceivables) : [];
   const note33_tradeReceivables = {
     grossReceivables_cy: grossReceivables,
     grossReceivables_py: grossReceivablesOpen,
@@ -3488,8 +3553,7 @@ function buildNotesData(params) {
     currentPortion: round(
       grossReceivables - provisionImpairment + sumTB(rows, "other_receivables_prepayments", "closingDr") + sumTB(rows, "other_receivables_tds", "closingDr") + sumTB(rows, "other_receivables_staff_advance", "closingDr") + sumTB(rows, "other_receivables_advance_supplier", "closingDr") + sumTB(rows, "other_receivables_loans", "closingDr")
     ),
-    agingAnalysis: []
-    // populated if subledger data provided
+    agingAnalysis
   };
   const note34_otherCurrentAssets = {
     securityDeposits: sumTB(rows, "nca_deposits", "closingDr"),
@@ -3543,10 +3607,18 @@ function buildNotesData(params) {
   const bankCurrentRows = rowsByCategory(rows, "bank_current_account");
   const bankSavingsRows = rowsByCategory(rows, "bank_savings_account");
   const fdCurrentRows = rowsByCategory(rows, "bank_fixed_deposit_current");
+  const subledgerCashAssetBanks = (subledger?.bankAccounts ?? []).filter((b) => b.balance >= 0 && !isLoanBankType(b.accountType));
+  const subledgerBankRows = subledgerCashAssetBanks.map((b) => ({
+    accountName: b.bankName,
+    bankName: b.bankName,
+    accountType: mapSubledgerBankType(b.accountType),
+    closingBalance: round(b.balance),
+    openingBalance: 0
+  }));
   const note38_cashEquivalents = {
     cashInHand_cy: cashRows.reduce((s, r) => s + (r.closingDr ?? 0), 0),
     cashInHand_py: cashRows.reduce((s, r) => s + (r.openingDr ?? 0), 0),
-    bankAccounts: [
+    bankAccounts: subledgerBankRows.length > 0 ? subledgerBankRows : [
       ...bankCurrentRows.map((r) => ({
         accountName: r.rawLabel,
         bankName: r.rawLabel,
@@ -3570,10 +3642,10 @@ function buildNotesData(params) {
       }))
     ],
     totalCash_cy: round(
-      cashRows.reduce((s, r) => s + (r.closingDr ?? 0), 0) + bankCurrentRows.reduce((s, r) => s + (r.closingDr ?? 0) - (r.closingCr ?? 0), 0) + bankSavingsRows.reduce((s, r) => s + (r.closingDr ?? 0) - (r.closingCr ?? 0), 0) + fdCurrentRows.reduce((s, r) => s + (r.closingDr ?? 0), 0)
+      cashRows.reduce((s, r) => s + (r.closingDr ?? 0), 0) + (subledgerBankRows.length > 0 ? subledgerBankRows.reduce((s, b) => s + b.closingBalance, 0) : bankCurrentRows.reduce((s, r) => s + (r.closingDr ?? 0) - (r.closingCr ?? 0), 0) + bankSavingsRows.reduce((s, r) => s + (r.closingDr ?? 0) - (r.closingCr ?? 0), 0) + fdCurrentRows.reduce((s, r) => s + (r.closingDr ?? 0), 0))
     ),
     totalCash_py: round(
-      cashRows.reduce((s, r) => s + (r.openingDr ?? 0), 0) + bankCurrentRows.reduce((s, r) => s + (r.openingDr ?? 0) - (r.openingCr ?? 0), 0) + bankSavingsRows.reduce((s, r) => s + (r.openingDr ?? 0) - (r.openingCr ?? 0), 0) + fdCurrentRows.reduce((s, r) => s + (r.openingDr ?? 0), 0)
+      cashRows.reduce((s, r) => s + (r.openingDr ?? 0), 0) + (subledgerBankRows.length > 0 ? subledgerBankRows.reduce((s, b) => s + b.openingBalance, 0) : bankCurrentRows.reduce((s, r) => s + (r.openingDr ?? 0) - (r.openingCr ?? 0), 0) + bankSavingsRows.reduce((s, r) => s + (r.openingDr ?? 0) - (r.openingCr ?? 0), 0) + fdCurrentRows.reduce((s, r) => s + (r.openingDr ?? 0), 0))
     )
   };
   const paidUpCapital = Math.abs(netClosing(rows, "share_capital"));
@@ -3636,6 +3708,32 @@ function buildNotesData(params) {
   const stWcRows = rowsByCategory(rows, "borrowings_current_wc");
   const stPortionRows = rowsByCategory(rows, "borrowings_current_portion_lt");
   const rpPayableRows = rowsByCategory(rows, "related_party_payable");
+  const subledgerLoanBanks = (subledger?.bankAccounts ?? []).filter(
+    (b) => isLoanBankType(b.accountType) || b.balance < 0
+  );
+  const subledgerLoanCurrent = subledgerLoanBanks.filter((b) => ["overdraft", "cash_credit", "working_capital"].includes(b.accountType)).map((b) => ({
+    lenderName: b.bankName,
+    type: b.accountType === "overdraft" ? "Bank Overdraft" : b.accountType === "cash_credit" ? "Cash Credit" : "Working Capital Loan",
+    secured: !!b.securedBy,
+    balance_cy: Math.abs(b.balance),
+    balance_py: 0
+  }));
+  const subledgerLoanNonCurrent = subledgerLoanBanks.filter((b) => b.accountType === "loan").map((b) => ({
+    lenderName: b.bankName,
+    type: "Bank Term Loan",
+    secured: !!b.securedBy,
+    interestRate: b.interestRate ?? 0,
+    maturityDate: b.maturityDate ?? null,
+    balance_cy: Math.abs(b.balance),
+    balance_py: 0
+  }));
+  const subledgerRpPayableLoans = (subledger?.relatedParties ?? []).filter((rp) => rp.balanceType === "payable").map((rp) => ({
+    lenderName: rp.partyName,
+    type: "Related Party Loan",
+    secured: false,
+    balance_cy: Math.abs(rp.outstandingBalance),
+    balance_py: 0
+  }));
   const note311_borrowings = {
     nonCurrent: [
       ...ltBankRows.map((r) => ({
@@ -3655,7 +3753,8 @@ function buildNotesData(params) {
         maturityDate: null,
         balance_cy: Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)),
         balance_py: Math.abs((r.openingCr ?? 0) - (r.openingDr ?? 0))
-      }))
+      })),
+      ...subledgerLoanNonCurrent
     ],
     current: [
       ...stOdRows.map((r) => ({
@@ -3692,10 +3791,12 @@ function buildNotesData(params) {
         secured: false,
         balance_cy: Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)),
         balance_py: Math.abs((r.openingCr ?? 0) - (r.openingDr ?? 0))
-      }))
+      })),
+      ...subledgerLoanCurrent,
+      ...subledgerRpPayableLoans
     ],
-    totalNonCurrent_cy: ltBankRows.reduce((s, r) => s + Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)), 0) + ltOtherRows.reduce((s, r) => s + Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)), 0),
-    totalCurrent_cy: [stOdRows, stCcRows, stWcRows, stPortionRows, rpPayableRows].flat().reduce((s, r) => s + Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)), 0)
+    totalNonCurrent_cy: ltBankRows.reduce((s, r) => s + Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)), 0) + ltOtherRows.reduce((s, r) => s + Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)), 0) + subledgerLoanNonCurrent.reduce((s, r) => s + r.balance_cy, 0),
+    totalCurrent_cy: [stOdRows, stCcRows, stWcRows, stPortionRows, rpPayableRows].flat().reduce((s, r) => s + Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)), 0) + subledgerLoanCurrent.reduce((s, r) => s + r.balance_cy, 0) + subledgerRpPayableLoans.reduce((s, r) => s + r.balance_cy, 0)
   };
   const gratuityProv = provisions.find((p) => p.provisionType === "gratuity");
   const leaveProv = provisions.find((p) => p.provisionType === "leave_encashment");
@@ -3972,8 +4073,22 @@ function buildNotesData(params) {
   };
   const rpReceivableRows = rowsByCategory(rows, "related_party_receivable");
   const rpPayRows = rowsByCategory(rows, "related_party_payable");
+  const subledgerRelatedParties = subledger?.relatedParties?.length ? subledger.relatedParties : adj.relatedParties ?? [];
   const note324_relatedParty = {
-    relatedParties: [
+    relatedParties: subledgerRelatedParties.length > 0 ? subledgerRelatedParties.map((rp) => {
+      const row = rp;
+      const balanceType = String(row.balanceType ?? "receivable");
+      const txns = row.transactionsCurrentYear ?? [];
+      return {
+        partyName: String(row.partyName ?? row.name ?? ""),
+        relationship: String(row.relationshipType ?? row.relationship ?? "Related Party"),
+        natureOfTransaction: balanceType === "payable" ? "Loan Received" : "Loan Given",
+        transactionAmount: txns.reduce((s, t) => s + (t.amount ?? 0), 0),
+        outstandingBalance: Math.abs(Number(row.outstandingBalance ?? row.balanceCY ?? 0)),
+        balanceType: balanceType === "payable" ? "Payable" : "Receivable",
+        atArmSLength: Boolean(row.isArmLength ?? false)
+      };
+    }) : [
       ...rpPayRows.map((r) => ({
         partyName: r.rawLabel,
         relationship: "Director / Related Party",
@@ -3994,7 +4109,7 @@ function buildNotesData(params) {
       }))
     ],
     kmpCompensationTotal: 0,
-    noRelatedPartyTransactions: rpPayRows.length === 0 && rpReceivableRows.length === 0
+    noRelatedPartyTransactions: subledgerRelatedParties.length === 0 && rpPayRows.length === 0 && rpReceivableRows.length === 0
   };
   const note325_contingencies = {
     hasContingencies: false,
