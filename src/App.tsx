@@ -88,6 +88,7 @@ function PrereqBanner({
 import DashboardPage from './pages/DashboardPage';
 import CompanySetupPage from './pages/CompanySetupPage';
 import TrialBalancePage from './pages/TrialBalancePage';
+import SubledgerPage from './pages/SubledgerPage';
 import AdjustmentsPage from './pages/AdjustmentsPage';
 import StatementsPage from './pages/StatementsPage';
 import OutputPage from './pages/OutputPage';
@@ -164,8 +165,7 @@ const AppInner: React.FC = () => {
           return <TrialBalancePage />;
 
         case 'subledger_details':
-          // MVP: skip subledger step — show trial balance mapping for re-review
-          return <TrialBalancePage />;
+          return <SubledgerPage />;
 
         case 'year_end_adjustments':
           return <AdjustmentsPage />;

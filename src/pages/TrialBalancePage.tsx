@@ -59,8 +59,36 @@ export default function TrialBalancePage() {
   };
 
   const handleConfirmMappings = async () => {
-    dispatch({ type: 'COMPLETE_STEP', payload: 'trial_balance_mapping' });
-    dispatch({ type: 'SET_STEP', payload: 'year_end_adjustments' });
+    if (!tb || !state.company?.id) return;
+
+    const updates = tb.rows.map(row => ({
+      rowIndex: row.rowIndex,
+      nfrsCategory: row.nfrsCategory,
+      matchedLabel: row.matchedLabel ?? row.rawLabel,
+    }));
+
+    try {
+      const response = await fetch(`/api/trial-balance/${state.company.id}/mapping`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ updates }),
+      });
+
+      if (!response.ok) {
+        let message = 'Failed to save mappings.';
+        try {
+          const body = await response.json();
+          if (body.error) message = body.error;
+        } catch {}
+        throw new Error(message);
+      }
+
+      dispatch({ type: 'COMPLETE_STEP', payload: 'trial_balance_mapping' });
+      dispatch({ type: 'SET_STEP', payload: 'year_end_adjustments' });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to save mappings.';
+      dispatch({ type: 'SET_ERROR', payload: message });
+    }
   };
 
   const tabs = [

@@ -2081,6 +2081,44 @@ var CHART_OF_ACCOUNTS = [
 var NFRS_CATEGORIES = CHART_OF_ACCOUNTS.filter((e) => !e.isGroup).map((e) => e.category);
 
 // server/services/accountMatcher.ts
+var CATEGORY_ALIAS_MAP = {
+  bank_charges: "finance_cost_bank_charges",
+  admin_travelling: "admin_traveling",
+  admin_repair_maintenance: "admin_repairs",
+  admin_printing_stationery: "admin_printing",
+  admin_legal: "admin_legal_professional",
+  admin_others: "admin_other",
+  admin_miscellaneous: "admin_other",
+  borrowings_current_overdraft: "borrowings_current_od",
+  borrowings_current_working: "borrowings_current_wc",
+  salary_payable: "employee_payables_salary",
+  bonus_payable: "employee_payables_bonus",
+  pf_ssf_payable: "employee_payables_pf",
+  impairment_on_debtors: "impairment_expense",
+  trade_payables: "trade_payables_creditors",
+  advance_from_customers: "trade_payables_advance_customers",
+  other_current_liabilities: "other_payables",
+  employee_benefit_noncurrent: "employee_benefit_gratuity",
+  borrowings_noncurrent_related: "borrowings_noncurrent_other",
+  salary_wages_expense: "emp_expense_salaries",
+  pf_ssf_expense: "emp_expense_pf",
+  staff_bonus_expense: "emp_expense_bonus",
+  leave_encashment_expense: "emp_expense_leave",
+  other_employee_expense: "emp_expense_welfare",
+  purchase: "cogs_purchases",
+  wages_direct: "direct_wages",
+  other_direct_expenses: "direct_expenses_other",
+  interest_income: "other_income_interest",
+  dividend_income: "other_income_dividend",
+  rental_income: "other_income_rental",
+  gain_on_disposal: "other_income_disposal_gain",
+  other_income: "other_income_misc",
+  interest_expense: "finance_cost_interest",
+  advance_tax: "advance_tax_paid"
+};
+function normalizeCategoryAlias(category) {
+  return CATEGORY_ALIAS_MAP[category] ?? category;
+}
 var REVIEW_THRESHOLD = 75;
 var KEYWORD_THRESHOLD = 40;
 function normalize(s) {
@@ -2245,7 +2283,7 @@ function keywordMatch(normalizedLabel, parentGroup) {
   if (!best || best.score < KEYWORD_THRESHOLD) return null;
   const confidence = Math.min(85, Math.max(60, 50 + best.score));
   return {
-    nfrsCategory: best.entry.category,
+    nfrsCategory: normalizeCategoryAlias(best.entry.category),
     matchMethod: "keyword",
     confidence,
     needsReview: confidence < REVIEW_THRESHOLD,
@@ -2274,7 +2312,7 @@ function fuzzyMatch(normalizedLabel) {
   const confidence = Math.round(100 * (1 - best.distance / maxLen));
   const clamped = Math.min(60, Math.max(40, confidence));
   return {
-    nfrsCategory: best.entry.category,
+    nfrsCategory: normalizeCategoryAlias(best.entry.category),
     matchMethod: "fuzzy",
     confidence: clamped,
     needsReview: true,
@@ -2298,7 +2336,7 @@ function classifyRow(row) {
   if (exact) {
     const entry = CHART_OF_ACCOUNTS.find((e) => e.category === exact);
     return {
-      nfrsCategory: exact,
+      nfrsCategory: normalizeCategoryAlias(exact),
       matchMethod: "exact",
       confidence: 100,
       needsReview: false,
@@ -2310,7 +2348,7 @@ function classifyRow(row) {
     for (const syn of entry.synonyms) {
       if (normalize(syn) === normalized) {
         return {
-          nfrsCategory: entry.category,
+          nfrsCategory: normalizeCategoryAlias(entry.category),
           matchMethod: "synonym",
           confidence: 95,
           needsReview: false,
@@ -2324,7 +2362,7 @@ function classifyRow(row) {
     for (const nr of entry.nepaliRomanized) {
       if (normalize(nr) === normalized) {
         return {
-          nfrsCategory: entry.category,
+          nfrsCategory: normalizeCategoryAlias(entry.category),
           matchMethod: "synonym",
           confidence: 90,
           needsReview: false,
@@ -2339,7 +2377,7 @@ function classifyRow(row) {
   if (ctx) {
     const entry = CHART_OF_ACCOUNTS.find((e) => e.category === ctx.category);
     return {
-      nfrsCategory: ctx.category,
+      nfrsCategory: normalizeCategoryAlias(ctx.category),
       matchMethod: "context",
       confidence: ctx.confidence,
       needsReview: ctx.confidence < REVIEW_THRESHOLD,
@@ -2457,6 +2495,37 @@ async function classifyWithAI(rows, apiKey) {
   }
   return result;
 }
+async function aiMatchUnresolved(accounts, _company, apiKey) {
+  const rows = accounts.map((a, i) => ({
+    rowIndex: i,
+    rawLabel: a.rawLabel,
+    parentGroup: a.parentGroup ?? "",
+    openingDr: 0,
+    openingCr: 0,
+    duringDr: 0,
+    duringCr: 0,
+    adjustmentDr: 0,
+    adjustmentCr: 0,
+    closingDr: a.closingDr ?? 0,
+    closingCr: a.closingCr ?? 0,
+    rowLevel: 2,
+    isGroupRow: false,
+    rawIndentSpaces: 0,
+    nfrsCategory: "unclassified",
+    matchMethod: "unmatched",
+    confidence: 0,
+    needsReview: true,
+    userOverride: false,
+    displayLabel: a.rawLabel
+  }));
+  const classified = await classifyWithAI(rows, apiKey);
+  return classified.map((r, i) => ({
+    rowIndex: i,
+    nfrsCategory: r.nfrsCategory,
+    confidence: r.confidence,
+    reasoning: ""
+  }));
+}
 
 // server/routes/trialBalance.ts
 var router2 = Router2();
@@ -2564,6 +2633,28 @@ router2.put("/:companyId/mapping", asyncHandler(async (req, res) => {
   updatedTB.validation = validation;
   sessionStore.set(req.params.companyId, { trialBalance: updatedTB });
   return res.json(updatedTB);
+}));
+router2.put("/:companyId/mapping/:rowIndex", asyncHandler(async (req, res) => {
+  const session = sessionStore.get(req.params.companyId);
+  if (!session?.trialBalance) return res.status(404).json({ error: "No trial balance loaded." });
+  const { nfrsCategory } = req.body;
+  if (!nfrsCategory) return res.status(400).json({ error: "nfrsCategory is required." });
+  const updatedRows = [...session.trialBalance.rows];
+  const idx = updatedRows.findIndex((r) => String(r.rowIndex) === req.params.rowIndex);
+  if (idx === -1) return res.status(404).json({ error: "Row not found." });
+  updatedRows[idx] = {
+    ...updatedRows[idx],
+    nfrsCategory,
+    confidence: 100,
+    matchMethod: "manual",
+    needsReview: false,
+    userOverride: true
+  };
+  const updatedTB = { ...session.trialBalance, rows: updatedRows };
+  const validation = validateTrialBalanceTotals(updatedRows);
+  updatedTB.validation = validation;
+  sessionStore.set(req.params.companyId, { trialBalance: updatedTB });
+  return res.json({ updated: true, row: updatedRows[idx] });
 }));
 router2.post("/:companyId/rematch-ai", asyncHandler(async (req, res) => {
   const session = sessionStore.get(req.params.companyId);
