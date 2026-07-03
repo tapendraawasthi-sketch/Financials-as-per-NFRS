@@ -27,7 +27,7 @@ router.post('/:companyId/assets', asyncHandler(async (req: Request, res: Respons
   const session = sessionStore.get(req.params.companyId);
   if (!session) return res.status(404).json({ error: 'Company not found.' });
   const assets: AssetItem[] = req.body.assets ?? [];
-  const adj = session.adjustments ?? emptyAdj(req.params.companyId, session.company?.fiscalYear ?? '');
+  const adj = session.adjustments ?? emptyAdj(req.params.companyId, session.company?.fiscalYear?.bsFY ?? '');
   sessionStore.set(req.params.companyId, { adjustments: { ...adj, assets } });
   return res.json({ message: 'Asset register saved.', count: assets.length });
 }));
@@ -37,9 +37,9 @@ router.post('/:companyId/calculate-depreciation', asyncHandler(async (req: Reque
   const session = sessionStore.get(req.params.companyId);
   if (!session?.company) return res.status(404).json({ error: 'Company not found.' });
 
-  const adj = session.adjustments ?? emptyAdj(req.params.companyId, session.company.fiscalYear ?? '');
+  const adj = session.adjustments ?? emptyAdj(req.params.companyId, session.company.fiscalYear?.bsFY ?? '');
   const assetCategories = session.company.accountingPolicies?.assetCategories ?? [];
-  const fiscalYear = session.company.fiscalYear ?? '2081/82';
+  const fiscalYear = session.company.fiscalYear?.bsFY ?? '2081/82';
 
   const { results, summary } = calculateDepreciationSummary(adj.assets, assetCategories, fiscalYear);
   const totalDepreciation = results.reduce((s, r) => s + r.depnForYear, 0);
@@ -63,7 +63,7 @@ router.post('/:companyId/provisions', asyncHandler(async (req: Request, res: Res
   const session = sessionStore.get(req.params.companyId);
   if (!session) return res.status(404).json({ error: 'Company not found.' });
   const provisions: ProvisionEntry[] = req.body.provisions ?? [];
-  const adj = session.adjustments ?? emptyAdj(req.params.companyId, session.company?.fiscalYear ?? '');
+  const adj = session.adjustments ?? emptyAdj(req.params.companyId, session.company?.fiscalYear?.bsFY ?? '');
   const totalProvisions = provisions.reduce((s, p) => s + p.additionForYear, 0);
   sessionStore.set(req.params.companyId, { adjustments: { ...adj, provisions, totalProvisions } });
   return res.json({ message: 'Provisions saved.', count: provisions.length, total: totalProvisions });
@@ -74,7 +74,7 @@ router.post('/:companyId/inventory', asyncHandler(async (req: Request, res: Resp
   const session = sessionStore.get(req.params.companyId);
   if (!session) return res.status(404).json({ error: 'Company not found.' });
   const items: InventoryAdjustment[] = req.body.items ?? [];
-  const adj = session.adjustments ?? emptyAdj(req.params.companyId, session.company?.fiscalYear ?? '');
+  const adj = session.adjustments ?? emptyAdj(req.params.companyId, session.company?.fiscalYear?.bsFY ?? '');
   const totalInventoryImpairment = items.reduce((s, i) => s + i.impairmentAmount, 0);
   sessionStore.set(req.params.companyId, { adjustments: { ...adj, inventoryAdjustments: items, totalInventoryImpairment } });
   return res.json({ message: 'Inventory adjustments saved.', totalImpairment: totalInventoryImpairment });
@@ -85,7 +85,7 @@ router.post('/:companyId/investments', asyncHandler(async (req: Request, res: Re
   const session = sessionStore.get(req.params.companyId);
   if (!session) return res.status(404).json({ error: 'Company not found.' });
   const items: InvestmentAdjustment[] = req.body.items ?? [];
-  const adj = session.adjustments ?? emptyAdj(req.params.companyId, session.company?.fiscalYear ?? '');
+  const adj = session.adjustments ?? emptyAdj(req.params.companyId, session.company?.fiscalYear?.bsFY ?? '');
   const totalFV = items.reduce((s, i) => s + (i.fairValueGainLoss ?? 0), 0);
   sessionStore.set(req.params.companyId, { adjustments: { ...adj, investmentAdjustments: items, totalInvestmentFVAdjustment: totalFV } });
   return res.json({ message: 'Investment adjustments saved.', totalFVAdjustment: totalFV });
@@ -95,7 +95,7 @@ router.post('/:companyId/investments', asyncHandler(async (req: Request, res: Re
 router.get('/:companyId', asyncHandler(async (req: Request, res: Response) => {
   const session = sessionStore.get(req.params.companyId);
   if (!session) return res.status(404).json({ error: 'Company not found.' });
-  return res.json(session.adjustments ?? emptyAdj(req.params.companyId, session.company?.fiscalYear ?? ''));
+  return res.json(session.adjustments ?? emptyAdj(req.params.companyId, session.company?.fiscalYear?.bsFY ?? ''));
 }));
 
 // POST /:companyId/calculate-all
