@@ -1,4 +1,5 @@
 // server/server.ts
+import 'dotenv/config';
 import express, { Request, Response, NextFunction } from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -82,7 +83,7 @@ app.get('/api/health', (_req: Request, res: Response) => {
   res.json({
     status:  'ok',
     service: 'NFRS Financial Reporter',
-    version: '1.0.0',
+    version: '2.0.0',
     env:     process.env.NODE_ENV ?? 'development',
     uptime:  `${Math.floor(process.uptime())}s`,
     memory: {
@@ -172,7 +173,7 @@ server.listen(PORT, () => {
 // SESSION CLEANUP JOB — every 6 hours
 // ══════════════════════════════════════════════════════════════════════════
 const SESSION_CLEANUP_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
-const SESSION_MAX_AGE_HOURS       = 24;
+const SESSION_MAX_AGE_HOURS       = 4;
 
 setInterval(() => {
   const removed = sessionStore.cleanup(SESSION_MAX_AGE_HOURS);

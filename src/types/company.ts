@@ -54,3 +54,23 @@ export interface InventoryDetails {
   finishedGoodsCY: number;
   finishedGoodsPY: number;
 }
+
+export interface PreviousYearBalances {
+  revenue: number;
+  costOfSales: number;
+  otherIncome: number;
+  adminExpenses: number;
+  financeCosts: number;
+  depreciation: number;
+  incomeTaxExpense: number;
+  ppe: number;
+  investments: number;
+  currentAssets: number;
+  cashAndEquivalents: number;
+  shareCapital: number;
+  reserves: number;
+  borrowingsNonCurrent: number;
+  borrowingsCurrent: number;
+  tradePayables: number;
+  provisions: number;
+}

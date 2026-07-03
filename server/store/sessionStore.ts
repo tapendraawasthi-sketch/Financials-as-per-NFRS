@@ -1,26 +1,41 @@
-// server/store/sessionStore.ts
+import { randomUUID } from 'crypto';
+
 export interface SessionData {
-  createdAt:    Date;
+  createdAt: Date;
   lastAccessAt: Date;
-  company?:     any;
-  trialBalance?: any;
-  adjustments?:  any;
-  financials?:   any;
+  company?: unknown;
+  trialBalance?: unknown;
+  adjustments?: unknown;
+  policies?: unknown;
+  statements?: unknown;
+  notes?: unknown;
+  financials?: unknown;
 }
+
+const SESSION_TTL_MS = 4 * 60 * 60 * 1000; // 4 hours
 
 class SessionStore {
   private store = new Map<string, SessionData>();
 
+  generateSessionId(): string {
+    return randomUUID();
+  }
+
   get(id: string): SessionData | undefined {
     const session = this.store.get(id);
-    if (session) session.lastAccessAt = new Date();
+    if (!session) return undefined;
+    if (Date.now() - session.lastAccessAt.getTime() > SESSION_TTL_MS) {
+      this.store.delete(id);
+      return undefined;
+    }
+    session.lastAccessAt = new Date();
     return session;
   }
 
   set(id: string, data: Partial<SessionData>): SessionData {
     const existing = this.store.get(id);
     const session: SessionData = {
-      createdAt:    existing?.createdAt    ?? new Date(),
+      createdAt: existing?.createdAt ?? new Date(),
       lastAccessAt: new Date(),
       ...existing,
       ...data,
@@ -29,18 +44,28 @@ class SessionStore {
     return session;
   }
 
-  delete(id: string): boolean {
+  updateSession(id: string, updater: (current: SessionData) => Partial<SessionData>): SessionData | undefined {
+    const current = this.get(id);
+    if (!current) return undefined;
+    return this.set(id, updater(current));
+  }
+
+  clearSession(id: string): boolean {
     return this.store.delete(id);
   }
 
+  delete(id: string): boolean {
+    return this.clearSession(id);
+  }
+
   has(id: string): boolean {
-    return this.store.has(id);
+    return this.get(id) !== undefined;
   }
 
   /** Removes sessions older than maxAgeHours. Returns count removed. */
-  cleanup(maxAgeHours: number): number {
-    const cutoff  = Date.now() - maxAgeHours * 60 * 60 * 1000;
-    let   removed = 0;
+  cleanup(maxAgeHours: number = 4): number {
+    const cutoff = Date.now() - maxAgeHours * 60 * 60 * 1000;
+    let removed = 0;
     for (const [id, session] of this.store.entries()) {
       if (session.lastAccessAt.getTime() < cutoff) {
         this.store.delete(id);

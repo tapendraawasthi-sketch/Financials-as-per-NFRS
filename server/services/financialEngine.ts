@@ -1,7 +1,4 @@
-// ===== server/services/financialEngine.ts =====
-// Financial statement computation engine.
-// Converts a mapped trial balance + year-end adjustments into all four
-// NFRS/NAS for MEs financial statements and supporting notes.
+// Financial statement computation engine — NAS for MEs / ICAN format.
 
 import type {
   ParsedTrialBalance,
@@ -13,163 +10,296 @@ import type {
   CashFlowStatement,
   NotesData,
   CompanyProfile,
-  AccountingPolicies,
   NFRSCategory,
 } from '../../src/types';
+import { buildNotesData } from './notesEngine.js';
 
 // ---------------------------------------------------------------------------
-// Helper: sum closing balances for given NFRS categories
+// TB aggregation helpers
 // ---------------------------------------------------------------------------
-function sumRows(
-  rows: MappedTBRow[],
-  ...categories: (NFRSCategory | string)[]
-): number {
-  const catSet = new Set(categories);
-  return rows
-    .filter((r) => catSet.has(r.nfrsCategory as string))
-    .reduce((acc, r) => acc + ((r.closingDr ?? 0) - (r.closingCr ?? 0)), 0);
-}
 
-/** Sum only credit-side closing (for liability / income accounts). */
-function sumCr(
-  rows: MappedTBRow[],
-  ...categories: (NFRSCategory | string)[]
-): number {
+function sumDr(rows: MappedTBRow[], ...categories: (NFRSCategory | string)[]): number {
   const catSet = new Set(categories);
   return rows
-    .filter((r) => catSet.has(r.nfrsCategory as string))
-    .reduce((acc, r) => acc + (r.closingCr ?? 0), 0);
-}
-
-/** Sum only debit-side closing (for asset / expense accounts). */
-function sumDr(
-  rows: MappedTBRow[],
-  ...categories: (NFRSCategory | string)[]
-): number {
-  const catSet = new Set(categories);
-  return rows
-    .filter((r) => catSet.has(r.nfrsCategory as string))
+    .filter((r) => catSet.has(r.nfrsCategory as string) && !(r as { isGroupRow?: boolean }).isGroupRow)
     .reduce((acc, r) => acc + (r.closingDr ?? 0), 0);
 }
 
-/** Sum opening debit balances (for working capital movement). */
-function sumOpeningDr(
-  rows: MappedTBRow[],
-  ...categories: (NFRSCategory | string)[]
-): number {
+function sumCr(rows: MappedTBRow[], ...categories: (NFRSCategory | string)[]): number {
   const catSet = new Set(categories);
   return rows
-    .filter((r) => catSet.has(r.nfrsCategory as string))
+    .filter((r) => catSet.has(r.nfrsCategory as string) && !(r as { isGroupRow?: boolean }).isGroupRow)
+    .reduce((acc, r) => acc + (r.closingCr ?? 0), 0);
+}
+
+function sumOpeningDr(rows: MappedTBRow[], ...categories: (NFRSCategory | string)[]): number {
+  const catSet = new Set(categories);
+  return rows
+    .filter((r) => catSet.has(r.nfrsCategory as string) && !(r as { isGroupRow?: boolean }).isGroupRow)
     .reduce((acc, r) => acc + (r.openingDr ?? 0), 0);
 }
 
-/** Sum opening credit balances. */
-function sumOpeningCr(
-  rows: MappedTBRow[],
-  ...categories: (NFRSCategory | string)[]
-): number {
+function sumOpeningCr(rows: MappedTBRow[], ...categories: (NFRSCategory | string)[]): number {
   const catSet = new Set(categories);
   return rows
-    .filter((r) => catSet.has(r.nfrsCategory as string))
+    .filter((r) => catSet.has(r.nfrsCategory as string) && !(r as { isGroupRow?: boolean }).isGroupRow)
     .reduce((acc, r) => acc + (r.openingCr ?? 0), 0);
 }
 
-const round = (n: number) => Math.round(n * 100) / 100;
+function netBalance(rows: MappedTBRow[], ...categories: (NFRSCategory | string)[]): number {
+  return sumDr(rows, ...categories) - sumCr(rows, ...categories);
+}
+
+export const round2 = (n: number) => Math.round(n * 100) / 100;
+
+function splitCashAndOverdrafts(rows: MappedTBRow[]): { cash: number; overdrafts: number } {
+  const cashCats = new Set(['cash_in_hand', 'bank_current_account', 'bank_fixed_deposit_current']);
+  let cash = 0;
+  let overdrafts = 0;
+  for (const row of rows) {
+    if (!cashCats.has(row.nfrsCategory as string) || (row as { isGroupRow?: boolean }).isGroupRow) continue;
+    const net = (row.closingDr ?? 0) - (row.closingCr ?? 0);
+    if (net >= 0) cash += net;
+    else overdrafts += -net;
+  }
+  return { cash: round2(cash), overdrafts: round2(overdrafts) };
+}
+
+const ADMIN_CATEGORIES = [
+  'admin_rent', 'admin_rates_taxes', 'admin_insurance', 'admin_repairs',
+  'admin_electricity', 'admin_communication', 'admin_printing', 'admin_legal_professional',
+  'admin_audit_fee', 'admin_traveling', 'admin_advertisement', 'admin_other',
+] as const;
+
+function inventoryFromAdj(adj: YearEndAdjustments, rows: MappedTBRow[]) {
+  const inv = adj.inventoryDetails;
+  const openingPY = inv
+    ? inv.rawMaterialsPY + inv.wipPY + inv.finishedGoodsPY
+    : sumOpeningDr(rows, 'inventory_raw_materials', 'inventory_wip', 'inventory_finished_goods');
+  const closingCY = inv
+    ? inv.rawMaterialsCY + inv.wipCY + inv.finishedGoodsCY
+    : sumDr(rows, 'inventory_raw_materials', 'inventory_wip', 'inventory_finished_goods');
+  return { openingPY, closingCY };
+}
 
 // ---------------------------------------------------------------------------
-// 1. computeBalanceSheet
+// Income Statement
+// ---------------------------------------------------------------------------
+export function computeIncomeStatement(
+  tb: ParsedTrialBalance,
+  adj: YearEndAdjustments,
+  company: CompanyProfile,
+  previousYearIS: Partial<IncomeStatement> = {},
+): IncomeStatement {
+  const rows = tb.rows;
+
+  const revenue = round2(sumCr(rows, 'revenue_sales', 'revenue_services'));
+  const interestIncome = round2(sumCr(rows, 'other_income_interest'));
+  const otherIncome = round2(
+    sumCr(rows, 'other_income_dividend', 'other_income_rental', 'other_income_misc', 'other_income_disposal_gain')
+    + adj.gainOnDisposals
+    + adj.investmentAdjustments
+      .filter((i) => (i.fairValueGainLoss ?? 0) > 0)
+      .reduce((s, i) => s + (i.fairValueGainLoss ?? 0), 0),
+  );
+  const totalIncome = round2(revenue + interestIncome + otherIncome);
+
+  const { openingPY, closingCY } = inventoryFromAdj(adj, rows);
+  const materialConsumed = round2(
+    openingPY + sumDr(rows, 'cogs_purchases', 'cogs_opening_stock') - closingCY,
+  );
+
+  const directExpenses = round2(sumDr(rows, 'direct_wages', 'direct_expenses_other'));
+  const staffBonusProvision = adj.staffBonusProvision
+    ?? round2(sumDr(rows, 'emp_expense_bonus'));
+  const employeeBenefitExpense = round2(
+    sumDr(rows, 'emp_expense_salaries', 'emp_expense_welfare')
+    + sumDr(rows, 'emp_expense_pf', 'emp_expense_gratuity', 'emp_expense_other')
+    + staffBonusProvision
+    + sumDr(rows, 'emp_expense_leave' as NFRSCategory),
+  );
+
+  const financeCharges = round2(sumDr(rows, 'finance_cost_interest', 'finance_cost_bank_charges'));
+  const depreciation = round2(adj.totalDepreciationExpense);
+  const impairment = round2(
+    sumDr(rows, 'impairment_expense')
+    + adj.investmentAdjustments.reduce((s, i) => s + (i.impairmentAmount ?? 0), 0)
+    + adj.investmentAdjustments
+      .filter((i) => (i.fairValueGainLoss ?? 0) < 0)
+      .reduce((s, i) => s + Math.abs(i.fairValueGainLoss ?? 0), 0),
+  );
+
+  const adminAndOtherExpenses = round2(
+    ADMIN_CATEGORIES.reduce((s, cat) => s + sumDr(rows, cat), 0),
+  );
+
+  const totalExpenses = round2(
+    materialConsumed + directExpenses + employeeBenefitExpense
+    + financeCharges + depreciation + impairment + adminAndOtherExpenses,
+  );
+
+  const profitBeforeStaffBonus = round2(totalIncome - (totalExpenses - staffBonusProvision));
+  const staffBonus = round2(staffBonusProvision);
+  const profitBeforeTax = round2(profitBeforeStaffBonus - staffBonus);
+
+  const incomeTaxExpense = round2(
+    adj.incomeTaxProvision ?? adj.currentTaxExpense ?? sumDr(rows, 'income_tax_expense'),
+  );
+  const netProfit = round2(profitBeforeTax - incomeTaxExpense);
+
+  return {
+    revenue, interestIncome, otherIncome, totalIncome,
+    materialConsumed, directExpenses, employeeBenefitExpense: employeeBenefitExpense,
+    financeCharges, depreciation, impairment, adminAndOtherExpenses, totalExpenses,
+    profitBeforeStaffBonus, staffBonus, profitBeforeTax, incomeTaxExpense, netProfit,
+    revenue_py: previousYearIS.revenue ?? 0,
+    interestIncome_py: previousYearIS.interestIncome ?? 0,
+    otherIncome_py: previousYearIS.otherIncome ?? 0,
+    totalIncome_py: previousYearIS.totalIncome ?? 0,
+    materialConsumed_py: previousYearIS.materialConsumed ?? 0,
+    directExpenses_py: previousYearIS.directExpenses ?? 0,
+    employeeBenefitExpense_py: previousYearIS.employeeBenefitExpense ?? 0,
+    financeCharges_py: previousYearIS.financeCharges ?? 0,
+    depreciation_py: previousYearIS.depreciation ?? 0,
+    impairment_py: previousYearIS.impairment ?? 0,
+    adminAndOtherExpenses_py: previousYearIS.adminAndOtherExpenses ?? 0,
+    totalExpenses_py: previousYearIS.totalExpenses ?? 0,
+    profitBeforeStaffBonus_py: previousYearIS.profitBeforeStaffBonus ?? 0,
+    staffBonus_py: previousYearIS.staffBonus ?? 0,
+    profitBeforeTax_py: previousYearIS.profitBeforeTax ?? 0,
+    incomeTaxExpense_py: previousYearIS.incomeTaxExpense ?? 0,
+    netProfit_py: previousYearIS.netProfit ?? 0,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Balance Sheet
 // ---------------------------------------------------------------------------
 export function computeBalanceSheet(
   tb: ParsedTrialBalance,
   adj: YearEndAdjustments,
   is: IncomeStatement,
+  company: CompanyProfile,
   previousYearBS: Partial<BalanceSheet> = {},
 ): BalanceSheet {
   const rows = tb.rows;
 
-  // ── Non-Current Assets ────────────────────────────────────────────────────
-  const grossPPE = sumDr(rows,
+  const grossPPE = sumDr(
+    rows,
     'ppe_land', 'ppe_buildings', 'ppe_vehicles', 'ppe_office_equipment',
     'ppe_computers', 'ppe_furniture', 'ppe_plant_machinery', 'ppe_intangibles', 'ppe_cwip',
   );
-  const accumDepnTB = sumCr(rows, 'accum_depreciation');
-  const totalAccumDepn = accumDepnTB + adj.totalDepreciationExpense;
-  const nca_ppe = Math.max(0, grossPPE - totalAccumDepn);
+  const accumDepn = sumCr(rows, 'accum_depreciation');
+  const depnInTB = round2(sumCr(rows, 'accum_depreciation') - sumOpeningCr(rows, 'accum_depreciation'));
+  const totalAccumDepn = depnInTB >= adj.totalDepreciationExpense * 0.99
+    ? accumDepn
+    : accumDepn + adj.totalDepreciationExpense;
+  const nca_ppe = round2(Math.max(0, grossPPE - totalAccumDepn));
 
-  const investmentNonCurrent =
-    sumDr(rows, 'investment_listed_trading', 'investment_unlisted', 'investment_fixed_deposit_noncurrent') -
-    adj.investmentAdjustments.reduce((sum, inv) => sum + (inv.impairmentAmount ?? 0), 0);
-  const nca_investments = Math.max(0, investmentNonCurrent);
+  const listedFVAdj = adj.investmentAdjustments
+    .filter((i) => i.investmentType === 'listed_trading' || i.investmentType === 'listed_ats')
+    .reduce((s, i) => s + (i.fairValueGainLoss ?? 0), 0);
+  const unlistedImpair = adj.investmentAdjustments
+    .filter((i) => i.investmentType === 'unlisted')
+    .reduce((s, i) => s + (i.impairmentAmount ?? 0), 0);
 
-  const nca_receivables = Math.max(0,
-    sumDr(rows, 'nca_deposits', 'nca_loans_advances'),
+  const invImpairmentProvision = sumCr(rows, 'provision_impairment_investment');
+  const investmentListed = sumDr(rows, 'investment_listed_trading') + listedFVAdj;
+  const investmentUnlisted = sumDr(rows, 'investment_unlisted') - unlistedImpair;
+  const investmentFD_NC = sumDr(rows, 'investment_fixed_deposit_noncurrent');
+  const nca_investments = round2(Math.max(0,
+    investmentListed + investmentUnlisted + investmentFD_NC - invImpairmentProvision,
+  ));
+
+  const relatedPartyRecNC = sumDr(rows, 'related_party_receivable');
+  const nca_receivables = round2(
+    sumDr(rows, 'nca_deposits', 'nca_loans_advances') + relatedPartyRecNC,
   );
 
-  const nca_other = Math.max(0, sumDr(rows, 'other_noncurrent_assets'));
+  const nca_other = round2(
+    sumDr(rows, 'biological_assets', 'other_noncurrent_assets', 'nca_other'),
+  );
+  const totalNonCurrentAssets = round2(nca_ppe + nca_investments + nca_receivables + nca_other);
 
-  const totalNonCurrentAssets = round(nca_ppe + nca_investments + nca_receivables + nca_other);
-
-  // ── Current Assets ────────────────────────────────────────────────────────
-  const ca_investments = 0; // Short-term FD moved to cash equivalent
-
-  const grossInventory = sumDr(rows, 'inventory_raw_materials', 'inventory_wip', 'inventory_finished_goods');
-  const ca_inventories = Math.max(0, grossInventory - adj.totalInventoryImpairment);
+  const ca_investments = 0;
+  const { closingCY } = inventoryFromAdj(adj, rows);
+  const ca_inventories = round2(Math.max(0, closingCY - adj.totalInventoryImpairment));
 
   const tradeRec = sumDr(rows, 'trade_receivables');
   const impairmentOnRec = sumCr(rows, 'provision_impairment_debtors');
-  const otherRec = sumDr(rows,
-    'other_receivables_advance_supplier', 'other_receivables_prepayments',
-    'other_receivables_staff_advance', 'other_receivables_tds', 'other_receivables_loans',
+  const ca_tradeReceivables = round2(Math.max(0,
+    tradeRec - impairmentOnRec
+    + sumDr(rows, 'related_party_receivable')
+    + sumDr(rows, 'other_receivables_advance_supplier', 'other_receivables_prepayments',
+      'other_receivables_staff_advance', 'other_receivables_tds', 'other_receivables_loans'),
+  ));
+
+  const { cash: cashNet, overdrafts: bankOverdrafts } = splitCashAndOverdrafts(rows);
+  const ca_cashAndEquivalents = cashNet;
+
+  const ca_other = round2(sumDr(rows, 'lc_bg_margin', 'other_current_assets', 'nca_held_for_sale'));
+
+  const totalCurrentAssets = round2(
+    ca_investments + ca_inventories + ca_tradeReceivables + ca_cashAndEquivalents + ca_other,
   );
-  const ca_tradeReceivables = Math.max(0, tradeRec - impairmentOnRec + otherRec);
+  const totalAssets = round2(totalNonCurrentAssets + totalCurrentAssets);
 
-  const ca_cashAndEquivalents = Math.max(0,
-    sumDr(rows, 'cash_in_hand', 'bank_current_account', 'bank_fixed_deposit_current') -
-    sumCr(rows, 'bank_current_account'), // overdraft offsets bank balance
+  const shareCapital = round2(sumCr(rows, 'share_capital'));
+  const sharePremium = round2(sumCr(rows, 'share_premium'));
+  const reserves = round2(sumCr(rows, 'capital_reserve', 'revaluation_reserve'));
+
+  const dividendDeclared = adj.dividendPayable
+    ?? sumCr(rows, 'dividend_payable')
+    ?? round2((company.dividendDeclaredPercent ?? 0) / 100 * shareCapital);
+
+  const openingRE = round2(
+    sumOpeningCr(rows, 'retained_earnings', 'general_reserve')
+    - sumOpeningDr(rows, 'retained_earnings', 'general_reserve'),
   );
+  const eq_retainedEarnings = round2(openingRE + is.netProfit - dividendDeclared);
+  const eq_shareCapital = round2(shareCapital + sharePremium);
+  const eq_reserves = round2(reserves);
+  const totalEquity = round2(eq_shareCapital + eq_reserves + eq_retainedEarnings);
 
-  const ca_other = Math.max(0, sumDr(rows, 'other_current_assets'));
-
-  const totalCurrentAssets = round(ca_investments + ca_inventories + ca_tradeReceivables + ca_cashAndEquivalents + ca_other);
-  const totalAssets = round(totalNonCurrentAssets + totalCurrentAssets);
-
-  // ── Equity ────────────────────────────────────────────────────────────────
-  const eq_shareCapital = round(sumCr(rows, 'share_capital', 'share_premium'));
-  const eq_reserves = round(sumCr(rows, 'general_reserve'));
-
-  // Retained earnings = opening retained earnings + net profit - dividends
-  const openingRetained = sumOpeningCr(rows, 'retained_earnings');
-  // Net profit is computed by the income statement engine
-  const eq_retainedEarnings = round(sumCr(rows, 'retained_earnings') + is.netProfit);
-  const totalEquity = round(eq_shareCapital + eq_reserves + eq_retainedEarnings);
-
-  // ── Non-Current Liabilities ───────────────────────────────────────────────
-  const ncl_borrowings = round(sumCr(rows, 'borrowings_noncurrent_bank'));
-  const ncl_employeeBenefits = 0; // Populated from Note 3.12 split — default 0
+  const ncl_borrowings = round2(
+    sumCr(rows, 'borrowings_noncurrent_bank', 'borrowings_noncurrent_other', 'borrowings_noncurrent_related'),
+  );
+  const ncl_employeeBenefits = round2(sumCr(rows, 'employee_benefit_noncurrent', 'employee_benefit_gratuity'));
   const ncl_provisions = 0;
   const ncl_deferredTax = 0;
-  const totalNonCurrentLiabilities = round(ncl_borrowings + ncl_employeeBenefits + ncl_provisions + ncl_deferredTax);
-
-  // ── Current Liabilities ───────────────────────────────────────────────────
-  const cl_borrowings = round(
-    sumCr(rows, 'borrowings_current_od', 'borrowings_current_cc', 'borrowings_current_wc'),
-  );
-  const cl_tradePayables = round(
-    sumCr(rows, 'trade_payables_creditors', 'tds_payable', 'other_payables', 'audit_fee_payable', 'trade_payables_advance_customers'),
+  const totalNonCurrentLiabilities = round2(
+    ncl_borrowings + ncl_employeeBenefits + ncl_provisions + ncl_deferredTax,
   );
 
-  const incomeTaxPayable = round(sumCr(rows, 'income_tax_payable') + is.incomeTaxExpense);
-  const advanceTax = round(sumDr(rows, 'other_receivables_tds'));
-  const cl_incomeTaxPayable = round(Math.max(0, incomeTaxPayable - advanceTax));
-
-  const cl_provisions = round(
-    sumCr(rows, 'employee_payables_pf', 'employee_payables_bonus', 'employee_payables_salary') + is.staffBonus,
+  const cl_borrowings = round2(
+    sumCr(rows, 'borrowings_current_od', 'borrowings_current_cc', 'borrowings_current_wc',
+      'borrowings_current_portion_lt', 'borrowings_related_current', 'related_party_payable')
+    + bankOverdrafts,
   );
-  const cl_other = 0; // Dividends payable etc. — populated from adjustments if needed
-  const totalCurrentLiabilities = round(cl_borrowings + cl_tradePayables + cl_incomeTaxPayable + cl_provisions + cl_other);
+  const cl_tradePayables = round2(
+    sumCr(rows, 'trade_payables_creditors', 'audit_fee_payable', 'tds_payable',
+      'other_payables', 'trade_payables_advance_customers'),
+  );
 
-  const totalEquityAndLiabilities = round(totalEquity + totalNonCurrentLiabilities + totalCurrentLiabilities);
-  const checkDifference = round(totalAssets - totalEquityAndLiabilities);
+  const incomeTaxPayable = round2(sumCr(rows, 'income_tax_payable'));
+  const advanceTax = round2(sumDr(rows, 'advance_tax_paid', 'other_receivables_tds'));
+  const cl_incomeTaxPayable = round2(Math.max(0,
+    incomeTaxPayable - advanceTax - (adj.incomeTaxPaidPY ?? 0)
+    + Math.max(0, (adj.incomeTaxProvision ?? 0) - sumDr(rows, 'income_tax_expense')),
+  ));
+
+  const cl_provisions = round2(
+    sumCr(rows, 'provisions_csr', 'provisions_current', 'employee_payables_pf',
+      'employee_payables_salary', 'employee_payables_bonus'),
+  );
+
+  const cl_other = round2(sumCr(rows, 'advance_from_customers', 'dividend_payable'));
+
+  const totalCurrentLiabilities = round2(
+    cl_borrowings + cl_tradePayables + cl_incomeTaxPayable + cl_provisions + cl_other,
+  );
+  const totalEquityAndLiabilities = round2(totalEquity + totalNonCurrentLiabilities + totalCurrentLiabilities);
+  const checkDifference = round2(totalAssets - totalEquityAndLiabilities);
 
   return {
     nca_ppe, nca_investments, nca_receivables, nca_other, totalNonCurrentAssets,
@@ -179,7 +309,6 @@ export function computeBalanceSheet(
     ncl_borrowings, ncl_employeeBenefits, ncl_provisions, ncl_deferredTax, totalNonCurrentLiabilities,
     cl_borrowings, cl_tradePayables, cl_incomeTaxPayable, cl_provisions, cl_other, totalCurrentLiabilities,
     totalEquityAndLiabilities, checkDifference,
-    // Previous year fields
     nca_ppe_py: previousYearBS.nca_ppe ?? 0,
     nca_investments_py: previousYearBS.nca_investments ?? 0,
     nca_receivables_py: previousYearBS.nca_receivables ?? 0,
@@ -213,170 +342,77 @@ export function computeBalanceSheet(
 }
 
 // ---------------------------------------------------------------------------
-// 2. computeIncomeStatement
-// ---------------------------------------------------------------------------
-export function computeIncomeStatement(
-  tb: ParsedTrialBalance,
-  adj: YearEndAdjustments,
-  accountingPolicies: AccountingPolicies,
-  previousYearIS: Partial<IncomeStatement> = {},
-): IncomeStatement {
-  const rows = tb.rows;
-
-  // ── Income ────────────────────────────────────────────────────────────────
-  const revenue = round(sumCr(rows, 'revenue_sales', 'revenue_services'));
-  const interestIncome = round(sumCr(rows, 'other_income_interest'));
-  const otherIncomeTB = round(
-    sumCr(rows, 'other_income_dividend', 'other_income_rental', 'other_income_misc', 'other_income_disposal_gain'),
-  );
-  const otherIncome = round(otherIncomeTB + adj.gainOnDisposals);
-  const totalIncome = round(revenue + interestIncome + otherIncome);
-
-  // ── Expenses ──────────────────────────────────────────────────────────────
-  // Material consumed = opening stock + purchases - closing stock
-  const openingStock = round(
-    sumOpeningDr(rows, 'inventory_raw_materials', 'inventory_wip', 'inventory_finished_goods'),
-  );
-  const purchases = round(sumDr(rows, 'cogs_purchases', 'cogs_opening_stock'));
-  const closingStock = round(
-    sumDr(rows, 'inventory_raw_materials', 'inventory_wip', 'inventory_finished_goods'),
-  );
-  const materialConsumed = round(openingStock + purchases - closingStock);
-
-  const directExpenses = round(sumDr(rows, 'direct_wages', 'direct_expenses_other'));
-
-  const employeeSalaries = round(sumDr(rows, 'emp_expense_salaries', 'emp_expense_pf', 'emp_expense_gratuity', 'emp_expense_welfare'));
-  const provisionExpenses = adj.provisions
-    .filter((p) => p.provisionType === 'gratuity' || p.provisionType === 'leave_encashment')
-    .reduce((sum, p) => sum + p.additionForYear, 0);
-  const employeeBenefitExpense = round(employeeSalaries + provisionExpenses);
-
-  const financeCharges = round(sumDr(rows, 'finance_cost_interest', 'finance_cost_bank_charges'));
-  const depreciation = round(adj.totalDepreciationExpense);
-
-  const impairmentTB = round(sumDr(rows, 'impairment_expense'));
-  const impairment = round(impairmentTB + adj.totalInventoryImpairment);
-
-  const adminAndOtherExpenses = round(
-    sumDr(rows,
-      'admin_rent', 'admin_rates_taxes', 'admin_insurance', 'admin_repairs',
-      'admin_electricity', 'admin_communication', 'admin_printing', 'admin_legal_professional',
-      'admin_audit_fee', 'admin_traveling', 'admin_advertisement', 'admin_other',
-    ),
-  );
-
-  const totalExpenses = round(materialConsumed + directExpenses + employeeBenefitExpense + financeCharges + depreciation + impairment + adminAndOtherExpenses);
-  const profitBeforeStaffBonus = round(totalIncome - totalExpenses);
-
-  const bonusRate = (accountingPolicies.bonusRatePercent ?? 10) / 100;
-  const staffBonus = round(
-    profitBeforeStaffBonus > 0 ? profitBeforeStaffBonus * bonusRate : 0,
-  );
-
-  const profitBeforeTax = round(profitBeforeStaffBonus - staffBonus);
-
-  const taxFromAdj = adj.currentTaxExpense ?? 0;
-  const taxFromTB = round(sumDr(rows, 'income_tax_expense'));
-  const incomeTaxExpense = round(taxFromAdj > 0 ? taxFromAdj : taxFromTB);
-
-  const netProfit = round(profitBeforeTax - incomeTaxExpense);
-
-  return {
-    revenue, interestIncome, otherIncome, totalIncome,
-    materialConsumed, directExpenses, employeeBenefitExpense, financeCharges,
-    depreciation, impairment, adminAndOtherExpenses, totalExpenses,
-    profitBeforeStaffBonus, staffBonus, profitBeforeTax, incomeTaxExpense, netProfit,
-    // Previous year
-    revenue_py: previousYearIS.revenue ?? 0,
-    interestIncome_py: previousYearIS.interestIncome ?? 0,
-    otherIncome_py: previousYearIS.otherIncome ?? 0,
-    totalIncome_py: previousYearIS.totalIncome ?? 0,
-    materialConsumed_py: previousYearIS.materialConsumed ?? 0,
-    directExpenses_py: previousYearIS.directExpenses ?? 0,
-    employeeBenefitExpense_py: previousYearIS.employeeBenefitExpense ?? 0,
-    financeCharges_py: previousYearIS.financeCharges ?? 0,
-    depreciation_py: previousYearIS.depreciation ?? 0,
-    impairment_py: previousYearIS.impairment ?? 0,
-    adminAndOtherExpenses_py: previousYearIS.adminAndOtherExpenses ?? 0,
-    totalExpenses_py: previousYearIS.totalExpenses ?? 0,
-    profitBeforeStaffBonus_py: previousYearIS.profitBeforeStaffBonus ?? 0,
-    staffBonus_py: previousYearIS.staffBonus ?? 0,
-    profitBeforeTax_py: previousYearIS.profitBeforeTax ?? 0,
-    incomeTaxExpense_py: previousYearIS.incomeTaxExpense ?? 0,
-    netProfit_py: previousYearIS.netProfit ?? 0,
-  };
-}
-
-// ---------------------------------------------------------------------------
-// 3. computeChangesInEquity
+// Changes in Equity
 // ---------------------------------------------------------------------------
 export function computeChangesInEquity(
   tb: ParsedTrialBalance,
+  adj: YearEndAdjustments,
   is: IncomeStatement,
-  _company: CompanyProfile,
+  company: CompanyProfile,
+  previousCIE?: Partial<ChangesInEquity>,
 ): ChangesInEquity {
   const rows = tb.rows;
+  const shareCapital = sumCr(rows, 'share_capital');
+  const sharePremium = sumCr(rows, 'share_premium');
+  const otherReserves = sumCr(rows, 'general_reserve', 'capital_reserve', 'revaluation_reserve');
+  const openingShareCapital = sumOpeningCr(rows, 'share_capital');
+  const openingSharePremium = sumOpeningCr(rows, 'share_premium');
+  const openingOtherReserves = sumOpeningCr(rows, 'general_reserve', 'capital_reserve', 'revaluation_reserve');
+  const openingRetained = round2(
+    sumOpeningCr(rows, 'retained_earnings', 'general_reserve')
+    - sumOpeningDr(rows, 'retained_earnings', 'general_reserve'),
+  );
 
-  const openingShareCapital = round(sumOpeningCr(rows, 'share_capital'));
-  const openingSharePremium  = round(sumOpeningCr(rows, 'share_premium'));
-  const openingGeneralReserve = round(sumOpeningCr(rows, 'general_reserve'));
-  const openingRetainedEarnings = round(sumOpeningCr(rows, 'retained_earnings'));
-  const openingTotal = round(openingShareCapital + openingSharePremium + openingGeneralReserve + openingRetainedEarnings);
+  const shareIssued = company.shareIssuedDuringYear
+    ? round2(company.shareIssuedDuringYear * 100)
+    : round2(shareCapital - openingShareCapital);
 
-  const addProfitForYear    = round(is.netProfit);
-  const addNewShareCapital  = round(sumCr(rows, 'share_capital') - sumOpeningCr(rows, 'share_capital'));
-  const addSharePremiumOnNewIssue = round(sumCr(rows, 'share_premium') - openingSharePremium);
-  const addTransferToReserve      = 0; // Typically a manual entry
-  const lessTransferFromReserve   = 0;
-  const lessDividendPaid          = 0; // Derive from financing activities if available
-  const lessBonusShareIssued      = 0;
+  const dividendDeclared = adj.dividendPayable
+    ?? sumCr(rows, 'dividend_payable')
+    ?? round2((company.dividendDeclaredPercent ?? 0) / 100 * openingShareCapital);
 
-  const closingShareCapital    = round(sumCr(rows, 'share_capital'));
-  const closingSharePremium    = round(sumCr(rows, 'share_premium'));
-  const closingGeneralReserve  = round(sumCr(rows, 'general_reserve'));
-  const closingRetainedEarnings = round(openingRetainedEarnings + addProfitForYear - lessDividendPaid);
-  const closingTotal = round(closingShareCapital + closingSharePremium + closingGeneralReserve + closingRetainedEarnings);
+  const closingRetained = round2(openingRetained + is.netProfit - dividendDeclared);
 
   return {
-    cyOpeningShareCapital: openingShareCapital,
-    cyOpeningSharePremium: openingSharePremium,
-    cyOpeningGeneralReserve: openingGeneralReserve,
-    cyOpeningRetainedEarnings: openingRetainedEarnings,
-    cyOpeningTotal: openingTotal,
-    cyNetProfit: addProfitForYear,
-    cyShareCapitalIssued: addNewShareCapital,
-    cySharePremiumReceived: addSharePremiumOnNewIssue,
-    cyTransferToReserve: addTransferToReserve,
-    cyDividends: lessDividendPaid,
-    cyClosingShareCapital: closingShareCapital,
-    cyClosingSharePremium: closingSharePremium,
-    cyClosingGeneralReserve: closingGeneralReserve,
-    cyClosingRetainedEarnings: closingRetainedEarnings,
-    cyClosingTotal: closingTotal,
+    cyOpeningShareCapital: round2(openingShareCapital),
+    cyOpeningSharePremium: round2(openingSharePremium),
+    cyOpeningGeneralReserve: round2(openingOtherReserves),
+    cyOpeningRetainedEarnings: round2(openingRetained),
+    cyOpeningTotal: round2(openingShareCapital + openingSharePremium + openingOtherReserves + openingRetained),
+    cyNetProfit: round2(is.netProfit),
+    cyShareCapitalIssued: shareIssued,
+    cySharePremiumReceived: round2(sharePremium - openingSharePremium),
+    cyTransferToReserve: 0,
+    cyDividends: round2(dividendDeclared),
+    cyClosingShareCapital: round2(shareCapital),
+    cyClosingSharePremium: round2(sharePremium),
+    cyClosingGeneralReserve: round2(otherReserves),
+    cyClosingRetainedEarnings: closingRetained,
+    cyClosingTotal: round2(shareCapital + sharePremium + otherReserves + closingRetained),
+    ...previousCIE,
   };
 }
 
 // ---------------------------------------------------------------------------
-// 4. computeCashFlow (Indirect method)
+// Cash Flow (indirect method)
 // ---------------------------------------------------------------------------
 export function computeCashFlow(
   tb: ParsedTrialBalance,
-  bs: BalanceSheet,
-  is: IncomeStatement,
   adj: YearEndAdjustments,
+  is: IncomeStatement,
+  bs: BalanceSheet,
+  previousCF?: Partial<CashFlowStatement>,
 ): CashFlowStatement {
   const rows = tb.rows;
-
   const profitBeforeTax = is.profitBeforeTax;
 
-  // Non-cash adjustments
   const addDepreciation = adj.totalDepreciationExpense;
-  const addImpairment   = is.impairment;
-  const lessInterestIncome  = -is.interestIncome;
-  const lessDividendIncome  = -sumCr(rows, 'other_income_dividend');
-  const addInterestExpense  = is.financeCharges;
-  const addLossOnDisposal   = adj.lossOnDisposals;
-  const lessGainOnDisposal  = -adj.gainOnDisposals;
+  const addImpairment = is.impairment;
+  const lessInterestIncome = -is.interestIncome;
+  const lessDividendIncome = -sumCr(rows, 'other_income_dividend');
+  const addInterestExpense = is.financeCharges;
+  const addLossOnDisposal = adj.lossOnDisposals;
+  const lessGainOnDisposal = -adj.gainOnDisposals;
 
   const fvLoss = adj.investmentAdjustments
     .filter((i) => (i.fairValueGainLoss ?? 0) < 0)
@@ -384,107 +420,109 @@ export function computeCashFlow(
   const fvGain = adj.investmentAdjustments
     .filter((i) => (i.fairValueGainLoss ?? 0) > 0)
     .reduce((s, i) => s + (i.fairValueGainLoss ?? 0), 0);
-  const addFVLossOnInvestment  =  fvLoss;
+  const addFVLossOnInvestment = fvLoss;
   const lessFVGainOnInvestment = -fvGain;
 
-  // Working capital movements: closing − opening (increase in asset = negative)
-  const closingRec = bs.ca_tradeReceivables;
-  const openingRec = round(
-    sumOpeningDr(rows, 'trade_receivables', 'other_receivables_advance_supplier',
-      'other_receivables_prepayments', 'other_receivables_staff_advance', 'other_receivables_loans'),
-  );
-  const decreaseIncreaseReceivables = round(openingRec - closingRec);
+  const prevTradeRec = previousCF?.decreaseIncreaseReceivables !== undefined
+    ? bs.ca_tradeReceivables + (previousCF.decreaseIncreaseReceivables as number)
+    : round2(
+      sumOpeningDr(rows, 'trade_receivables', 'other_receivables_advance_supplier',
+        'other_receivables_prepayments', 'other_receivables_staff_advance',
+        'other_receivables_loans', 'related_party_receivable')
+      - sumOpeningCr(rows, 'provision_impairment_debtors'),
+    );
+  const decreaseIncreaseReceivables = round2(prevTradeRec - bs.ca_tradeReceivables);
 
-  const closingInv = bs.ca_inventories;
-  const openingInv = round(
-    sumOpeningDr(rows, 'inventory_raw_materials', 'inventory_wip', 'inventory_finished_goods'),
-  );
-  const decreaseIncreaseInventory = round(openingInv - closingInv);
+  const { openingPY, closingCY } = inventoryFromAdj(adj, rows);
+  const prevInv = previousCF?.decreaseIncreaseInventory !== undefined
+    ? bs.ca_inventories + (previousCF.decreaseIncreaseInventory as number)
+    : openingPY;
+  const decreaseIncreaseInventory = round2(prevInv - bs.ca_inventories);
 
-  const decreaseIncreaseOtherCurrentAssets = round(
-    sumOpeningDr(rows, 'other_current_assets') - bs.ca_other,
-  );
+  const prevOtherCA = sumOpeningDr(rows, 'other_current_assets', 'nca_held_for_sale');
+  const decreaseIncreaseOtherCurrentAssets = round2(prevOtherCA - bs.ca_other);
 
-  const closingPayables = bs.cl_tradePayables;
-  const openingPayables = round(
-    sumOpeningCr(rows, 'trade_payables_creditors', 'tds_payable', 'other_payables', 'audit_fee_payable'),
-  );
-  const increaseDecreasePayables = round(closingPayables - openingPayables);
+  const prevPayables = sumOpeningCr(rows, 'trade_payables_creditors', 'tds_payable',
+    'other_payables', 'audit_fee_payable', 'trade_payables_advance_customers');
+  const increaseDecreasePayables = round2(bs.cl_tradePayables - prevPayables);
 
-  const increaseDecreaseIncomeTaxPayable = round(bs.cl_incomeTaxPayable - sumOpeningCr(rows, 'income_tax_payable'));
-  const increaseDecreaseEmployeeLiability = round(
-    sumCr(rows, 'employee_payables_pf', 'employee_payables_bonus', 'employee_payables_salary') -
-    sumOpeningCr(rows, 'employee_payables_pf', 'employee_payables_bonus', 'employee_payables_salary'),
-  );
-  const increaseDecreaseProvisions = 0;
+  const prevTaxPayable = sumOpeningCr(rows, 'income_tax_payable');
+  const increaseDecreaseIncomeTaxPayable = round2(bs.cl_incomeTaxPayable - prevTaxPayable);
 
-  const cashGeneratedFromOperations = round(
-    profitBeforeTax + addDepreciation + addImpairment +
-    lessInterestIncome + lessDividendIncome + addInterestExpense +
-    addLossOnDisposal + lessGainOnDisposal +
-    addFVLossOnInvestment + lessFVGainOnInvestment +
-    decreaseIncreaseReceivables + decreaseIncreaseInventory +
-    decreaseIncreaseOtherCurrentAssets + increaseDecreasePayables +
-    increaseDecreaseIncomeTaxPayable + increaseDecreaseEmployeeLiability +
-    increaseDecreaseProvisions,
+  const prevEmpLiab = sumOpeningCr(rows, 'employee_payables_pf', 'employee_payables_bonus',
+    'employee_payables_salary', 'employee_benefit_noncurrent');
+  const currentEmpLiab = round2(
+    sumCr(rows, 'employee_payables_pf', 'employee_payables_bonus', 'employee_payables_salary')
+    + (adj.staffBonusProvision ?? is.staffBonus),
+  );
+  const increaseDecreaseEmployeeLiability = round2(currentEmpLiab - prevEmpLiab);
+
+  const prevProvisions = sumOpeningCr(rows, 'provisions_csr', 'provisions_current');
+  const increaseDecreaseProvisions = round2(bs.cl_provisions - prevProvisions - (adj.staffBonusProvision ?? 0));
+
+  const cashGeneratedFromOperations = round2(
+    profitBeforeTax + addDepreciation + addImpairment
+    + lessInterestIncome + lessDividendIncome + addInterestExpense
+    + addLossOnDisposal + lessGainOnDisposal
+    + addFVLossOnInvestment + lessFVGainOnInvestment
+    + decreaseIncreaseReceivables + decreaseIncreaseInventory
+    + decreaseIncreaseOtherCurrentAssets + increaseDecreasePayables
+    + increaseDecreaseIncomeTaxPayable + increaseDecreaseEmployeeLiability
+    + increaseDecreaseProvisions,
   );
 
   const interestPaid = -Math.abs(is.financeCharges);
-  const incomeTaxPaid = -Math.abs(is.incomeTaxExpense);
-  const netCashFromOperating = round(cashGeneratedFromOperations + interestPaid + incomeTaxPaid);
+  const incomeTaxPaid = -Math.abs(
+    sumDr(rows, 'advance_tax_paid') + (adj.incomeTaxPaidPY ?? 0),
+  );
+  const netCashFromOperating = round2(cashGeneratedFromOperations + interestPaid + incomeTaxPaid);
 
-  // ── Investing ─────────────────────────────────────────────────────────────
   const proceedsFromPPEDisposal = adj.depreciationResults
     .reduce((s, r) => s + (r.disposalProceeds ?? 0), 0);
   const proceedsFromInvestmentDisposal = 0;
-  const interestReceived  = is.interestIncome;
-  const dividendReceived  = Math.abs(lessDividendIncome);
-
-  // PPE additions from adjustments
+  const interestReceived = is.interestIncome;
+  const dividendReceived = sumCr(rows, 'other_income_dividend');
   const purchaseOfPPE = -adj.assets.reduce((s, a) => s + (a.additionalCost ?? 0), 0);
-  const purchaseOfInvestments = -(
-    sumDr(rows, 'investment_listed_trading', 'investment_unlisted', 'investment_fixed_deposit_noncurrent') -
-    sumOpeningDr(rows, 'investment_listed_trading', 'investment_unlisted', 'investment_fixed_deposit_noncurrent')
-  );
-  const netCashFromInvesting = round(
-    proceedsFromPPEDisposal + proceedsFromInvestmentDisposal +
-    interestReceived + dividendReceived + purchaseOfPPE + purchaseOfInvestments,
+  const purchaseOfInvestments = -Math.max(0,
+    netBalance(rows, 'investment_listed_trading', 'investment_unlisted', 'investment_fixed_deposit_noncurrent')
+    - (sumOpeningDr(rows, 'investment_listed_trading', 'investment_unlisted', 'investment_fixed_deposit_noncurrent')
+      - sumOpeningCr(rows, 'investment_listed_trading', 'investment_unlisted', 'investment_fixed_deposit_noncurrent')),
   );
 
-  // ── Financing ─────────────────────────────────────────────────────────────
-  const proceedsFromShareIssue = round(
-    sumCr(rows, 'share_capital') - sumOpeningCr(rows, 'share_capital') +
-    sumCr(rows, 'share_premium') - sumOpeningCr(rows, 'share_premium'),
-  );
-  const proceedsFromBorrowingsNonCurrent = round(
-    Math.max(0, sumCr(rows, 'borrowings_noncurrent_bank') - sumOpeningCr(rows, 'borrowings_noncurrent_bank')),
-  );
-  const repaymentOfBorrowingsNonCurrent = round(
-    Math.min(0, sumCr(rows, 'borrowings_noncurrent_bank') - sumOpeningCr(rows, 'borrowings_noncurrent_bank')),
-  );
-  const proceedsFromBorrowingsCurrent = round(
-    Math.max(0, sumCr(rows, 'borrowings_current_od', 'borrowings_current_cc', 'borrowings_current_wc') -
-      sumOpeningCr(rows, 'borrowings_current_od', 'borrowings_current_cc', 'borrowings_current_wc')),
-  );
-  const repaymentOfBorrowingsCurrent = round(
-    Math.min(0, sumCr(rows, 'borrowings_current_od', 'borrowings_current_cc', 'borrowings_current_wc') -
-      sumOpeningCr(rows, 'borrowings_current_od', 'borrowings_current_cc', 'borrowings_current_wc')),
-  );
-  const dividendPaid = 0; // Adjust if dividend payout tracked in TB
-
-  const netCashFromFinancing = round(
-    proceedsFromShareIssue + proceedsFromBorrowingsNonCurrent + repaymentOfBorrowingsNonCurrent +
-    proceedsFromBorrowingsCurrent + repaymentOfBorrowingsCurrent + dividendPaid,
+  const netCashFromInvesting = round2(
+    proceedsFromPPEDisposal + proceedsFromInvestmentDisposal
+    + interestReceived + dividendReceived + purchaseOfPPE + purchaseOfInvestments,
   );
 
-  // ── Reconciliation ────────────────────────────────────────────────────────
-  const netIncreaseDecrease = round(netCashFromOperating + netCashFromInvesting + netCashFromFinancing);
-  const openingCash = round(
-    sumOpeningDr(rows, 'cash_in_hand', 'bank_current_account', 'bank_fixed_deposit_current') -
-    sumOpeningCr(rows, 'bank_current_account'), // opening overdraft offset
+  const proceedsFromShareIssue = round2(
+    (sumCr(rows, 'share_capital') - sumOpeningCr(rows, 'share_capital'))
+    + (sumCr(rows, 'share_premium') - sumOpeningCr(rows, 'share_premium')),
+  );
+
+  const ncBorrowChange = sumCr(rows, 'borrowings_noncurrent_bank', 'borrowings_noncurrent_other')
+    - sumOpeningCr(rows, 'borrowings_noncurrent_bank', 'borrowings_noncurrent_other');
+  const proceedsFromBorrowingsNonCurrent = round2(Math.max(0, ncBorrowChange));
+  const repaymentOfBorrowingsNonCurrent = round2(Math.min(0, ncBorrowChange));
+
+  const cBorrowChange = sumCr(rows, 'borrowings_current_od', 'borrowings_current_cc', 'borrowings_current_wc')
+    - sumOpeningCr(rows, 'borrowings_current_od', 'borrowings_current_cc', 'borrowings_current_wc');
+  const proceedsFromBorrowingsCurrent = round2(Math.max(0, cBorrowChange));
+  const repaymentOfBorrowingsCurrent = round2(Math.min(0, cBorrowChange));
+
+  const dividendPaid = -round2(adj.incomeTaxPaidPY ? 0 : (adj.dividendPayable ?? sumCr(rows, 'dividend_payable')));
+
+  const netCashFromFinancing = round2(
+    proceedsFromShareIssue + proceedsFromBorrowingsNonCurrent + repaymentOfBorrowingsNonCurrent
+    + proceedsFromBorrowingsCurrent + repaymentOfBorrowingsCurrent + dividendPaid,
+  );
+
+  const netIncreaseDecrease = round2(netCashFromOperating + netCashFromInvesting + netCashFromFinancing);
+  const openingCash = round2(
+    sumOpeningDr(rows, 'cash_in_hand', 'bank_current_account', 'bank_fixed_deposit_current')
+    - sumOpeningCr(rows, 'bank_current_account'),
   );
   const closingCash = bs.ca_cashAndEquivalents;
-  const reconciliationDifference = round(closingCash - (openingCash + netIncreaseDecrease));
+  const reconciliationDifference = round2(closingCash - (openingCash + netIncreaseDecrease));
 
   return {
     profitBeforeTax, addDepreciation, addImpairment,
@@ -502,201 +540,12 @@ export function computeCashFlow(
     proceedsFromShareIssue, proceedsFromBorrowingsNonCurrent, proceedsFromBorrowingsCurrent,
     repaymentOfBorrowingsNonCurrent, repaymentOfBorrowingsCurrent, dividendPaid,
     netCashFromFinancing, netIncreaseDecrease, openingCash, closingCash, reconciliationDifference,
+    ...previousCF,
   };
 }
 
 // ---------------------------------------------------------------------------
-// 5. computeNotesData
-// ---------------------------------------------------------------------------
-export function computeNotesData(
-  tb: ParsedTrialBalance,
-  adj: YearEndAdjustments,
-  bs: BalanceSheet,
-  is: IncomeStatement,
-): NotesData {
-  const rows = tb.rows;
-
-  const categoryRecord = (cats: string[]): Record<string, { cy: number; py: number }> => {
-    const out: Record<string, { cy: number; py: number }> = {};
-    for (const row of rows) {
-      if (cats.includes(row.nfrsCategory as string)) {
-        const net = round((row.closingCr ?? 0) - (row.closingDr ?? 0));
-        const existing = out[row.rawLabel] ?? { cy: 0, py: 0 };
-        out[row.rawLabel] = { cy: round(existing.cy + net), py: 0 };
-      }
-    }
-    return out;
-  };
-
-  const expenseRecord = (cats: string[]): Record<string, { cy: number; py: number }> => {
-    const out: Record<string, { cy: number; py: number }> = {};
-    for (const row of rows) {
-      if (cats.includes(row.nfrsCategory as string)) {
-        const net = round((row.closingDr ?? 0) - (row.closingCr ?? 0));
-        const existing = out[row.rawLabel] ?? { cy: 0, py: 0 };
-        out[row.rawLabel] = { cy: round(existing.cy + net), py: 0 };
-      }
-    }
-    return out;
-  };
-
-  return {
-    note31_ppe: adj.depreciationSummary,
-    note32_investments: {
-      listedShares: adj.investmentAdjustments.filter(
-        (i) => i.investmentType === 'listed_trading' || i.investmentType === 'listed_ats',
-      ),
-      otherInvestments: adj.investmentAdjustments.filter((i) => i.investmentType === 'unlisted'),
-    },
-    note33_tradeReceivables: {
-      grossReceivables_cy: round(sumDr(rows, 'trade_receivables')),
-      grossReceivables_py: 0,
-      provisionForImpairment_cy: round(sumCr(rows, 'provision_impairment_debtors')),
-      provisionForImpairment_py: 0,
-      netReceivables_cy: bs.ca_tradeReceivables,
-      netReceivables_py: 0,
-    },
-    note34_otherReceivables: {
-      'Loans and Advances': { cy: round(sumDr(rows, 'other_receivables_loans', 'nca_loans_advances')), py: 0 },
-      'Prepayments': { cy: round(sumDr(rows, 'other_receivables_prepayments')), py: 0 },
-      'Deposits': { cy: round(sumDr(rows, 'nca_deposits')), py: 0 },
-      'Staff Advances': { cy: round(sumDr(rows, 'other_receivables_staff_advance')), py: 0 },
-      'Advance to Suppliers': { cy: round(sumDr(rows, 'other_receivables_advance_supplier')), py: 0 },
-    },
-    note35_otherNonCurrentAssets: { 'Other Non-Current Assets': { cy: bs.nca_other, py: 0 } },
-    note36_otherCurrentAssets: { 'Other Current Assets': { cy: bs.ca_other, py: 0 } },
-    note37_inventories: {
-      rawMaterials_cy: round(sumDr(rows, 'inventory_raw_materials')), rawMaterials_py: 0,
-      wip_cy: round(sumDr(rows, 'inventory_wip')), wip_py: 0,
-      finishedGoods_cy: round(sumDr(rows, 'inventory_finished_goods')), finishedGoods_py: 0,
-      totalInventory_cy: bs.ca_inventories, totalInventory_py: 0,
-      impairmentRecognized_cy: adj.totalInventoryImpairment,
-    },
-    note38_cashAndEquivalents: {
-      cashInHand_cy: round(sumDr(rows, 'cash_in_hand')), cashInHand_py: 0,
-      bankBalances: rows
-        .filter((r) => ['bank_current_account', 'bank_fixed_deposit_current'].includes(r.nfrsCategory as string))
-        .map((r) => ({
-          bankName: r.rawLabel,
-          accountType: (r.nfrsCategory === 'bank_fixed_deposit_current') ? 'fixed_deposit' : 'current',
-          cy: round((r.closingDr ?? 0) - (r.closingCr ?? 0)),
-          py: 0,
-        })),
-      totalCash_cy: bs.ca_cashAndEquivalents, totalCash_py: 0,
-    },
-    note39_shareCapital: {
-      authorizedShares: 0,
-      faceValuePerShare: 100,
-      issuedShares: 0,
-      paidUpShares: 0,
-      paidUpAmount_cy: round(sumCr(rows, 'share_capital')),
-      paidUpAmount_py: round(sumOpeningCr(rows, 'share_capital')),
-    },
-    note310_reserves: {
-      'General Reserve': {
-        openingCY: round(sumOpeningCr(rows, 'general_reserve')),
-        additionCY: 0,
-        closingCY: round(sumCr(rows, 'general_reserve')),
-        py: round(sumOpeningCr(rows, 'general_reserve')),
-      },
-      'Retained Earnings': {
-        openingCY: round(sumOpeningCr(rows, 'retained_earnings')),
-        additionCY: is.netProfit,
-        closingCY: round(sumCr(rows, 'retained_earnings')),
-        py: round(sumOpeningCr(rows, 'retained_earnings')),
-      },
-    },
-    note311_borrowings: {
-      nonCurrentBank: rows
-        .filter((r) => (r.nfrsCategory as string) === 'borrowings_noncurrent_bank')
-        .map((r) => ({
-          lenderName: r.rawLabel,
-          amount_cy: round(r.closingCr ?? 0),
-          amount_py: round(r.openingCr ?? 0),
-          interestRate: 0,
-          security: '',
-        })),
-      currentLoans: rows
-        .filter((r) =>
-          ['borrowings_current_od', 'borrowings_current_cc', 'borrowings_current_wc'].includes(r.nfrsCategory as string),
-        )
-        .map((r) => ({
-          lenderName: r.rawLabel,
-          amount_cy: round(r.closingCr ?? 0),
-          amount_py: round(r.openingCr ?? 0),
-          loanType: r.nfrsCategory as string,
-        })),
-    },
-    note312_employeeBenefits: {
-      'Salary Payable': {
-        opening: round(sumOpeningCr(rows, 'employee_payables_salary')),
-        expense: is.employeeBenefitExpense,
-        paid: 0,
-        closing: round(sumCr(rows, 'employee_payables_salary')),
-      },
-      'Bonus Payable': {
-        opening: round(sumOpeningCr(rows, 'employee_payables_bonus')),
-        expense: is.staffBonus,
-        paid: 0,
-        closing: round(sumCr(rows, 'employee_payables_bonus')),
-      },
-    },
-    note313_tradePayables: {
-      'Trade Payables': { cy: round(sumCr(rows, 'trade_payables_creditors')), py: round(sumOpeningCr(rows, 'trade_payables_creditors')) },
-      'TDS Payable': { cy: round(sumCr(rows, 'tds_payable')), py: round(sumOpeningCr(rows, 'tds_payable')) },
-      'VAT Payable': { cy: round(sumCr(rows, 'other_payables')), py: round(sumOpeningCr(rows, 'other_payables')) },
-      'Audit Fee Payable': { cy: round(sumCr(rows, 'audit_fee_payable')), py: round(sumOpeningCr(rows, 'audit_fee_payable')) },
-    },
-    note314_provisions: adj.provisions,
-    note317_revenue: {
-      'Sale of Goods': { cy: round(sumCr(rows, 'revenue_sales')), py: 0 },
-      'Rendering of Services': { cy: round(sumCr(rows, 'revenue_services')), py: 0 },
-      'Interest Income': { cy: is.interestIncome, py: 0 },
-      'Other Income': { cy: is.otherIncome, py: 0 },
-    },
-    note318_materialConsumed: {
-      openingInventory: round(sumOpeningDr(rows, 'inventory_raw_materials', 'inventory_wip', 'inventory_finished_goods')),
-      purchases: round(sumDr(rows, 'cogs_purchases')),
-      closingInventory: round(sumDr(rows, 'inventory_raw_materials', 'inventory_wip', 'inventory_finished_goods')),
-      consumed: is.materialConsumed,
-    },
-    note319_directExpenses: expenseRecord(['direct_wages', 'direct_expenses_other']),
-    note320_employeeBenefitExpenses: expenseRecord([
-      'emp_expense_salaries', 'emp_expense_pf', 'emp_expense_gratuity',
-      'emp_expense_welfare', 'emp_expense_bonus',
-    ]),
-    note321_impairment: [
-      { description: 'Impairment on Trade Receivables', cy: round(sumDr(rows, 'impairment_expense')), py: 0 },
-      { description: 'Inventory Write-down', cy: adj.totalInventoryImpairment, py: 0 },
-      { description: 'Investment Impairment', cy: adj.investmentAdjustments.reduce((s, i) => s + (i.impairmentAmount ?? 0), 0), py: 0 },
-    ],
-    note322_adminExpenses: expenseRecord([
-      'admin_rent', 'admin_rates_taxes', 'admin_insurance', 'admin_repairs',
-      'admin_electricity', 'admin_communication', 'admin_printing', 'admin_legal_professional',
-      'admin_audit_fee', 'admin_traveling', 'admin_advertisement', 'admin_other',
-    ]),
-    note323_incomeTax: {
-      currentTax: is.incomeTaxExpense,
-      profitBeforeTax: is.profitBeforeTax,
-      taxRate: (adj.currentTaxExpense ?? 0) > 0 && is.profitBeforeTax > 0
-        ? adj.currentTaxExpense! / is.profitBeforeTax
-        : 0.25,
-      addDisallowableExpenses: {},
-      lessAllowableExpenses: {
-        'Tax Depreciation (excess over book)': Math.max(0,
-          adj.taxDepreciationPools.reduce((s, p) => s + p.taxDepreciation, 0) - adj.totalDepreciationExpense,
-        ),
-      },
-      taxableIncome: adj.taxableProfit ?? is.profitBeforeTax,
-      advanceTaxPaid: round(sumDr(rows, 'other_receivables_tds')),
-      tdsCreditAvailable: 0,
-      netTaxPayable: bs.cl_incomeTaxPayable,
-    },
-  };
-}
-
-// ---------------------------------------------------------------------------
-// 6. computeAllFinancials — master orchestrator
+// Master orchestrator
 // ---------------------------------------------------------------------------
 export function computeAllFinancials(
   tb: ParsedTrialBalance,
@@ -710,16 +559,6 @@ export function computeAllFinancials(
   cashFlow: CashFlowStatement;
   notes: NotesData;
 } {
-  const policies: AccountingPolicies = company.accountingPolicies ?? {
-    bonusRatePercent: 10,
-    incomeTaxRatePercent: 25,
-    gratuityDaysPerYear: 15,
-    roundingLevel: 100,
-    assetCategories: [],
-    depreciationMethod: 'StraightLine',
-  };
-
-  // Transform flat previousYearData to partial statements
   const pyBS: Partial<BalanceSheet> = previousYearData ? {
     nca_ppe: previousYearData.ppe,
     nca_investments: previousYearData.investments,
@@ -743,24 +582,11 @@ export function computeAllFinancials(
     incomeTaxExpense: previousYearData.incomeTaxExpense,
   } : {};
 
-  // 1. Income Statement first (net profit feeds into equity and BS retained earnings)
-  const incomeStatement = computeIncomeStatement(
-    tb, adj, policies, pyIS,
-  );
-
-  // 2. Balance Sheet (uses IS net profit and depreciation)
-  const balanceSheet = computeBalanceSheet(
-    tb, adj, incomeStatement, pyBS,
-  );
-
-  // 3. Changes in Equity (uses IS net profit)
-  const changesInEquity = computeChangesInEquity(tb, incomeStatement, company);
-
-  // 4. Cash Flow Statement (uses BS and IS)
-  const cashFlow = computeCashFlow(tb, balanceSheet, incomeStatement, adj);
-
-  // 5. Notes
-  const notes = computeNotesData(tb, adj, balanceSheet, incomeStatement);
+  const incomeStatement = computeIncomeStatement(tb, adj, company, pyIS);
+  const balanceSheet = computeBalanceSheet(tb, adj, incomeStatement, company, pyBS);
+  const changesInEquity = computeChangesInEquity(tb, adj, incomeStatement, company);
+  const cashFlow = computeCashFlow(tb, adj, incomeStatement, balanceSheet);
+  const notes = buildNotesData({ tb, adj, bs: balanceSheet, is: incomeStatement, company });
 
   return { balanceSheet, incomeStatement, changesInEquity, cashFlow, notes };
 }

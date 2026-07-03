@@ -7,7 +7,7 @@ import type { YearEndAdjustments as YearEndAdjustmentsBase, AssetRegisterEntry a
 
 export type { NFRSCategory, RawTBRow, RawTBParseResult, ParsedTrialBalance, InventoryDetails };
 export type { FiscalYearEntry as FiscalYearInfo } from '../data/fiscalYears';
-export type { InventoryDetails as PreviousYearBalances };
+export type { InventoryDetails, PreviousYearBalances } from './company';
 export type { CashFlowStatement, PPENote, InvestmentsNote } from './financials';
 export type { BankAccountDetail, CreditorEntry, DebtorEntry, RelatedPartyEntry } from './adjustments';
 

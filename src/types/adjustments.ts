@@ -78,6 +78,15 @@ export interface RelatedPartyEntry {
   terms: string;
 }
 
+export interface InventoryDetails {
+  rawMaterialsCY: number;
+  rawMaterialsPY: number;
+  wipCY: number;
+  wipPY: number;
+  finishedGoodsCY: number;
+  finishedGoodsPY: number;
+}
+
 export interface YearEndAdjustments {
   // Depreciation
   assetRegister: AssetRegisterEntry[];
@@ -101,9 +110,24 @@ export interface YearEndAdjustments {
     finishedGoodsCY: number; finishedGoodsPY: number;
   };
   totalInventoryImpairment: number;
+  totalInvestmentFVAdjustment: number;
+  totalProvisions: number;
+  gainOnDisposals: number;
+  lossOnDisposals: number;
+  profitBeforeTax?: number;
+  priorYearTax?: number;
+  deferredTaxExpense?: number;
+  taxDepreciation?: number;
+  advanceTax1?: number;
+  advanceTax2?: number;
+  advanceTax3?: number;
+  tdsCredit?: number;
+  taxableProfit?: number;
+  currentTaxExpense?: number;
+  dividendPayable?: number;
   // Tax depreciation (Nepal Income Tax Act pool method)
   taxDepPool: Array<{
-    poolName: string;   // 'Pool A (Building 5%)' etc.
+    poolName: string;
     rate: number;
     openingBasis: number;
     additions: number;
@@ -125,6 +149,6 @@ export interface YearEndAdjustments {
   disallowedForTax: Array<{
     description: string;
     amount: number;
-    section: string;    // e.g. 'Section 21 ITA'
+    section: string;
   }>;
 }
