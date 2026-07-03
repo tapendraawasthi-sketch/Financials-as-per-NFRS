@@ -7,7 +7,7 @@ import TBDataGrid from '../components/trialBalance/TBDataGrid';
 import TBAccountMapper from '../components/trialBalance/TBAccountMapper';
 import TBValidationPanel from '../components/trialBalance/TBValidationPanel';
 import { validateTrialBalanceTotals } from '../utils/validation';
-import type { NFRSCategory } from '../types';
+import type { NFRSCategory, CompanyProfile } from '../types';
 
 type TabId = 'upload' | 'review' | 'mapping';
 
@@ -32,6 +32,11 @@ export default function TrialBalancePage() {
     dispatch({ type: 'COMPLETE_STEP', payload: 'trial_balance_upload' });
     dispatch({ type: 'SET_STEP', payload: 'trial_balance_mapping' });
     setActiveTab('review');
+  };
+
+  const handleCompanyResolved = (company: CompanyProfile) => {
+    dispatch({ type: 'SET_COMPANY', payload: company });
+    localStorage.setItem('me_last_company_id', company.id);
   };
 
   const handleUploadError = (msg: string) => {
@@ -112,6 +117,8 @@ export default function TrialBalancePage() {
         {activeTab === 'upload' && (
           <TBUploadZone
             companyId={state.company?.id ?? ''}
+            company={state.company}
+            onCompanyResolved={handleCompanyResolved}
             onUploadComplete={handleUploadComplete}
             onError={handleUploadError}
             useAI={useAI}

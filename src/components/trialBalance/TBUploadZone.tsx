@@ -4,6 +4,9 @@ import Card        from '../ui/Card';
 import ProgressBar from '../ui/ProgressBar';
 import Button      from '../ui/Button';
 import { SAMPLE_TRIAL_BALANCE_CSV } from '../../data/sampleData';
+import { tbApi } from '../../api/client';
+import { ensureServerSession } from '../../utils/ensureServerSession';
+import type { CompanyProfile } from '../../types';
 
 interface UploadResult {
   filename:       string;
@@ -17,6 +20,8 @@ interface UploadResult {
 
 interface TBUploadZoneProps {
   companyId:    string;
+  company?:     CompanyProfile | null;
+  onCompanyResolved?: (company: CompanyProfile) => void;
   onUploadComplete: (tb: any) => void;
   onError:      (msg: string) => void;
   useAI?:       boolean;
@@ -51,6 +56,8 @@ type UploadState = 'idle' | 'uploading' | 'success' | 'error';
 
 export default function TBUploadZone({
   companyId,
+  company,
+  onCompanyResolved,
   onUploadComplete,
   onError,
   useAI = true,
@@ -63,6 +70,7 @@ export default function TBUploadZone({
   const [progress,    setProgress]    = useState(0);
   const [filename,    setFilename]    = useState('');
   const [result,      setResult]      = useState<UploadResult | null>(null);
+  const [processingPhase, setProcessingPhase] = useState('');
   const [isDragging,  setIsDragging]  = useState(false);
   const [aiOn,        setAiOn]        = useState(useAI);
 
@@ -74,22 +82,41 @@ export default function TBUploadZone({
       return;
     }
 
+    if (!company?.companyName?.trim()) {
+      onError('Complete Company Setup first — a company name is required before uploading a trial balance.');
+      return;
+    }
+
     setFilename(file.name);
     setUploadState('uploading');
     setProgress(0);
+    setProcessingPhase('Syncing company session…');
 
-    const formData = new FormData();
-    formData.append('trialbalance', file);
+    try {
+      const serverCompany = await ensureServerSession(company);
+      if (!serverCompany?.id) {
+        throw new Error('Could not create a server session for this company.');
+      }
+      if (serverCompany.id !== companyId) {
+        onCompanyResolved?.(serverCompany);
+      }
 
-    const uploadUrl = `/api/trial-balance/${companyId}/upload${aiOn ? '?useAI=true' : ''}`;
+      setProcessingPhase('Uploading and parsing trial balance…');
+      const payload = await tbApi.upload(
+        serverCompany.id,
+        file,
+        aiOn,
+        (pct) => {
+          setProgress(Math.max(pct, 75));
+          if (pct >= 75) setProcessingPhase('Classifying accounts…');
+        },
+        serverCompany,
+      );
 
-    const xhr = new XMLHttpRequest();
+      const imbalanceWarning = !payload.isBalanced
+        ? `Trial balance imbalance of NPR ${Math.abs(payload.difference ?? 0).toLocaleString('en-IN')}. Review before proceeding.`
+        : undefined;
 
-    xhr.upload.onprogress = e => {
-      if (e.lengthComputable) setProgress(Math.round((e.loaded / e.total) * 90));
-    };
-
-    const handleSuccessPayload = (payload: any, imbalanceWarning?: string) => {
       const r: UploadResult = {
         filename:       file.name,
         accountCount:   payload?.rows?.length ?? 0,
@@ -104,47 +131,16 @@ export default function TBUploadZone({
       };
       setResult(r);
       setUploadState('success');
-      onUploadComplete(payload);
-    };
-
-    xhr.onload = () => {
       setProgress(100);
-      try {
-        const data = JSON.parse(xhr.responseText);
-        if (xhr.status >= 200 && xhr.status < 300) {
-          handleSuccessPayload(data.data);
-        } else if (xhr.status === 422 && data.data) {
-          // Significant imbalance — still allow review with parsed data
-          handleSuccessPayload(
-            data.data,
-            data.error ?? 'Trial balance has a significant imbalance. Review before proceeding.',
-          );
-        } else {
-          setUploadState('error');
-          onError(data.error ?? 'Upload failed.');
-        }
-      } catch {
-        setUploadState('error');
-        onError('Server returned an unexpected response.');
-      }
-    };
-
-    xhr.onerror = () => {
+      setProcessingPhase('');
+      onUploadComplete(payload);
+    } catch (err: unknown) {
       setUploadState('error');
-      onError('Network error during upload. Please check your connection.');
-    };
-
-    xhr.open('POST', uploadUrl);
-    // item 180: 60-second timeout + handler
-    xhr.timeout = 60_000;
-    xhr.ontimeout = () => {
-      setUploadState('error');
-      onError(
-        'Upload timed out after 60 seconds. Please check your connection and try with a smaller file.'
-      );
-    };
-    xhr.send(formData);
-  }, [companyId, aiOn, onUploadComplete, onError]);
+      setProcessingPhase('');
+      const message = err instanceof Error ? err.message : 'Upload failed.';
+      onError(message);
+    }
+  }, [company, companyId, aiOn, onUploadComplete, onCompanyResolved, onError]);
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
@@ -223,7 +219,7 @@ export default function TBUploadZone({
                 Drop file here or click to browse
               </p>
               <p className="text-xs text-slate-400 mt-1">
-                Accepts .xlsx, .xls, .csv
+                Accepts .xlsx, .xls, .csv — including ICAN MEs workbook templates
               </p>
               <div className="mt-4 flex justify-center" onClick={(e) => e.stopPropagation()}>
                 <Button type="button" variant="secondary" size="sm" onClick={loadDummyData}>
@@ -236,7 +232,9 @@ export default function TBUploadZone({
           {/* Uploading state */}
           {uploadState === 'uploading' && (
             <div className="py-4 space-y-2">
-              <p className="text-xs text-slate-600 truncate">Processing {filename}…</p>
+              <p className="text-xs text-slate-600 truncate">
+                {processingPhase || `Processing ${filename}…`}
+              </p>
               <ProgressBar value={progress} showValue size="md" />
             </div>
           )}

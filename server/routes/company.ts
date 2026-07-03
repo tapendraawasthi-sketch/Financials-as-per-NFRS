@@ -9,6 +9,25 @@ import type { CompanyProfile } from '../../src/types';
 
 const router = Router();
 
+// POST /ensure — Create or refresh in-memory session (survives Render cold starts)
+router.post('/ensure', asyncHandler(async (req: Request, res: Response) => {
+  const body = req.body as Partial<CompanyProfile>;
+  const incomingId = body.id && !String(body.id).startsWith('local-') ? body.id : undefined;
+  const id = incomingId ?? crypto.randomUUID();
+  const existing = sessionStore.get(id);
+
+  const company: CompanyProfile = {
+    ...(existing?.company as CompanyProfile | undefined),
+    ...body,
+    id,
+    createdAt: (existing?.company as CompanyProfile | undefined)?.createdAt ?? new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  } as CompanyProfile;
+
+  sessionStore.set(id, { company });
+  return res.json(company);
+}));
+
 // POST / — Create company profile
 router.post('/', asyncHandler(async (req: Request, res: Response) => {
   const body = req.body as Partial<CompanyProfile>;

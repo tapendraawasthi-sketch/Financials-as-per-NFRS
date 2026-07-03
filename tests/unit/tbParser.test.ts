@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseCsv, parseMatrix, parseDualYearMatrix } from '../../server/services/tbParser.ts';
+import { parseCsv, parseMatrix, parseDualYearMatrix, parseTrialBalance, extractWorkbookMetadata } from '../../server/services/tbParser.ts';
 import { SAMPLE_TRIAL_BALANCE_CSV } from '../../src/data/sampleData.ts';
 
 describe('tbParser', () => {
@@ -70,5 +70,22 @@ describe('tbParser', () => {
     const pyCapital = dual!.previousYear.find((r) => r.rawLabel === 'Paid-up Capital');
     assert.equal(cyCapital?.closingCr, 51000000);
     assert.equal(pyCapital?.closingCr, 50000000);
+  });
+
+  it('parses ICAN MEs workbook template Trial Balance sheet with metadata', async () => {
+    const fs = await import('fs');
+    const path = '/home/ubuntu/.cursor/projects/workspace/uploads/MEs_Financials_Format_e5b1.xlsx';
+    if (!fs.existsSync(path)) return;
+
+    const result = await parseTrialBalance(fs.readFileSync(path), 'MEs Financials Format.xlsx');
+    assert.ok(result.rows.length >= 100, `Expected many rows, got ${result.rows.length}`);
+    assert.equal(result.detectedFormat, 'full');
+    assert.ok(result.workbookMetadata?.format === 'mes_template');
+    assert.equal(result.workbookMetadata?.companyName, 'ABC PRIVATE LIMITED');
+    assert.equal(result.workbookMetadata?.fiscalYear, '2081/82');
+    assert.ok(result.previousYearData && result.previousYearData.length > 0);
+    const capital = result.rows.find((r) => r.rawLabel === 'Paid-up Capital' && !r.isGroupRow);
+    assert.ok(capital);
+    assert.equal(capital!.closingCr, 51000000);
   });
 });

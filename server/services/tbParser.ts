@@ -831,9 +831,58 @@ export function parseDualYearMatrix(matrix: unknown[][]): {
   return { currentYear, previousYear };
 }
 
+export interface WorkbookMetadata {
+  format: 'mes_template' | 'generic';
+  companyName?: string;
+  fullAddress?: string;
+  fiscalYear?: string;
+  chairperson?: string;
+  director?: string;
+  accountsHead?: string;
+  auditorName?: string;
+  auditFirmName?: string;
+}
+
 export type ParseTBResult = RawTBParseResult & {
   previousYearData: RawTBRow[] | null;
+  workbookMetadata?: WorkbookMetadata | null;
 };
+
+function cellPlainValue(val: unknown): string {
+  if (val === null || val === undefined) return '';
+  if (typeof val === 'object' && val !== null && 'result' in val) {
+    return String((val as ExcelJS.CellFormulaValue).result ?? '').trim();
+  }
+  return String(val).trim();
+}
+
+/** Extract company/fiscal metadata from ICAN MEs workbook "Enter Details" sheet. */
+export function extractWorkbookMetadata(workbook: ExcelJS.Workbook): WorkbookMetadata | null {
+  const enterDetails = workbook.getWorksheet('Enter Details');
+  if (!enterDetails) return null;
+
+  const fields = new Map<string, string>();
+  enterDetails.eachRow({ includeEmpty: false }, (row) => {
+    const vals = row.values as unknown[];
+    const label = normCell(vals[2]);
+    const value = cellPlainValue(vals[3]);
+    if (label && value) fields.set(label, value);
+  });
+
+  if (fields.size === 0) return null;
+
+  return {
+    format: 'mes_template',
+    companyName: fields.get('name of entity'),
+    fullAddress: fields.get('address'),
+    fiscalYear: fields.get('this year'),
+    chairperson: fields.get('chairperson'),
+    director: fields.get('director'),
+    accountsHead: fields.get('accounts head'),
+    auditorName: fields.get('auditor'),
+    auditFirmName: fields.get('name of audit firm'),
+  };
+}
 
 /** Parse CSV buffer using the same logic as Excel uploads. */
 export function parseCsv(buffer: Buffer): ParseTBResult {
@@ -918,5 +967,12 @@ export async function parseTrialBalance(
     }
   }
 
-  return { ...result, previousYearData };
+  const workbookMetadata = extractWorkbookMetadata(workbook);
+  if (workbookMetadata) {
+    result.warnings.push(
+      `Detected ICAN MEs workbook template for "${workbookMetadata.companyName ?? 'entity'}".`,
+    );
+  }
+
+  return { ...result, previousYearData, workbookMetadata };
 }

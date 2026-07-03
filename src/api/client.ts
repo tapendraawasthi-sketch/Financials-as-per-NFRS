@@ -72,6 +72,9 @@ export const companyApi = {
 
   getFiscalYearOptions: (): Promise<{ value: string; label: string }[]> =>
     apiRequest<{ value: string; label: string }[]>('GET', '/api/company/fiscal-years/options'),
+
+  ensure: (data: Partial<CompanyProfile>): Promise<CompanyProfile> =>
+    apiRequest<CompanyProfile>('POST', '/api/company/ensure', data),
 };
 
 // ── Trial Balance API ──────────────────────────────────────────────────────────
@@ -86,18 +89,26 @@ export const tbApi = {
     file: File,
     useAI: boolean = false,
     onProgress?: (pct: number) => void,
+    companySnapshot?: Partial<CompanyProfile>,
   ): Promise<ParsedTrialBalance> =>
     new Promise<ParsedTrialBalance>((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       const formData = new FormData();
       formData.append('trialbalance', file);
+      if (companySnapshot) {
+        formData.append('company', JSON.stringify(companySnapshot));
+      }
 
-      // Progress handler
+      // Progress handler — upload bytes only (0–70%)
       xhr.upload.onprogress = (e: ProgressEvent) => {
         if (e.lengthComputable && onProgress) {
-          const pct = Math.round((e.loaded / e.total) * 90); // 90% for upload; 10% for server parsing
+          const pct = Math.round((e.loaded / e.total) * 70);
           onProgress(pct);
         }
+      };
+
+      xhr.upload.onloadend = () => {
+        if (onProgress) onProgress(75);
       };
 
       // Load handler
@@ -128,7 +139,7 @@ export const tbApi = {
       // Error handlers
       xhr.onerror = () => reject(new Error('Network error during upload. Please check your connection.'));
       xhr.ontimeout = () => reject(new Error('Upload timed out. Please try again with a smaller file.'));
-      xhr.timeout = 120000; // 2-minute timeout
+      xhr.timeout = useAI ? 180_000 : 120_000;
 
       // Open and send
       const url = `/api/trial-balance/${companyId}/upload${useAI ? '?useAI=true' : ''}`;

@@ -110,7 +110,7 @@ export default function CompanySetupPage() {
         if (existingId && !existingId.startsWith('local-')) {
           savedCompany = await companyApi.update(existingId, profileData);
         } else {
-          savedCompany = await companyApi.create(profileData);
+          savedCompany = await companyApi.ensure(profileData);
         }
         // Replace local placeholder id with the real server id
         dispatch({ type: 'SET_COMPANY', payload: savedCompany });

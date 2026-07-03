@@ -8,7 +8,8 @@ import { classifyAll } from '../services/accountMatcher';
 import { classifyWithAI, aiMatchUnresolved } from '../services/aiAccountMatcher';
 import { applyMappingProfile, upsertMappingProfile } from '../services/mappingProfile';
 import { validateTrialBalanceTotals } from '../../src/utils/validation';
-import type { ParsedTrialBalance, NFRSCategory } from '../../src/types';
+import type { CompanyProfile, ParsedTrialBalance, NFRSCategory } from '../../src/types';
+import { getFiscalYear } from '../../src/data/fiscalYears';
 
 const router = Router();
 
@@ -42,10 +43,52 @@ router.post('/:companyId/upload', tbUploadMiddleware, async (req: Request, res: 
       });
     }
 
-    const session = sessionStore.get(req.params.companyId);
-    if (!session) return res.status(404).json({ error: 'Company session not found. Create a company first.' });
+    let session = sessionStore.get(req.params.companyId);
+    if (!session) {
+      const companyRaw = req.body?.company;
+      if (typeof companyRaw === 'string') {
+        try {
+          const company = JSON.parse(companyRaw) as CompanyProfile;
+          sessionStore.set(req.params.companyId, { company: { ...company, id: req.params.companyId } });
+          session = sessionStore.get(req.params.companyId);
+        } catch {
+          // ignore malformed company snapshot
+        }
+      }
+    }
+    if (!session) {
+      return res.status(404).json({
+        success: false,
+        error: 'Company session not found on server. Save company details first, then upload again.',
+        code: 'SESSION_NOT_FOUND',
+      });
+    }
 
     const parsed = await parseTrialBalance(req.file.buffer, req.file.originalname);
+
+    if (parsed.workbookMetadata?.format === 'mes_template') {
+      const meta = parsed.workbookMetadata;
+      const current = (session.company ?? {}) as CompanyProfile;
+      const fiscalYear = meta.fiscalYear
+        ? (getFiscalYear(meta.fiscalYear) ?? current.fiscalYear)
+        : current.fiscalYear;
+      const enrichedCompany: CompanyProfile = {
+        ...current,
+        companyName: meta.companyName || current.companyName,
+        fullAddress: meta.fullAddress || current.fullAddress,
+        chairperson: meta.chairperson || current.chairperson,
+        director: meta.director || current.director,
+        accountsHead: meta.accountsHead || current.accountsHead,
+        fiscalYear,
+        auditorInfo: {
+          ...(current.auditorInfo ?? { auditorName: '', auditorFirmName: '', position: '', icanRegNumber: '' }),
+          auditorName: meta.auditorName || current.auditorInfo?.auditorName || '',
+          auditorFirmName: meta.auditFirmName || current.auditorInfo?.auditorFirmName || '',
+        },
+      };
+      sessionStore.set(req.params.companyId, { company: enrichedCompany });
+      session = sessionStore.get(req.params.companyId);
+    }
     
     // ── No data rows check
     if (!parsed.rows || parsed.rows.length === 0) {
