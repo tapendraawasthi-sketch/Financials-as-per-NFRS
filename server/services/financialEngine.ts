@@ -113,7 +113,7 @@ export function computeIncomeStatement(
   const staffBonusProvision = adj.staffBonusProvision
     ?? round2(sumDr(rows, 'emp_expense_bonus'));
   const employeeBenefitExpense = round2(
-    sumDr(rows, 'emp_expense_salaries', 'emp_expense_welfare')
+    sumDr(rows, 'emp_expense_salaries', 'emp_expense_welfare', 'allowances_expense' as NFRSCategory)
     + sumDr(rows, 'emp_expense_pf', 'emp_expense_gratuity', 'emp_expense_other')
     + staffBonusProvision
     + sumDr(rows, 'emp_expense_leave' as NFRSCategory),
