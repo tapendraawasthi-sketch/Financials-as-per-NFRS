@@ -1,5 +1,5 @@
 // src/components/company/CompanyInfoForm.tsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Card           from '../ui/Card';
 import Alert          from '../ui/Alert';
 import InputField     from '../ui/InputField';
@@ -10,6 +10,8 @@ import Button         from '../ui/Button';
 import { useToast }   from '../ui/Toast';
 import { CompanyProfile } from '../../types/company';
 import { SAMPLE_COMPANY } from '../../data/sampleData';
+import { companyApi } from '../../api/client';
+import { getFiscalYear, type FiscalYearEntry } from '../../data/fiscalYears';
 
 // ── Option lists ───────────────────────────────────────────────────────────
 const COMPANY_TYPE_OPTIONS = [
@@ -74,6 +76,7 @@ interface FormValues {
   bankBorrowings:     number;
   balanceSheetTotal:  number;
   fiduciaryAssets:    number;
+  fiscalYear?:        FiscalYearEntry;
 }
 
 type FormErrors = Partial<Record<keyof FormValues, string>>;
@@ -130,6 +133,9 @@ export default function CompanyInfoForm({
   const [errors,  setErrors]  = useState<FormErrors>({});
   const [saving,  setSaving]  = useState(false);
   const [saveErr, setSaveErr] = useState<string | null>(null);
+  const [fiscalYearOptions, setFiscalYearOptions] = useState<{ value: string; label: string }[]>([]);
+  const [fiscalYearLoading, setFiscalYearLoading] = useState(true);
+  const [fiscalYearError, setFiscalYearError] = useState(false);
   const { show } = useToast();   // item 52: toast hook
   const hasEligibilityInput = values.annualTurnover > 0 || values.bankBorrowings > 0 || values.balanceSheetTotal > 0 || values.fiduciaryAssets > 0;
   const isMicroEntityEligible = values.annualTurnover <= 100000000 && values.bankBorrowings <= 50000000 && values.balanceSheetTotal <= 100000000 && values.fiduciaryAssets <= 50000000;
@@ -156,6 +162,39 @@ export default function CompanyInfoForm({
     setValues(prev => ({ ...prev, [key]: val }));
     if (errors[key]) setErrors(prev => ({ ...prev, [key]: undefined }));
   };
+
+  const onFieldChange = (field: string, value: unknown) => {
+    if (field === 'fiscalYear') {
+      set('fiscalYear', value as FiscalYearEntry);
+    }
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const options = await companyApi.getFiscalYearOptions();
+        if (cancelled) return;
+        setFiscalYearOptions(options);
+        const defaultEntry = getFiscalYear('2081/82');
+        if (defaultEntry) {
+          setValues(prev => prev.fiscalYear ? prev : { ...prev, fiscalYear: defaultEntry });
+        }
+      } catch {
+        if (!cancelled) setFiscalYearError(true);
+      } finally {
+        if (!cancelled) setFiscalYearLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const selectedFyIndex = fiscalYearOptions.findIndex(
+    o => o.value === (values.fiscalYear?.bsFY ?? '2081/82'),
+  );
+  const previousFiscalYearLabel = selectedFyIndex > 0
+    ? fiscalYearOptions[selectedFyIndex - 1].label
+    : '—';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -344,6 +383,45 @@ export default function CompanyInfoForm({
               onChange={e => set('fullAddress', e.target.value)}
               placeholder="Enter the complete registered address as it appears on official documents"
               rows={2}
+            />
+          </div>
+
+          <div className="col-span-3">
+            {fiscalYearLoading ? (
+              <SelectDropdown
+                label="Current Fiscal Year"
+                value=""
+                onChange={() => {}}
+                options={[{ value: '', label: 'Loading...' }]}
+                disabled
+              />
+            ) : fiscalYearError ? (
+              <SelectDropdown
+                label="Current Fiscal Year"
+                value=""
+                onChange={() => {}}
+                options={[{ value: '', label: 'Unable to load fiscal years' }]}
+                disabled
+              />
+            ) : (
+              <SelectDropdown
+                label="Current Fiscal Year"
+                value={values.fiscalYear?.bsFY ?? '2081/82'}
+                onChange={e => {
+                  const entry = getFiscalYear(e.target.value);
+                  if (entry) onFieldChange('fiscalYear', entry);
+                }}
+                options={fiscalYearOptions}
+              />
+            )}
+          </div>
+
+          <div className="col-span-3">
+            <InputField
+              label="Previous Fiscal Year"
+              value={previousFiscalYearLabel}
+              readOnly
+              disabled
             />
           </div>
         </div>
