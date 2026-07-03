@@ -68,7 +68,7 @@ export const companyApi = {
     apiRequest<CompanyProfile>('PUT', `/api/company/${id}`, data),
 
   savePolicies: (id: string, policies: AccountingPolicies): Promise<CompanyProfile> =>
-    apiRequest<CompanyProfile>('PUT', `/api/company/${id}/policies`, policies),
+    apiRequest<CompanyProfile>('POST', `/api/company/${id}/policies`, policies),
 
   getFiscalYearOptions: (): Promise<{ value: string; label: string }[]> =>
     apiRequest<{ value: string; label: string }[]>('GET', '/api/company/fiscal-years/options'),
