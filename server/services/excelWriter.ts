@@ -1229,6 +1229,9 @@ export async function generateNFRSWorkbook(params: {
     fiscalYear: company.fiscalYear?.bsFY ?? ''
   });
   writeNote31_PPE(addSheet('Note 3.1 - PPE', '16A34A'), notes.note31_ppe);
+  writeGenericNoteRecord(addSheet('Note 3.21b - Depn Summary', '16A34A'), '3.21  Depreciation Summary', Object.fromEntries(
+    (notes.note321_depreciation?.byClass ?? []).map((item: { categoryName: string; depreciationForYear: number }) => [item.categoryName, { cy: item.depreciationForYear, py: 0 }]),
+  ));
   writeGenericNoteRecord(addSheet('Note 3.2 - Investments', '16A34A'), '3.2  Investments', {});
   writeGenericNoteRecord(addSheet('Note 3.3 - Receivables', '16A34A'), '3.3  Trade Receivables', {
     'Net Trade Receivables': {
@@ -1258,6 +1261,14 @@ export async function generateNFRSWorkbook(params: {
   ));
   writeGenericNoteRecord(addSheet('Note 3.13 - Payables', '16A34A'), '3.13  Trade and Other Payables', notes.note313_tradePayables);
   writeGenericNoteRecord(addSheet('Note 3.14 - Provisions', '16A34A'), '3.14  Provisions', {});
+  writeGenericNoteRecord(addSheet('Note 3.15 - TDS', '16A34A'), '3.15  TDS Payable', Object.fromEntries(
+    (notes.note313_tradePayables?.tdsPayableBreakdown ?? []).map((item: { ledgerName: string; amount: number }) => [item.ledgerName, { cy: item.amount, py: 0 }]),
+  ));
+  writeGenericNoteRecord(addSheet('Note 3.16 - Dividend', '16A34A'), '3.16  Dividend Payable', {
+    'Total Dividend Declared': { cy: notes.note316_dividendPayable?.totalDividendDeclared ?? 0, py: 0 },
+    'TDS on Dividend': { cy: notes.note316_dividendPayable?.tdsOnDividend ?? 0, py: 0 },
+    'Net Dividend Payable': { cy: notes.note316_dividendPayable?.netDividendPayable ?? 0, py: 0 },
+  });
   writeGenericNoteRecord(addSheet('Note 3.17 - Revenue', '16A34A'), '3.17  Revenue', notes.note317_revenue);
   SHEET_ROW_REGISTRY.revenueTotalRow = 4 + Object.keys(notes.note317_revenue ?? {}).length - 1;
   writeGenericNoteRecord(addSheet('Note 3.18 - Materials', '16A34A'), '3.18  Material Consumed', {
@@ -1267,6 +1278,14 @@ export async function generateNFRSWorkbook(params: {
     'Material Consumed': { cy: notes.note318_materialConsumed?.consumed ?? 0, py: 0 },
   });
   writeGenericNoteRecord(addSheet('Note 3.19 - Direct Exp', '16A34A'), '3.19  Direct Expenses', notes.note319_directExpenses);
+  writeGenericNoteRecord(addSheet('Note 3.19b - Other Income', '16A34A'), '3.19  Other Income (Detail)', {
+    'Interest Income': notes.note319_otherIncome?.interestIncome ?? { cy: 0, py: 0 },
+    'Commission Income': notes.note319_otherIncome?.commissionIncome ?? { cy: 0, py: 0 },
+    'Rental Income': notes.note319_otherIncome?.rentalIncome ?? { cy: 0, py: 0 },
+    'Dividend Received': notes.note319_otherIncome?.dividendReceived ?? { cy: 0, py: 0 },
+    'Gain on Disposal of Assets': notes.note319_otherIncome?.gainOnDisposalAssets ?? { cy: 0, py: 0 },
+    'Miscellaneous Income': notes.note319_otherIncome?.miscellaneousIncome ?? { cy: 0, py: 0 },
+  });
   writeGenericNoteRecord(addSheet('Note 3.20 - Emp Expense', '16A34A'), '3.20  Employee Benefit Expenses', notes.note320_employeeBenefitExpenses);
   SHEET_ROW_REGISTRY.empExpenseTotalRow = 4 + Object.keys(notes.note320_employeeBenefitExpenses ?? {}).length - 1;
   writeGenericNoteRecord(addSheet('Note 3.21 - Impairment', '16A34A'), '3.21  Impairment', Object.fromEntries(
@@ -1278,6 +1297,11 @@ export async function generateNFRSWorkbook(params: {
     profitBeforeTax: 0, addDisallowableExpenses: {}, lessAllowableExpenses: {},
     taxableIncome: 0, currentTax: 0, taxRate: 0.25, advanceTaxPaid: 0, tdsCreditAvailable: 0, netTaxPayable: 0,
   });
+  writeGenericNoteRecord(addSheet('Note 3.24 - Related Party', '16A34A'), '3.24  Related Party Disclosures', Object.fromEntries(
+    (notes.note324_relatedParty?.relatedParties ?? []).map((p: { partyName: string; outstandingBalance: number }) => [p.partyName, { cy: p.outstandingBalance, py: 0 }]),
+  ));
+  writeGenericNoteRecord(addSheet('Note 3.25 - Contingencies', '16A34A'), '3.25  Contingent Liabilities', {});
+  writeGenericNoteRecord(addSheet('Note 3.26 - Subsequent Events', '16A34A'), '3.26  Events After Reporting Date', {});
   writeAdjustments(addSheet('Adjustments', COLORS.LIGHT_GRAY), adjustments);
   writeTaxCalculation(addSheet('Tax Calculation', COLORS.LIGHT_GRAY), notes.note323_incomeTax);
   writeSundryDebtors(addSheet('Sundry Debtors', '16A34A'), trialBalance);
