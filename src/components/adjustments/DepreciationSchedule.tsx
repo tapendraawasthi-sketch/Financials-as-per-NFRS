@@ -9,6 +9,7 @@ interface DepreciationScheduleProps {
   gainOnDisposals: number;
   lossOnDisposals: number;
   roundingLevel: number;
+  fiscalYear?: string;
 }
 
 function fmt(n: number, rl: number): string {
@@ -29,6 +30,7 @@ export default function DepreciationSchedule({
   gainOnDisposals,
   lossOnDisposals,
   roundingLevel,
+  fiscalYear = '2081/82',
 }: DepreciationScheduleProps) {
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
 
@@ -74,7 +76,7 @@ export default function DepreciationSchedule({
     <div className="space-y-6">
       {/* ── Summary Card ─────────────────────────────────────────────────── */}
       <div className="bg-gradient-to-r from-blue-700 to-blue-500 rounded-xl p-6 text-white shadow-md">
-        <p className="text-blue-100 text-sm font-medium mb-1">Total Depreciation for FY 2081/82</p>
+        <p className="text-blue-100 text-sm font-medium mb-1">Total Depreciation for FY {fiscalYear}</p>
         <p className="text-3xl font-bold tracking-tight">
           NPR {fmt(totalDepreciation, roundingLevel)}
         </p>

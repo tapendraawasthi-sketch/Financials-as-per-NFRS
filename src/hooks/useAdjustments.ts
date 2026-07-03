@@ -44,6 +44,15 @@ export function useAdjustments() {
     dispatch({ type: 'CLEAR_ERROR' });
     try {
       const result = await adjustmentsApi.calculateDepreciation(companyId);
+      dispatch({
+        type: 'SET_ADJUSTMENTS',
+        payload: {
+          ...(state.adjustments ?? {}),
+          depreciationResults: result.results,
+          depreciationSummary: result.summary,
+          totalDepreciationExpense: result.summary.reduce((sum, row) => sum + row.depnForYear, 0),
+        } as YearEndAdjustments,
+      });
       return result;
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Depreciation calculation failed.';

@@ -10,7 +10,28 @@ import {
 } from '../store/subledgerStore.js';
 import { sessionStore } from '../store/sessionStore';
 import { calculateDepreciationSummary, calculateTaxDepreciation } from '../services/depreciationEngine';
+import { normalizePPEClassId } from '../services/ppeCategoryMap.js';
 import type { AssetItem, ProvisionEntry, InventoryAdjustment, InvestmentAdjustment, YearEndAdjustments } from '../../src/types';
+
+function toDepreciationAssets(assets: AssetItem[]) {
+  return assets.map((asset) => ({
+    id: asset.id,
+    assetClass: normalizePPEClassId(asset.categoryId),
+    assetName: asset.assetName,
+    purchaseDate: asset.purchaseDateBS,
+    purchaseDateBS: asset.purchaseDateBS,
+    originalCost: asset.originalCost,
+    additionsCY: asset.additionalCost ?? 0,
+    accumulatedDepnPY: asset.accumDepreciationOpening ?? 0,
+    depreciationMethodOverride: asset.depreciationMethod === 'WrittenDownValue' || asset.depreciationMethod === 'WDV'
+      ? 'WDV' as const
+      : 'SLM' as const,
+    rateOverride: asset.wdvRate,
+    disposed: asset.disposed,
+    disposalDate: asset.disposalDateBS,
+    disposalValue: asset.disposalValue,
+  }));
+}
 
 const router = Router();
 
@@ -41,13 +62,17 @@ router.post('/:companyId/calculate-depreciation', asyncHandler(async (req: Reque
   const assetCategories = session.company.accountingPolicies?.assetCategories ?? [];
   const fiscalYear = session.company.fiscalYear?.bsFY ?? '2081/82';
 
-  const { results, summary } = calculateDepreciationSummary(adj.assets, assetCategories, fiscalYear);
-  const totalDepreciation = results.reduce((s, r) => s + r.depnForYear, 0);
+  const { results, summary } = calculateDepreciationSummary(
+    toDepreciationAssets(adj.assets ?? []),
+    assetCategories,
+    fiscalYear,
+  );
+  const totalDepreciation = results.reduce((s, r) => s + (r.depreciationCY ?? r.depnForYear ?? 0), 0);
   const gainOnDisposals = results.filter((r) => (r.gainLossOnDisposal ?? 0) > 0).reduce((s, r) => s + (r.gainLossOnDisposal ?? 0), 0);
   const lossOnDisposals = results.filter((r) => (r.gainLossOnDisposal ?? 0) < 0).reduce((s, r) => s + Math.abs(r.gainLossOnDisposal ?? 0), 0);
 
   const openingPoolBases: Record<string, number> = req.body.openingPoolBases ?? {};
-  const taxPools = calculateTaxDepreciation(adj.assets, assetCategories, openingPoolBases);
+  const taxPools = calculateTaxDepreciation(toDepreciationAssets(adj.assets ?? []), assetCategories, openingPoolBases);
 
   const updatedAdj: YearEndAdjustments = {
     ...adj, depreciationResults: results, depreciationSummary: summary,
@@ -55,7 +80,14 @@ router.post('/:companyId/calculate-depreciation', asyncHandler(async (req: Reque
     gainOnDisposals, lossOnDisposals,
   };
   sessionStore.set(req.params.companyId, { adjustments: updatedAdj });
-  return res.json({ summary, taxPools, totalDepreciationExpense: totalDepreciation, gainOnDisposals, lossOnDisposals });
+  return res.json({
+    results,
+    summary,
+    taxPools,
+    totalDepreciationExpense: totalDepreciation,
+    gainOnDisposals,
+    lossOnDisposals,
+  });
 }));
 
 // POST /:companyId/provisions

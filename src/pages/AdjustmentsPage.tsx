@@ -1,39 +1,62 @@
 // src/pages/AdjustmentsPage.tsx
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { useAppStore } from '../store/appStore';
 import { useAdjustments } from '../hooks/useAdjustments';
 import { adjustmentsApi } from '../api/client';
-import type { AssetItem, ProvisionEntry, YearEndAdjustments } from '../types';
+import type { AssetItem, InventoryAdjustment, InvestmentAdjustment, ProvisionEntry, YearEndAdjustments } from '../types';
 import Tabs from '../components/ui/Tabs';
+import Button from '../components/ui/Button';
 import AssetRegisterTable from '../components/adjustments/AssetRegisterTable';
+import DepreciationSchedule from '../components/adjustments/DepreciationSchedule';
 import ProvisionInputs from '../components/adjustments/ProvisionInputs';
+import InventoryInputPanel from '../components/adjustments/InventoryInputPanel';
+import InvestmentInputPanel from '../components/adjustments/InvestmentInputPanel';
 import AdjustmentJournalView from '../components/adjustments/AdjustmentJournalView';
 import { useToast } from '../components/ui/Toast';
+import { detectAdjustmentRelevance } from '../utils/adjustmentRelevance';
+import { assetItemToRow, assetRowToAssetItem } from '../utils/assetMapping';
 
 type TabId = 'assets' | 'provisions' | 'journal';
 
 export default function AdjustmentsPage() {
   const { state, dispatch } = useAppStore();
-  const { saveAssets, calculateDepreciation, finalizeAdjustments } = useAdjustments();
+  const {
+    saveAssets,
+    calculateDepreciation,
+    saveInventory,
+    saveInvestments,
+    finalizeAdjustments,
+  } = useAdjustments();
   const { show: showToast } = useToast();
   const [activeTab, setActiveTab] = useState<TabId>('assets');
   const ppePrefillDone = useRef(false);
   const journalAutoDone = useRef(false);
 
+  const relevance = useMemo(
+    () => detectAdjustmentRelevance(state.trialBalance?.rows ?? []),
+    [state.trialBalance?.rows],
+  );
+
+  const roundingLevel = state.company?.accountingPolicies?.roundingLevel ?? 100;
+  const fiscalYear = state.company?.fiscalYear?.bsFY ?? '2081/82';
+
+  const initialAssets = useMemo(
+    () => (state.adjustments?.assets ?? []).map((asset) => assetItemToRow(asset)),
+    [state.adjustments?.assets],
+  );
+
   useEffect(() => {
-    if (activeTab !== 'assets' || ppePrefillDone.current) return;
+    if (activeTab !== 'assets' || ppePrefillDone.current || !relevance.hasPPE) return;
     ppePrefillDone.current = true;
 
-    const assetRegister = state.adjustments?.assetRegister ?? state.adjustments?.assets ?? [];
+    const assetRegister = state.adjustments?.assets ?? [];
     const isEmptyOrBlank = assetRegister.length === 0 || assetRegister.every((a) => {
       const row = a as AssetItem & { name?: string; cost?: number };
       return !(row.assetName ?? row.name)?.trim() && (row.originalCost ?? row.cost ?? 0) === 0;
     });
     if (!isEmptyOrBlank) return;
 
-    const mappings = (state as { mappings?: Array<Record<string, unknown>> }).mappings
-      ?? state.trialBalance?.rows
-      ?? [];
+    const mappings = state.trialBalance?.rows ?? [];
     const ppeAccounts = mappings.filter((account) =>
       account.nfrsCategory === 'property_plant_equipment'
       || (typeof account.nfrsCategory === 'string' && account.nfrsCategory.startsWith('ppe_')),
@@ -42,18 +65,17 @@ export default function AdjustmentsPage() {
 
     const prefilled: AssetItem[] = ppeAccounts.map((account, i) => {
       const nfrs = String(account.nfrsCategory ?? '');
-      const subcategory = account.subcategory as string | undefined;
       return {
         id: `ppe-prefill-${account.rowIndex ?? i}`,
         assetName: String(account.accountName ?? account.displayLabel ?? account.rawLabel ?? ''),
-        categoryId: subcategory ?? (nfrs.startsWith('ppe_') ? nfrs.replace('ppe_', '') : 'other'),
+        categoryId: nfrs.startsWith('ppe_') ? nfrs.replace('ppe_', '') : 'building',
         originalCost: Number(account.closingDr ?? 0),
         additionalCost: 0,
         purchaseDateBS: '',
-        usefulLifeYears: 0,
+        usefulLifeYears: 10,
         residualValue: 0,
         depreciationMethod: 'StraightLine',
-        wdvRate: 0,
+        wdvRate: 20,
         accumDepreciationOpening: 0,
         isFullyDepreciated: false,
         isMortgaged: false,
@@ -66,10 +88,9 @@ export default function AdjustmentsPage() {
       payload: {
         ...(state.adjustments ?? {}),
         assets: prefilled,
-        assetRegister: prefilled as YearEndAdjustments['assetRegister'],
       } as YearEndAdjustments,
     });
-  }, [activeTab, state.adjustments, state.trialBalance, dispatch]);
+  }, [activeTab, relevance.hasPPE, state.adjustments, state.trialBalance, dispatch]);
 
   useEffect(() => {
     if (activeTab !== 'journal' || journalAutoDone.current) return;
@@ -83,10 +104,7 @@ export default function AdjustmentsPage() {
       || (adj.totalDepreciationExpense ?? 0) > 0;
     const hasBonus = (adj.staffBonusProvision ?? 0) > 0;
     const hasTax = (adj.incomeTaxProvision ?? 0) > 0;
-    const provisionEntries = (adj as YearEndAdjustments & { provisionEntries?: unknown[] }).provisionEntries
-      ?? adj.provisions
-      ?? [];
-    if (!hasDepreciation || !hasBonus || !hasTax || provisionEntries.length === 0) return;
+    if (!hasDepreciation && !hasBonus && !hasTax) return;
 
     journalAutoDone.current = true;
     const fyEnd = state.company?.fiscalYear?.endDateBS
@@ -125,6 +143,8 @@ export default function AdjustmentsPage() {
       });
     }
 
+    if (generated.length === 0) return;
+
     dispatch({
       type: 'SET_ADJUSTMENTS',
       payload: {
@@ -135,8 +155,13 @@ export default function AdjustmentsPage() {
     });
   }, [activeTab, state.adjustments, state.company, dispatch]);
 
-  const handleCalculateDepreciation = async (assets: any[]) => {
+  const handleCalculateDepreciation = async (rows: ReturnType<typeof assetItemToRow>[]) => {
+    const assets = rows.map(assetRowToAssetItem);
     await saveAssets(assets);
+    dispatch({
+      type: 'SET_ADJUSTMENTS',
+      payload: { ...(state.adjustments ?? {}), assets } as YearEndAdjustments,
+    });
     const { summary } = await calculateDepreciation();
     return summary;
   };
@@ -179,6 +204,42 @@ export default function AdjustmentsPage() {
     }
   };
 
+  const handleSaveInventory = async (items: InventoryAdjustment[]) => {
+    try {
+      await saveInventory(items);
+      dispatch({
+        type: 'SET_ADJUSTMENTS',
+        payload: {
+          ...(state.adjustments ?? {}),
+          inventoryAdjustments: items,
+          totalInventoryImpairment: items.reduce((sum, item) => sum + item.impairmentAmount, 0),
+        } as YearEndAdjustments,
+      });
+      showToast('Inventory adjustments saved', 'success');
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to save inventory adjustments.';
+      showToast(message, 'error');
+    }
+  };
+
+  const handleSaveInvestments = async (items: InvestmentAdjustment[]) => {
+    try {
+      await saveInvestments(items);
+      dispatch({
+        type: 'SET_ADJUSTMENTS',
+        payload: {
+          ...(state.adjustments ?? {}),
+          investmentAdjustments: items,
+          totalInvestmentFVAdjustment: items.reduce((sum, item) => sum + (item.fairValueGainLoss ?? item.gainLossOnFV ?? 0), 0),
+        } as YearEndAdjustments,
+      });
+      showToast('Investment adjustments saved', 'success');
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to save investment adjustments.';
+      showToast(message, 'error');
+    }
+  };
+
   const handleProceed = async () => {
     try {
       await finalizeAdjustments();
@@ -190,42 +251,76 @@ export default function AdjustmentsPage() {
   };
 
   const tabs = [
-    { id: 'assets', label: 'PPE / Depreciation' },
-    { id: 'provisions', label: 'Provisions & Tax' },
-    { id: 'journal', label: 'Adjustment Journal' },
+    ...(relevance.hasPPE ? [{ id: 'assets' as const, label: 'PPE / Depreciation' }] : []),
+    { id: 'provisions' as const, label: 'Provisions & Tax' },
+    { id: 'journal' as const, label: 'Adjustment Journal' },
   ];
+
+  const effectiveTab = tabs.some((tab) => tab.id === activeTab) ? activeTab : tabs[0]?.id ?? 'provisions';
+
+  const depnSummary = state.adjustments?.depreciationSummary ?? [];
 
   return (
     <div>
       <Tabs
         tabs={tabs}
-        active={activeTab}
+        active={effectiveTab}
         onChange={(id) => setActiveTab(id as TabId)}
         variant="line"
         className="mb-5"
       />
 
-      <div className="page-enter">
-        {activeTab === 'assets' && (
-          <AssetRegisterTable
-            fiscalYear={state.company?.fiscalYear?.bsFY ?? '2081/82'}
-            onCalculate={handleCalculateDepreciation}
-          />
-        )}
-
-        {activeTab === 'provisions' && (
-          <ProvisionInputs
-            onSave={handleSaveProvisions}
-            initialData={Object.fromEntries(
-              (state.adjustments?.provisions ?? []).map((provision) => [
-                provision.id ?? provision.provisionType,
-                provision.openingBalance,
-              ]),
+      <div className="page-enter space-y-5">
+        {effectiveTab === 'assets' && relevance.hasPPE && (
+          <>
+            <AssetRegisterTable
+              fiscalYear={fiscalYear}
+              initialAssets={initialAssets}
+              roundingLevel={roundingLevel}
+              onCalculate={handleCalculateDepreciation}
+            />
+            {depnSummary.length > 0 && (
+              <DepreciationSchedule
+                summary={depnSummary}
+                totalDepreciation={state.adjustments?.totalDepreciationExpense ?? 0}
+                gainOnDisposals={state.adjustments?.gainOnDisposals ?? 0}
+                lossOnDisposals={state.adjustments?.lossOnDisposals ?? 0}
+                roundingLevel={roundingLevel}
+                fiscalYear={fiscalYear}
+              />
             )}
-          />
+          </>
         )}
 
-        {activeTab === 'journal' && (
+        {effectiveTab === 'provisions' && (
+          <div className="space-y-5">
+            {relevance.hasInventory && (
+              <InventoryInputPanel
+                trialBalanceRows={state.trialBalance?.rows}
+                initialItems={state.adjustments?.inventoryAdjustments}
+                onSave={handleSaveInventory}
+              />
+            )}
+            {relevance.hasInvestments && (
+              <InvestmentInputPanel
+                trialBalanceRows={state.trialBalance?.rows}
+                initialItems={state.adjustments?.investmentAdjustments}
+                onSave={handleSaveInvestments}
+              />
+            )}
+            <ProvisionInputs
+              onSave={handleSaveProvisions}
+              initialData={Object.fromEntries(
+                (state.adjustments?.provisions ?? []).map((provision) => [
+                  provision.id ?? provision.provisionType,
+                  provision.openingBalance,
+                ]),
+              )}
+            />
+          </div>
+        )}
+
+        {effectiveTab === 'journal' && (
           <AdjustmentJournalView
             entries={(state.adjustments?.manualJournals ?? state.adjustments?.journalEntries ?? []).map((j) => ({
               id: j.id,
@@ -237,7 +332,7 @@ export default function AdjustmentsPage() {
                 : j.debitAccount.includes('Bonus') ? 'PROV' as const
                 : j.debitAccount.includes('Depreciation') ? 'DEPN' as const
                 : 'OTHER' as const,
-              source: j.id.startsWith('auto-') ? 'System' as const : 'Manual' as const,
+              source: j.id?.startsWith('auto-') ? 'System' as const : 'Manual' as const,
             }))}
             onAddManual={(entry) => {
               const adj = state.adjustments;

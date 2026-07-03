@@ -1,5 +1,5 @@
 // src/components/adjustments/AssetRegisterTable.tsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Button from '../ui/Button';
 import { DepreciationSummary } from '../../types/adjustments';
 
@@ -71,6 +71,11 @@ export default function AssetRegisterTable({
   const [assets,      setAssets]      = useState<AssetRow[]>(
     initialAssets.length > 0 ? initialAssets : [newRow()]
   );
+  useEffect(() => {
+    if (initialAssets.length > 0) {
+      setAssets(initialAssets);
+    }
+  }, [initialAssets]);
   const [calculating, setCalculating] = useState(false);
   const [depnResult,  setDepnResult]  = useState<DepreciationSummary[] | null>(null);
   const [calcError,   setCalcError]   = useState<string | null>(null);
