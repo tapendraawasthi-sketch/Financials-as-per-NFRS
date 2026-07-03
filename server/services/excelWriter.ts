@@ -399,7 +399,7 @@ function writeEnterDetails(ws: ExcelJS.Worksheet, company: CompanyProfile): void
   });
 }
 
-export function writeBalanceSheet(ws: ExcelJS.Worksheet, bs: BalanceSheet, company: CompanyProfile): void {
+export function writeBalanceSheet(ws: ExcelJS.Worksheet, bs: BalanceSheet, company: CompanyProfile): { ppeRow: number; receivablesRow: number; cashRow: number; shareCapitalRow: number; ncBorrowingsRow: number; cBorrowingsRow: number; taxPayableRow: number; totalAssetsRow: number; totalLiabilitiesEquityRow: number } {
   ws.columns = [
     { key: 'A', width: 42 },
     { key: 'B', width: 8 },
@@ -454,7 +454,21 @@ export function writeBalanceSheet(ws: ExcelJS.Worksheet, bs: BalanceSheet, compa
     { label: 'TOTAL EQUITY AND LIABILITIES', cy: bs.totalEquityAndLiabilities, py: bs.totalEquityAndLiabilities_py, isTotal: true },
   ];
 
-  rows.forEach((r) => { writeAmountRow(ws, row, r); row++; });
+  const bsRowMap = { ppeRow: 0, receivablesRow: 0, cashRow: 0, shareCapitalRow: 0, ncBorrowingsRow: 0, cBorrowingsRow: 0, taxPayableRow: 0, totalAssetsRow: 0, totalLiabilitiesEquityRow: 0 };
+  let bsSection = '';
+  rows.forEach((r) => {
+    if (r.isSectionHeader) bsSection = r.label;
+    if (r.label === 'Property, Plant and Equipment') bsRowMap.ppeRow = row;
+    if (r.label === 'Trade and Other Receivables') bsRowMap.receivablesRow = row;
+    if (r.label === 'Cash and Cash Equivalents') bsRowMap.cashRow = row;
+    if (r.label === 'Share Capital') bsRowMap.shareCapitalRow = row;
+    if (r.label === 'Loans and Borrowings' && bsSection === 'D.  NON-CURRENT LIABILITIES') bsRowMap.ncBorrowingsRow = row;
+    if (r.label === 'Loans and Borrowings' && bsSection === 'E.  CURRENT LIABILITIES') bsRowMap.cBorrowingsRow = row;
+    if (r.label === 'Income Tax Liability') bsRowMap.taxPayableRow = row;
+    if (r.label === 'TOTAL ASSETS') bsRowMap.totalAssetsRow = row;
+    if (r.label === 'TOTAL EQUITY AND LIABILITIES') bsRowMap.totalLiabilitiesEquityRow = row;
+    writeAmountRow(ws, row, r); row++;
+  });
 
   // Balance check
   const checkCell = ws.getRow(row).getCell(3);
@@ -475,9 +489,10 @@ export function writeBalanceSheet(ws: ExcelJS.Worksheet, bs: BalanceSheet, compa
     oddHeader: `&C${company.companyName ?? ''}`,
     oddFooter: '&CPage &P of &N',
   };
+  return bsRowMap;
 }
 
-export function writeIncomeStatement(ws: ExcelJS.Worksheet, is: IncomeStatement, company: CompanyProfile): void {
+export function writeIncomeStatement(ws: ExcelJS.Worksheet, is: IncomeStatement, company: CompanyProfile): { revenueRow: number; empExpenseRow: number; adminExpenseRow: number; depreciationRow: number; taxRow: number } {
   ws.columns = [{ width: 42 }, { width: 8 }, { width: 18 }, { width: 18 }];
   const fy = company.fiscalYear?.bsFY ?? '';
   const [startBS, endBS] = fy.split('/').map((y: string) => y.trim());
@@ -512,7 +527,15 @@ export function writeIncomeStatement(ws: ExcelJS.Worksheet, is: IncomeStatement,
     { label: 'Net Profit/(Loss) for the Year', cy: is.netProfit, py: is.netProfit_py, isTotal: true },
   ];
 
-  rows.forEach((r) => { writeAmountRow(ws, row, r); row++; });
+  const isRowMap = { revenueRow: 0, empExpenseRow: 0, adminExpenseRow: 0, depreciationRow: 0, taxRow: 0 };
+  rows.forEach((r) => {
+    if (r.label === 'Revenue from Operations') isRowMap.revenueRow = row;
+    if (r.label === 'Employee Benefit Expenses') isRowMap.empExpenseRow = row;
+    if (r.label === 'Administrative & Other Exp') isRowMap.adminExpenseRow = row;
+    if (r.label === 'Depreciation') isRowMap.depreciationRow = row;
+    if (r.label === 'Less: Income Tax Expense') isRowMap.taxRow = row;
+    writeAmountRow(ws, row, r); row++;
+  });
   writeSignatureLine(ws, row + 1, company);
   appendComplianceStatement(ws, {
     companyName: company.companyName ?? '',
@@ -521,6 +544,7 @@ export function writeIncomeStatement(ws: ExcelJS.Worksheet, is: IncomeStatement,
   }, row + 2);
   ws.pageSetup = { paperSize: 9, orientation: 'portrait', fitToPage: true, fitToWidth: 1 };
   ws.headerFooter = { oddHeader: `&C${company.companyName ?? ''}`, oddFooter: '&CPage &P of &N' };
+  return isRowMap;
 }
 
 export function writeCashFlowStatement(ws: ExcelJS.Worksheet, cf: CashFlowStatement, company: CompanyProfile): void {
@@ -1183,8 +1207,8 @@ export async function generateNFRSWorkbook(params: {
   writeInstructions(addSheet('Instructions', COLORS.LIGHT_GRAY));
   writeEnterDetails(addSheet('Enter Details', COLORS.GREEN_INPUT), company);
   writeTrialBalance(addSheet('Trial Balance', COLORS.BRAND_BLUE), trialBalance);
-  writeBalanceSheet(addSheet('Balance Sheet', COLORS.BRAND_BLUE), balanceSheet, company);
-  writeIncomeStatement(addSheet('Income Statement', COLORS.BRAND_BLUE), incomeStatement, company);
+  const bsRowMap = writeBalanceSheet(addSheet('Balance Sheet', COLORS.BRAND_BLUE), balanceSheet, company);
+  const isRowMap = writeIncomeStatement(addSheet('Income Statement', COLORS.BRAND_BLUE), incomeStatement, company);
   writeChangesInEquity(addSheet('Change in Equity', COLORS.BRAND_BLUE), changesInEquity, company);
   writeCashFlowStatement(addSheet('Cash Flow', COLORS.BRAND_BLUE), cashFlow, company);
   writeNote1_AccountingPolicies(wb, {
@@ -1257,17 +1281,7 @@ export async function generateNFRSWorkbook(params: {
     shareCapital: 'Note 3.9 - Share Capital',
     borrowings: 'Note 3.11 - Borrowings',
     tax: 'Note 3.23 - Tax',
-  }, {
-    ppeRow: 8,
-    receivablesRow: 16,
-    cashRow: 17,
-    shareCapitalRow: 22,
-    ncBorrowingsRow: 27,
-    cBorrowingsRow: 32,
-    taxPayableRow: 34,
-    totalAssetsRow: 20,
-    totalLiabilitiesEquityRow: 38,
-  });
+  }, bsRowMap);
 
   applyIncomeStatementCrossReferences(wb, 'Income Statement', {
     revenue: 'Note 3.17 - Revenue',
@@ -1275,13 +1289,7 @@ export async function generateNFRSWorkbook(params: {
     adminExpense: 'Note 3.22 - Admin Exp',
     ppe: 'Note 3.1 - PPE',
     tax: 'Note 3.23 - Tax',
-  }, {
-    revenueRow: 8,
-    empExpenseRow: 15,
-    adminExpenseRow: 19,
-    depreciationRow: 17,
-    taxRow: 24,
-  });
+  }, isRowMap);
 
   applyCashFlowReconciliation(wb, 'Cash Flow', 'Balance Sheet', {
     openingCashRow: 42,
