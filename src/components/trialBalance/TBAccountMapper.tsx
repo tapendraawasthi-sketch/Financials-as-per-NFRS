@@ -1,10 +1,12 @@
 // src/components/trialBalance/TBAccountMapper.tsx
-import React, { useState, useMemo, useCallback, useRef } from 'react';
-import Tabs        from '../ui/Tabs';
+import React, { useState, useMemo, useCallback } from 'react';
+import { Loader2 } from 'lucide-react';
 import Button      from '../ui/Button';
 import ProgressBar from '../ui/ProgressBar';
 import { MappedTBRow, NFRSCategory } from '../../types/trialBalance';
 import { NFRS_CATEGORY_INFO } from '../../data/nfrsCategories';
+import { tbApi } from '../../api/client';
+import { useAppStore } from '../../store/appStore';
 
 // ── Category grouping for <optgroup> ─────────────────────────────────────────
 // item 72: grouped categories for fast scanning
@@ -200,10 +202,12 @@ export default function TBAccountMapper({
   onConfirm,
   onRerunAI,
 }: TBAccountMapperProps) {
+  const { dispatch } = useAppStore();
   const [activeTab,     setActiveTab]     = useState<FilterTab>('review');  // default to review
   const [search,        setSearch]        = useState('');
   const [confirming,    setConfirming]    = useState(false);
   const [confirmErr,    setConfirmErr]    = useState<string | null>(null);
+  const [aiLoading,     setAiLoading]     = useState(false);
   // item 74: suggestion state
   const [suggestion,    setSuggestion]    = useState<SimilarSuggestion | null>(null);
 
@@ -248,6 +252,35 @@ export default function TBAccountMapper({
     return base;
   }, [rows, activeTab, search]);
 
+  const groupedRows = useMemo(() => {
+    const groups = new Map<string, MappedTBRow[]>();
+    for (const row of filteredRows) {
+      const key = (row as MappedTBRow & { parentGroup?: string }).parentGroup?.trim() || 'Ungrouped Accounts';
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(row);
+    }
+    return Array.from(groups.entries());
+  }, [filteredRows]);
+
+  const isUnmappedRow = (row: MappedTBRow) =>
+    (row.confidence ?? 0) === 0 || !row.nfrsCategory || row.nfrsCategory === 'unclassified';
+
+  const handleAIRematch = async () => {
+    setAiLoading(true);
+    try {
+      if (onRerunAI) {
+        await Promise.resolve(onRerunAI());
+      } else if (companyId) {
+        const result = await tbApi.rematchWithAI(companyId);
+        dispatch({ type: 'SET_TRIAL_BALANCE', payload: result });
+      }
+    } catch (err) {
+      console.error('[TBAccountMapper] AI rematch failed:', err);
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
   // ── Handle category change + similar suggestion ──────────────────────────
   // item 74: detect similar accounts and surface suggestion
   const handleCategoryChange = useCallback((
@@ -291,6 +324,19 @@ export default function TBAccountMapper({
     }, 300),
     [companyId]
   );
+
+  const handleBulkMap = useCallback((
+    groupRows: MappedTBRow[],
+    category: NFRSCategory,
+  ) => {
+    groupRows
+      .filter(isUnmappedRow)
+      .forEach(row => {
+        const idx = String(row.rowIndex ?? rows.indexOf(row));
+        onMappingChange(idx, category);
+        debouncedApiUpdate(idx, category);
+      });
+  }, [rows, onMappingChange, debouncedApiUpdate]);
 
   // ── Apply suggestion ──────────────────────────────────────────────────────
   const applySuggestion = useCallback(() => {
@@ -351,6 +397,22 @@ export default function TBAccountMapper({
           </p>
         )}
       </div>
+
+      {unmatchedCount === 0 && rows.length > 0 && (
+        <div className="flex items-center justify-between gap-4 bg-emerald-50 border border-emerald-200 rounded-lg px-4 py-3">
+          <p className="text-sm font-medium text-emerald-800">
+            All {rows.length} accounts mapped. Ready to proceed.
+          </p>
+          <Button
+            variant="primary"
+            size="md"
+            loading={confirming}
+            onClick={handleConfirm}
+          >
+            Confirm &amp; Continue
+          </Button>
+        </div>
+      )}
 
       {/* ── Similar suggestion banner — item 74 ───────────────────── */}
       {suggestion && (
@@ -444,91 +506,126 @@ export default function TBAccountMapper({
                 </td>
               </tr>
             ) : (
-              filteredRows.map((row, i) => {
-                const isUnmatched =
-                  (row.confidence ?? 0) === 0 ||
-                  !row.nfrsCategory ||
-                  row.nfrsCategory === 'unclassified';
-                const needsReview =
-                  (row.confidence ?? 0) > 0 && (row.confidence ?? 0) < 80;
-
-                const rowBg = isUnmatched
-                  ? 'bg-red-50/40'
-                  : needsReview
-                  ? 'bg-amber-50/40'
-                  : i % 2 === 0
-                  ? 'bg-white'
-                  : 'bg-slate-50';
+              groupedRows.map(([groupName, groupRows]) => {
+                const unmappedInGroup = groupRows.filter(isUnmappedRow).length;
+                let rowCounter = 0;
 
                 return (
-                  <tr
-                    key={row.rowIndex ?? i}
-                    className={`${rowBg} border-b border-slate-100 last:border-0 hover:bg-blue-50/30 transition-colors`}
-                    aria-rowindex={i + 2}
-                  >
-                    <td className="px-2.5 py-1.5 text-center text-[10px] text-slate-400">
-                      {i + 1}
-                    </td>
+                  <React.Fragment key={groupName}>
+                    <tr className="bg-slate-100 border-b border-slate-200">
+                      <td colSpan={6} className="px-3 py-2">
+                        <div className="flex items-center justify-between gap-3 flex-wrap">
+                          <span className="text-xs font-semibold text-slate-700">{groupName}</span>
+                          {unmappedInGroup > 0 && (
+                            <select
+                              defaultValue=""
+                              onChange={e => {
+                                const category = e.target.value as NFRSCategory;
+                                if (category) {
+                                  handleBulkMap(groupRows, category);
+                                  e.target.value = '';
+                                }
+                              }}
+                              className="h-7 text-xs px-2 border border-slate-300 rounded bg-white text-slate-600 outline-none focus:border-blue-500 max-w-[220px]"
+                              aria-label={`Map all unmapped accounts in ${groupName}`}
+                            >
+                              <option value="">Map all in category…</option>
+                              {CATEGORY_GROUPS.map(group => (
+                                <optgroup key={group.label} label={group.label}>
+                                  {group.categories.map(cat => (
+                                    <option key={cat} value={cat}>
+                                      {NFRS_LABELS[cat] ?? cat}
+                                    </option>
+                                  ))}
+                                </optgroup>
+                              ))}
+                            </select>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
 
-                    {/* Account name */}
-                    <td
-                      className="px-3 py-1.5 text-slate-700 max-w-[200px]"
-                      title={row.rawLabel}
-                    >
-                      <span className="block truncate font-medium">{row.rawLabel}</span>
-                    </td>
+                    {groupRows.map((row, i) => {
+                      rowCounter += 1;
+                      const isUnmatched = isUnmappedRow(row);
+                      const needsReview =
+                        (row.confidence ?? 0) > 0 && (row.confidence ?? 0) < 80;
 
-                    {/* ── item 72: <optgroup>-based category selector ── */}
-                    <td className="px-3 py-1.5">
-                      <select
-                        value={row.nfrsCategory ?? 'unclassified'}
-                        onChange={e =>
-                          handleCategoryChange(
-                            row,
-                            String(row.rowIndex ?? i),
-                            e.target.value as NFRSCategory,
-                          )
-                        }
-                        className={`h-7 w-full text-xs px-2 border rounded bg-white text-slate-700 outline-none focus:border-blue-500 transition-colors cursor-pointer ${
-                          isUnmatched ? 'border-red-300' : needsReview ? 'border-amber-300' : 'border-slate-200'
-                        }`}
-                        aria-label={`NFRS category for ${row.rawLabel}`}
-                      >
-                        <option value="unclassified">— Select category —</option>
-                        {CATEGORY_GROUPS.map(group => (
-                          <optgroup key={group.label} label={group.label}>
-                            {group.categories.map(cat => (
-                              <option key={cat} value={cat}>
-                                {NFRS_LABELS[cat] ?? cat}
-                              </option>
-                            ))}
-                          </optgroup>
-                        ))}
-                      </select>
-                    </td>
+                      const rowBg = isUnmatched
+                        ? 'bg-red-50/40'
+                        : needsReview
+                        ? 'bg-amber-50/40'
+                        : i % 2 === 0
+                        ? 'bg-white'
+                        : 'bg-slate-50';
 
-                    {/* Confidence */}
-                    <td className="px-3 py-1.5 text-center">
-                      <span
-                        className="text-[11px] font-mono font-semibold"
-                        style={{ color: confidenceColor(row.confidence ?? 0) }}
-                      >
-                        {row.confidence ?? 0}%
-                      </span>
-                    </td>
+                      return (
+                        <tr
+                          key={row.rowIndex ?? `${groupName}-${i}`}
+                          className={`${rowBg} border-b border-slate-100 last:border-0 hover:bg-blue-50/30 transition-colors`}
+                          aria-rowindex={rowCounter + 1}
+                        >
+                          <td className="px-2.5 py-1.5 text-center text-[10px] text-slate-400">
+                            {rowCounter}
+                          </td>
 
-                    {/* Method */}
-                    <td className="px-3 py-1.5">
-                      <span className="text-[11px] text-slate-400">
-                        {methodLabel(row.matchMethod)}
-                      </span>
-                    </td>
+                          <td
+                            className="px-3 py-1.5 text-slate-700 max-w-[200px]"
+                            title={row.rawLabel}
+                          >
+                            <span className="block truncate font-medium">{row.rawLabel}</span>
+                          </td>
 
-                    {/* Closing balance */}
-                    <td className="px-3 py-1.5 text-right font-mono text-[11px] text-slate-600">
-                      {fmtBalance(row)}
-                    </td>
-                  </tr>
+                          <td className="px-3 py-1.5">
+                            <select
+                              value={row.nfrsCategory ?? 'unclassified'}
+                              onChange={e =>
+                                handleCategoryChange(
+                                  row,
+                                  String(row.rowIndex ?? i),
+                                  e.target.value as NFRSCategory,
+                                )
+                              }
+                              className={`h-7 w-full text-xs px-2 border rounded bg-white text-slate-700 outline-none focus:border-blue-500 transition-colors cursor-pointer ${
+                                isUnmatched ? 'border-red-300' : needsReview ? 'border-amber-300' : 'border-slate-200'
+                              }`}
+                              aria-label={`NFRS category for ${row.rawLabel}`}
+                            >
+                              <option value="unclassified">— Select category —</option>
+                              {CATEGORY_GROUPS.map(group => (
+                                <optgroup key={group.label} label={group.label}>
+                                  {group.categories.map(cat => (
+                                    <option key={cat} value={cat}>
+                                      {NFRS_LABELS[cat] ?? cat}
+                                    </option>
+                                  ))}
+                                </optgroup>
+                              ))}
+                            </select>
+                          </td>
+
+                          <td className="px-3 py-1.5 text-center">
+                            <span
+                              className="text-[11px] font-mono font-semibold"
+                              style={{ color: confidenceColor(row.confidence ?? 0) }}
+                            >
+                              {row.confidence ?? 0}%
+                            </span>
+                          </td>
+
+                          <td className="px-3 py-1.5">
+                            <span className="text-[11px] text-slate-400">
+                              {methodLabel(row.matchMethod)}
+                            </span>
+                          </td>
+
+                          <td className="px-3 py-1.5 text-right font-mono text-[11px] text-slate-600">
+                            {fmtBalance(row)}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </React.Fragment>
                 );
               })
             )}
@@ -543,8 +640,14 @@ export default function TBAccountMapper({
             {mappedCount} accounts mapped.{' '}
             {needsReviewCount > 0 ? `${needsReviewCount} still need review.` : 'All accounts reviewed.'}
           </p>
-          {unmatchedCount > 0 && onRerunAI && (
-            <Button variant="ghost" size="sm" onClick={onRerunAI}>
+          {unmatchedCount > 0 && (onRerunAI || companyId) && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleAIRematch}
+              disabled={aiLoading}
+            >
+              {aiLoading && <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5 inline" aria-hidden="true" />}
               Re-match with AI
             </Button>
           )}
