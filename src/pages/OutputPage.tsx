@@ -7,6 +7,51 @@ import LoadingSpinner from '../components/ui/LoadingSpinner';
 import Alert from '../components/ui/Alert';
 import { outputApi } from '../api/client';
 
+interface ChecklistItem {
+  label: string;
+  done: boolean;
+  tooltip?: string;
+}
+
+function ChecklistRow({ item }: { item: ChecklistItem }) {
+  const [showTip, setShowTip] = useState(false);
+
+  return (
+    <div className="flex items-center gap-2.5 py-2.5">
+      <span
+        className={`h-2 w-2 rounded-full flex-shrink-0 ${
+          item.done ? 'bg-emerald-500' : 'bg-red-500'
+        }`}
+      />
+      <span className={`text-sm flex-1 ${item.done ? 'text-slate-700' : 'text-red-700'}`}>
+        {item.label}
+      </span>
+      {!item.done && item.tooltip && (
+        <span className="relative">
+          <button
+            type="button"
+            className="text-xs text-red-600 underline"
+            onMouseEnter={() => setShowTip(true)}
+            onMouseLeave={() => setShowTip(false)}
+            onFocus={() => setShowTip(true)}
+            onBlur={() => setShowTip(false)}
+          >
+            Why?
+          </button>
+          {showTip && (
+            <span
+              className="absolute right-0 top-full z-10 mt-1 w-64 rounded-lg bg-slate-800 text-white text-xs px-3 py-2 shadow-lg"
+              role="tooltip"
+            >
+              {item.tooltip}
+            </span>
+          )}
+        </span>
+      )}
+    </div>
+  );
+}
+
 export default function OutputPage() {
   const { state } = useAppStore();
   const [generating, setGenerating] = useState(false);
@@ -15,6 +60,26 @@ export default function OutputPage() {
 
   const company = state.company;
   const hasFinancials = state.balanceSheet != null;
+
+  const adjustmentsSaved = state.adjustments != null
+    && Object.keys(state.adjustments).length > 0;
+
+  const subledgers = (state as { subledgers?: { debtors?: unknown[]; creditors?: unknown[] } }).subledgers;
+  const subledgersSaved = (subledgers?.debtors?.length ?? 0) > 0
+    || (subledgers?.creditors?.length ?? 0) > 0
+    || (state.adjustments?.debtors?.length ?? 0) > 0
+    || (state.adjustments?.creditors?.length ?? 0) > 0;
+
+  const bs = state.balanceSheet as Record<string, number> | null;
+  const bsBalanced = bs
+    ? Math.abs((bs.totalAssets ?? 0) - (bs.totalEquityAndLiabilities ?? 0)) <= 1
+    : false;
+
+  const cf = state.cashFlow as Record<string, number> | null;
+  const bsCash = (bs?.ca_cashAndEquivalents ?? bs?.cashAndEquivalents ?? 0) as number;
+  const cfReconciled = cf
+    ? Math.abs((cf.closingCash ?? 0) - bsCash) <= 0.5
+    : false;
 
   const handleDownload = async () => {
     if (!company?.id) return;
@@ -31,18 +96,38 @@ export default function OutputPage() {
       const filename = `NFRS_Financials_${safeName}_${fy}.xlsx`;
       outputApi.triggerDownload(blob, filename);
       setDownloadComplete(true);
-    } catch (err: any) {
-      setError(err?.message ?? 'Excel generation failed.');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Excel generation failed.');
     } finally {
       setGenerating(false);
     }
   };
 
-  const checklist = [
+  const checklist: ChecklistItem[] = [
     { label: 'Company details configured', done: company != null },
     { label: 'Trial balance uploaded', done: state.trialBalance != null },
     { label: 'Accounts mapped', done: (state.trialBalance?.rows ?? []).length > 0 },
     { label: 'Financial statements generated', done: hasFinancials },
+    {
+      label: 'Adjustments saved',
+      done: adjustmentsSaved,
+      tooltip: 'Complete the Year-End Adjustments step and save asset register, provisions, and tax data.',
+    },
+    {
+      label: 'Subledgers saved',
+      done: subledgersSaved,
+      tooltip: 'Enter and save at least debtor or creditor subledger details on the Subledger step.',
+    },
+    {
+      label: 'Balance sheet balanced',
+      done: bsBalanced,
+      tooltip: 'Total assets must equal total equity and liabilities within NPR 1 rounding tolerance.',
+    },
+    {
+      label: 'Cash flow reconciled to balance sheet',
+      done: cfReconciled,
+      tooltip: 'Closing cash on the cash flow statement must match cash and equivalents on the balance sheet within NPR 0.50.',
+    },
   ];
 
   const allDone = checklist.every(c => c.done);
@@ -52,16 +137,7 @@ export default function OutputPage() {
       <Card title="Pre-Generation Checklist" padding="md">
         <div className="divide-y divide-slate-100">
           {checklist.map((item, i) => (
-            <div key={i} className="flex items-center gap-2.5 py-2.5">
-              <span
-                className={`h-2 w-2 rounded-full flex-shrink-0 ${
-                  item.done ? 'bg-emerald-500' : 'bg-slate-300'
-                }`}
-              />
-              <span className={`text-sm ${item.done ? 'text-slate-700' : 'text-slate-400'}`}>
-                {item.label}
-              </span>
-            </div>
+            <ChecklistRow key={i} item={item} />
           ))}
         </div>
       </Card>
@@ -81,7 +157,7 @@ export default function OutputPage() {
             <p className="text-xs text-slate-400 mb-4">
               Review all figures with your CA before submission.
             </p>
-            <Button variant="secondary" size="sm" onClick={handleDownload}>
+            <Button variant="secondary" size="sm" onClick={handleDownload} disabled={!allDone}>
               Download Again
             </Button>
           </div>

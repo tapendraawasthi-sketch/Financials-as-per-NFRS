@@ -852,6 +852,270 @@ export function writeNote323_Tax(ws: ExcelJS.Worksheet, note323: NotesData['note
   SHEET_ROW_REGISTRY.taxPayableRow = 3 + items.length - 1;
 }
 
+export function writeNote314_IncomeTaxLiability(
+  ws: ExcelJS.Worksheet,
+  taxPayableCY: number,
+  taxPayablePY: number,
+  advanceCY: number,
+  advancePY: number,
+): void {
+  ws.getRow(1).getCell(1).value = '3.14  Income Tax Liability';
+  ws.getRow(1).getCell(1).font = { name: 'Arial', size: 11, bold: true };
+  const hRow = ws.getRow(3);
+  ['Particulars', 'Current Year', 'Previous Year'].forEach((h, i) => {
+    const c = hRow.getCell(i + 1);
+    c.value = h;
+    c.font = FONTS.SUBHEADING;
+    applyHeaderFill(c, COLORS.SUBHEADER_BG);
+    applyAllBorders(c);
+  });
+
+  const rows: [string, number, number][] = [
+    ['Income Tax Payable', taxPayableCY, taxPayablePY],
+    ['Less: Advance Tax', advanceCY, advancePY],
+  ];
+  rows.forEach(([label, cy, py], i) => {
+    const r = ws.getRow(4 + i);
+    r.getCell(1).value = label;
+    r.getCell(2).value = cy || null;
+    r.getCell(3).value = py || null;
+    [2, 3].forEach((ci) => {
+      const c = r.getCell(ci);
+      c.numFmt = NUMBER_FORMAT;
+      c.alignment = { horizontal: 'right' };
+      applyAllBorders(c);
+    });
+  });
+
+  const totalRow = ws.getRow(6);
+  totalRow.getCell(1).value = 'Total';
+  totalRow.getCell(1).font = FONTS.TOTAL;
+  totalRow.getCell(2).value = { formula: 'B4-B5', result: taxPayableCY - advanceCY };
+  totalRow.getCell(3).value = { formula: 'C4-C5', result: taxPayablePY - advancePY };
+  [2, 3].forEach((ci) => {
+    const c = totalRow.getCell(ci);
+    c.numFmt = NUMBER_FORMAT;
+    c.alignment = { horizontal: 'right' };
+    c.font = FONTS.TOTAL;
+    applyHeaderFill(c, COLORS.TOTAL_BG);
+    applyAllBorders(c);
+  });
+}
+
+export function writeNote315_Provisions(
+  ws: ExcelJS.Worksheet,
+  provisions: Array<{
+    provisionType?: string;
+    openingBalance?: number;
+    additionForYear?: number;
+    utilisedDuringYear?: number;
+    closingBalance?: number;
+  }>,
+): void {
+  ws.getRow(1).getCell(1).value = '3.15  Provisions';
+  ws.getRow(1).getCell(1).font = { name: 'Arial', size: 11, bold: true };
+  const hRow = ws.getRow(3);
+  ['Provision Type', 'Opening', 'Addition', 'Utilised', 'Closing'].forEach((h, i) => {
+    const c = hRow.getCell(i + 1);
+    c.value = h;
+    c.font = FONTS.SUBHEADING;
+    applyHeaderFill(c, COLORS.SUBHEADER_BG);
+    applyAllBorders(c);
+  });
+
+  const items = provisions.length > 0 ? provisions : [{
+    provisionType: 'No provisions recorded',
+    openingBalance: 0,
+    additionForYear: 0,
+    utilisedDuringYear: 0,
+    closingBalance: 0,
+  }];
+
+  items.forEach((p, i) => {
+    const r = ws.getRow(4 + i);
+    r.getCell(1).value = p.provisionType ?? 'Provision';
+    r.getCell(2).value = p.openingBalance ?? 0;
+    r.getCell(3).value = p.additionForYear ?? 0;
+    r.getCell(4).value = p.utilisedDuringYear ?? 0;
+    r.getCell(5).value = p.closingBalance ?? 0;
+    [2, 3, 4, 5].forEach((ci) => {
+      const c = r.getCell(ci);
+      c.numFmt = NUMBER_FORMAT;
+      c.alignment = { horizontal: 'right' };
+      applyAllBorders(c);
+    });
+  });
+}
+
+export function writeNote32_Investments(
+  ws: ExcelJS.Worksheet,
+  note32: NotesData['note32_investments'] | undefined,
+  adjustments: YearEndAdjustments,
+): void {
+  ws.getRow(1).getCell(1).value = '3.2  Investments';
+  ws.getRow(1).getCell(1).font = { name: 'Arial', size: 11, bold: true };
+
+  const listed = (note32 as { listedShares?: Array<Record<string, number>> } | undefined)?.listedShares
+    ?? (adjustments as YearEndAdjustments & { listedShares?: Array<Record<string, number>> }).listedShares
+    ?? [];
+  const unlisted = (note32 as { unlistedShares?: Array<Record<string, number>> } | undefined)?.unlistedShares
+    ?? (adjustments as YearEndAdjustments & { unlistedShares?: Array<Record<string, number>> }).unlistedShares
+    ?? [];
+
+  const listedAgg = listed.reduce(
+    (acc, item) => ({
+      opening: acc.opening + (item.openingBalance ?? item.totalCost ?? 0),
+      additions: acc.additions + (item.purchasesDuringYear ?? item.additions ?? 0),
+      disposals: acc.disposals + (item.salesDuringYear ?? item.disposals ?? 0),
+      closing: acc.closing + (item.carryingAmount ?? item.totalCost ?? item.marketValue ?? 0),
+      fvGainLoss: acc.fvGainLoss + (item.fairValueGainLoss ?? 0),
+      ncPortion: acc.ncPortion + (item.carryingAmount ?? 0),
+      currentPortion: acc.currentPortion + (item.marketValue ?? 0),
+    }),
+    { opening: 0, additions: 0, disposals: 0, closing: 0, fvGainLoss: 0, ncPortion: 0, currentPortion: 0 },
+  );
+
+  const unlistedAgg = unlisted.reduce(
+    (acc, item) => ({
+      costOpening: acc.costOpening + (item.openingCost ?? item.totalCost ?? 0),
+      additions: acc.additions + (item.additions ?? 0),
+      disposals: acc.disposals + (item.disposals ?? 0),
+      costClosing: acc.costClosing + (item.closingCarrying ?? item.totalCost ?? 0),
+      provisionOpening: acc.provisionOpening + (item.provisionOpening ?? 0),
+      provisionMovement: acc.provisionMovement + (item.impairmentAmount ?? item.provisionMovement ?? 0),
+      provisionClosing: acc.provisionClosing + (item.provisionClosing ?? item.impairmentAmount ?? 0),
+      netCarrying: acc.netCarrying + (item.closingCarrying ?? item.carryingAmount ?? 0),
+      ncPortion: acc.ncPortion + (item.closingCarrying ?? 0),
+      currentPortion: acc.currentPortion + 0,
+    }),
+    {
+      costOpening: 0, additions: 0, disposals: 0, costClosing: 0,
+      provisionOpening: 0, provisionMovement: 0, provisionClosing: 0,
+      netCarrying: 0, ncPortion: 0, currentPortion: 0,
+    },
+  );
+
+  if (listed.length === 0 && unlisted.length === 0) {
+    (adjustments.investmentAdjustments ?? []).forEach((inv) => {
+      const isListed = inv.type === 'listed' || String((inv as { investmentType?: string }).investmentType ?? '').includes('listed');
+      if (isListed) {
+        listedAgg.opening += inv.totalCost ?? 0;
+        listedAgg.closing += inv.totalFairValue ?? inv.totalCost ?? 0;
+        listedAgg.fvGainLoss += inv.gainLossOnFV ?? 0;
+        listedAgg.ncPortion += inv.totalCost ?? 0;
+        listedAgg.currentPortion += inv.totalFairValue ?? 0;
+      } else {
+        unlistedAgg.costOpening += inv.totalCost ?? 0;
+        unlistedAgg.costClosing += inv.totalCost ?? 0;
+        unlistedAgg.provisionMovement += inv.impairmentAmount ?? 0;
+        unlistedAgg.provisionClosing += inv.impairmentAmount ?? 0;
+        unlistedAgg.netCarrying += (inv.totalCost ?? 0) - (inv.impairmentAmount ?? 0);
+        unlistedAgg.ncPortion += unlistedAgg.netCarrying;
+      }
+    });
+  }
+
+  let r = 3;
+  const writeSection = (title: string, rows: Array<[string, number]>) => {
+    ws.getRow(r).getCell(1).value = title;
+    ws.getRow(r).getCell(1).font = FONTS.SUBHEADING;
+    r++;
+    rows.forEach(([label, val]) => {
+      const row = ws.getRow(r++);
+      row.getCell(1).value = `  ${label}`;
+      row.getCell(2).value = val || null;
+      row.getCell(2).numFmt = NUMBER_FORMAT;
+      row.getCell(2).alignment = { horizontal: 'right' };
+    });
+    r++;
+  };
+
+  writeSection('Section A: Listed Shares', [
+    ['Opening Balance', listedAgg.opening],
+    ['Additions', listedAgg.additions],
+    ['Disposals', listedAgg.disposals],
+    ['Closing Balance', listedAgg.closing],
+    ['Fair Value Gain / (Loss)', listedAgg.fvGainLoss],
+    ['Net Carrying Amount', listedAgg.closing + listedAgg.fvGainLoss],
+    ['Non-Current Portion', listedAgg.ncPortion],
+    ['Current Portion', listedAgg.currentPortion],
+  ]);
+
+  writeSection('Section B: Other Investments', [
+    ['Cost — Opening', unlistedAgg.costOpening],
+    ['Cost — Additions', unlistedAgg.additions],
+    ['Cost — Disposals', unlistedAgg.disposals],
+    ['Cost — Closing', unlistedAgg.costClosing],
+    ['Provision for Impairment — Opening', unlistedAgg.provisionOpening],
+    ['Provision for Impairment — Movement', unlistedAgg.provisionMovement],
+    ['Provision for Impairment — Closing', unlistedAgg.provisionClosing],
+    ['Net Carrying Amount', unlistedAgg.netCarrying],
+    ['Non-Current Portion', unlistedAgg.ncPortion],
+    ['Current Portion', unlistedAgg.currentPortion],
+  ]);
+}
+
+export function writeNote325_Contingencies(
+  ws: ExcelJS.Worksheet,
+  company: CompanyProfile,
+  note325: NotesData['note325_contingencies'] | undefined,
+): void {
+  ws.getRow(1).getCell(1).value = '3.25  Contingent Liabilities';
+  ws.getRow(1).getCell(1).font = { name: 'Arial', size: 11, bold: true };
+
+  const nas = (company as CompanyProfile & { nasCompliance?: { contingentLiabilities?: boolean } }).nasCompliance;
+  if (!nas?.contingentLiabilities) {
+    const row = ws.getRow(3);
+    row.getCell(1).value = 'Nil';
+    row.getCell(2).value = '—';
+    return;
+  }
+
+  const items: Array<[string, number]> = [
+    ['Bank Guarantees Issued', note325?.bankGuaranteesIssued ?? 0],
+    ['Letters of Credit Opened', note325?.lcOpened ?? 0],
+    ['Capital Commitments', note325?.capitalCommitments ?? 0],
+    ['Operating Lease Commitments', note325?.operatingLeaseCommitments ?? 0],
+  ];
+  items.forEach(([label, val], i) => {
+    const row = ws.getRow(3 + i);
+    row.getCell(1).value = label;
+    row.getCell(2).value = val || null;
+    row.getCell(2).numFmt = NUMBER_FORMAT;
+    row.getCell(2).alignment = { horizontal: 'right' };
+  });
+}
+
+export function writeNote326_SubsequentEvents(
+  ws: ExcelJS.Worksheet,
+  company: CompanyProfile,
+  note326: NotesData['note326_subsequentEvents'] | undefined,
+): void {
+  ws.getRow(1).getCell(1).value = '3.26  Events After Reporting Date';
+  ws.getRow(1).getCell(1).font = { name: 'Arial', size: 11, bold: true };
+
+  const nas = (company as CompanyProfile & { nasCompliance?: { eventsAfterDate?: boolean } }).nasCompliance;
+  if (!nas?.eventsAfterDate) {
+    const row = ws.getRow(3);
+    row.getCell(1).value = 'Nil';
+    row.getCell(2).value = '—';
+    return;
+  }
+
+  const events = note326?.events ?? (note326 as { items?: Array<{ description: string; date?: string; impact?: string }> })?.items ?? [];
+  if (events.length === 0) {
+    ws.getRow(3).getCell(1).value = note326?.defaultText ?? 'Material subsequent events have been identified and disclosed.';
+    return;
+  }
+
+  events.forEach((evt, i) => {
+    const row = ws.getRow(3 + i);
+    const e = evt as { description?: string; date?: string; impact?: string };
+    row.getCell(1).value = e.description ?? 'Event';
+    row.getCell(2).value = [e.date, e.impact].filter(Boolean).join(' — ') || '—';
+  });
+}
+
 export function writeSundryDebtors(ws: ExcelJS.Worksheet, tb: ParsedTrialBalance): void {
   ws.getRow(1).getCell(1).value = 'Sundry Debtors'; ws.getRow(1).getCell(1).font = { name: 'Arial', size: 11, bold: true };
   const hRow = ws.getRow(3);
@@ -1232,7 +1496,11 @@ export async function generateNFRSWorkbook(params: {
   writeGenericNoteRecord(addSheet('Note 3.21b - Depn Summary', '16A34A'), '3.21  Depreciation Summary', Object.fromEntries(
     (notes.note321_depreciation?.byClass ?? []).map((item: { categoryName: string; depreciationForYear: number }) => [item.categoryName, { cy: item.depreciationForYear, py: 0 }]),
   ));
-  writeGenericNoteRecord(addSheet('Note 3.2 - Investments', '16A34A'), '3.2  Investments', {});
+  writeNote32_Investments(
+    addSheet('Note 3.2 - Investments', '16A34A'),
+    rawNotes.note32_investments,
+    adjustments,
+  );
   writeGenericNoteRecord(addSheet('Note 3.3 - Receivables', '16A34A'), '3.3  Trade Receivables', {
     'Net Trade Receivables': {
       cy: notes.note33_tradeReceivables?.netReceivables_cy ?? 0,
@@ -1260,10 +1528,17 @@ export async function generateNFRSWorkbook(params: {
     }),
   ));
   writeGenericNoteRecord(addSheet('Note 3.13 - Payables', '16A34A'), '3.13  Trade and Other Payables', notes.note313_tradePayables);
-  writeGenericNoteRecord(addSheet('Note 3.14 - Provisions', '16A34A'), '3.14  Provisions', {});
-  writeGenericNoteRecord(addSheet('Note 3.15 - TDS', '16A34A'), '3.15  TDS Payable', Object.fromEntries(
-    (notes.note313_tradePayables?.tdsPayableBreakdown ?? []).map((item: { ledgerName: string; amount: number }) => [item.ledgerName, { cy: item.amount, py: 0 }]),
-  ));
+  writeNote314_IncomeTaxLiability(
+    addSheet('Note 3.14 - Income Tax Liability', '16A34A'),
+    balanceSheet.cl_incomeTaxPayable ?? adjustments.incomeTaxProvision ?? notes.note323_incomeTax?.netTaxPayable ?? 0,
+    balanceSheet.cl_incomeTaxPayable_py ?? 0,
+    (adjustments.advanceTax1 ?? 0) + (adjustments.advanceTax2 ?? 0) + (adjustments.advanceTax3 ?? 0),
+    adjustments.priorYearTax ?? 0,
+  );
+  writeNote315_Provisions(
+    addSheet('Note 3.15 - Provisions', '16A34A'),
+    adjustments.provisions ?? [],
+  );
   writeGenericNoteRecord(addSheet('Note 3.16 - Dividend', '16A34A'), '3.16  Dividend Payable', {
     'Total Dividend Declared': { cy: notes.note316_dividendPayable?.totalDividendDeclared ?? 0, py: 0 },
     'TDS on Dividend': { cy: notes.note316_dividendPayable?.tdsOnDividend ?? 0, py: 0 },
@@ -1300,8 +1575,16 @@ export async function generateNFRSWorkbook(params: {
   writeGenericNoteRecord(addSheet('Note 3.24 - Related Party', '16A34A'), '3.24  Related Party Disclosures', Object.fromEntries(
     (notes.note324_relatedParty?.relatedParties ?? []).map((p: { partyName: string; outstandingBalance: number }) => [p.partyName, { cy: p.outstandingBalance, py: 0 }]),
   ));
-  writeGenericNoteRecord(addSheet('Note 3.25 - Contingencies', '16A34A'), '3.25  Contingent Liabilities', {});
-  writeGenericNoteRecord(addSheet('Note 3.26 - Subsequent Events', '16A34A'), '3.26  Events After Reporting Date', {});
+  writeNote325_Contingencies(
+    addSheet('Note 3.25 - Contingencies', '16A34A'),
+    company,
+    rawNotes.note325_contingencies,
+  );
+  writeNote326_SubsequentEvents(
+    addSheet('Note 3.26 - Subsequent Events', '16A34A'),
+    company,
+    rawNotes.note326_subsequentEvents,
+  );
   writeAdjustments(addSheet('Adjustments', COLORS.LIGHT_GRAY), adjustments);
   writeTaxCalculation(addSheet('Tax Calculation', COLORS.LIGHT_GRAY), notes.note323_incomeTax);
   writeSundryDebtors(addSheet('Sundry Debtors', '16A34A'), trialBalance);
