@@ -51,6 +51,13 @@ export default function CompanySetupPage() {
         chairperson: formData.chairperson,
         director: formData.director,
         accountsHead: formData.accountsHead,
+        annualTurnover: formData.annualTurnover,
+        bankBorrowings: formData.bankBorrowings,
+        balanceSheetTotal: formData.balanceSheetTotal,
+        fiduciaryAssets: formData.fiduciaryAssets,
+        numberOfEmployees: formData.numberOfEmployees,
+        dividendDeclaredPercent: formData.dividendDeclaredPercent,
+        shareIssuedDuringYear: formData.shareIssuedDuringYear,
         fiscalYear,
         auditorInfo: {
           auditorName: formData.auditorName || '',
