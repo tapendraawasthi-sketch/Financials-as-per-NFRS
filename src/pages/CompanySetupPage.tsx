@@ -69,17 +69,34 @@ export default function CompanySetupPage() {
         },
       };
 
-      let company: CompanyProfile;
-      if (state.company?.id) {
-        company = await companyApi.update(state.company.id, profileData);
-      } else {
-        company = await companyApi.create(profileData);
-      }
+      // ── Step 1: Save to local state immediately so the app advances
+      //    regardless of whether the backend is reachable.
+      const existingId = state.company?.id;
+      const localId    = existingId ?? `local-${Date.now()}`;
+      const localCompany: CompanyProfile = {
+        ...(state.company ?? {}),
+        ...profileData,
+        id: localId,
+      } as CompanyProfile;
 
-      dispatch({ type: 'SET_COMPANY', payload: company });
-      dispatch({ type: 'COMPLETE_STEP', payload: 'company_setup' });
+      dispatch({ type: 'SET_COMPANY',    payload: localCompany });
+      dispatch({ type: 'COMPLETE_STEP',  payload: 'company_setup' });
       setActiveTab('policies');
-      dispatch({ type: 'SET_STEP', payload: 'accounting_policies' });
+      dispatch({ type: 'SET_STEP',       payload: 'accounting_policies' });
+
+      // ── Step 2: Persist to backend in the background (non-blocking)
+      try {
+        let savedCompany: CompanyProfile;
+        if (existingId && !existingId.startsWith('local-')) {
+          savedCompany = await companyApi.update(existingId, profileData);
+        } else {
+          savedCompany = await companyApi.create(profileData);
+        }
+        // Replace local placeholder id with the real server id
+        dispatch({ type: 'SET_COMPANY', payload: savedCompany });
+      } catch {
+        // Backend unavailable — local state is enough to continue the wizard
+      }
     } catch (err: any) {
       dispatch({ type: 'SET_ERROR', payload: err?.message ?? 'Failed to save company details.' });
     } finally {
@@ -112,18 +129,23 @@ export default function CompanySetupPage() {
         })) ?? [],
       };
 
+      // Advance locally first — no API dependency
       const updatedCompany: CompanyProfile = {
         ...state.company!,
         accountingPolicies: policies,
       };
-
-      if (state.company?.id) {
-        await companyApi.update(state.company.id, { accountingPolicies: policies } as any);
-      }
-
-      dispatch({ type: 'SET_COMPANY', payload: updatedCompany });
+      dispatch({ type: 'SET_COMPANY',   payload: updatedCompany });
       dispatch({ type: 'COMPLETE_STEP', payload: 'accounting_policies' });
-      dispatch({ type: 'SET_STEP', payload: 'trial_balance_upload' });
+      dispatch({ type: 'SET_STEP',      payload: 'trial_balance_upload' });
+
+      // Background persist
+      try {
+        if (state.company?.id && !state.company.id.startsWith('local-')) {
+          await companyApi.update(state.company.id, { accountingPolicies: policies } as any);
+        }
+      } catch {
+        // Backend unavailable — local state is sufficient
+      }
     } catch (err: any) {
       dispatch({ type: 'SET_ERROR', payload: err?.message ?? 'Failed to save accounting policies.' });
     } finally {
