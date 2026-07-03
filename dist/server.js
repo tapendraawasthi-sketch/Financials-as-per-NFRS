@@ -3354,15 +3354,13 @@ function buildNotesData(params) {
   const taxRate = (company.accountingPolicies?.incomeTaxRatePercent ?? 25) / 100;
   const roundingLevel = company.accountingPolicies?.roundingLevel ?? 1;
   const PPE_CLASSES = [
-    { categoryId: "ppe_land", label: "Land" },
-    { categoryId: "ppe_buildings", label: "Buildings" },
-    { categoryId: "ppe_furniture", label: "Furniture & Office Equipment" },
-    { categoryId: "ppe_vehicles", label: "Vehicles" },
-    { categoryId: "ppe_plant_machinery", label: "Plant & Machinery" },
-    { categoryId: "ppe_computers", label: "Computer & IT Equipment" },
-    { categoryId: "ppe_intangibles", label: "Intangibles / Software" },
-    { categoryId: "ppe_office_equipment", label: "Other Equipment" },
-    { categoryId: "ppe_cwip", label: "Capital Work in Progress" }
+    { categoryId: "Land", label: "Land" },
+    { categoryId: "Building", label: "Buildings" },
+    { categoryId: "OfficeEquipment", label: "Furniture, Computers & Office Equipment" },
+    { categoryId: "Vehicle", label: "Vehicles" },
+    { categoryId: "PlantMachinery", label: "Plant & Machinery" },
+    { categoryId: "Intangible", label: "Intangibles / Software" },
+    { categoryId: "UnderConstruction", label: "Capital Work in Progress" }
   ];
   const depnSummaryMap = new Map(
     (adj.depreciationSummary ?? []).map((d) => [d.categoryId, d])
@@ -4100,7 +4098,7 @@ function computeIncomeStatement(tb, adj, company, previousYearIS = {}) {
   const revenue = round2(sumCr(rows, "revenue_sales", "revenue_services"));
   const interestIncome = round2(sumCr(rows, "other_income_interest"));
   const otherIncome = round2(
-    sumCr(rows, "other_income_dividend", "other_income_rental", "other_income_misc", "other_income_disposal_gain") + adj.gainOnDisposals + adj.investmentAdjustments.filter((i) => (i.fairValueGainLoss ?? 0) > 0).reduce((s, i) => s + (i.fairValueGainLoss ?? 0), 0)
+    sumCr(rows, "other_income_dividend", "other_income_rental", "other_income_misc", "other_income_disposal_gain", "commission_income", "insurance_claim_income") + adj.gainOnDisposals + adj.investmentAdjustments.filter((i) => (i.fairValueGainLoss ?? 0) > 0).reduce((s, i) => s + (i.fairValueGainLoss ?? 0), 0)
   );
   const totalIncome = round2(revenue + interestIncome + otherIncome);
   const { openingPY, closingCY } = inventoryFromAdj(adj, rows);
@@ -4110,7 +4108,7 @@ function computeIncomeStatement(tb, adj, company, previousYearIS = {}) {
   const directExpenses = round2(sumDr(rows, "direct_wages", "direct_expenses_other"));
   const staffBonusProvision = adj.staffBonusProvision ?? round2(sumDr(rows, "emp_expense_bonus"));
   const employeeBenefitExpense = round2(
-    sumDr(rows, "emp_expense_salaries", "emp_expense_welfare") + sumDr(rows, "emp_expense_pf", "emp_expense_gratuity", "emp_expense_other") + staffBonusProvision + sumDr(rows, "emp_expense_leave")
+    sumDr(rows, "emp_expense_salaries", "emp_expense_welfare", "allowances_expense") + sumDr(rows, "emp_expense_pf", "emp_expense_gratuity", "emp_expense_other") + staffBonusProvision + sumDr(rows, "emp_expense_leave")
   );
   const financeCharges = round2(sumDr(rows, "finance_cost_interest", "finance_cost_bank_charges"));
   const depreciation = round2(adj.totalDepreciationExpense);
@@ -5020,7 +5018,19 @@ function writeBalanceSheet(ws, bs, company) {
     { label: "Total Current Liabilities", cy: bs.totalCurrentLiabilities, py: bs.totalCurrentLiabilities_py, isSubTotal: true },
     { label: "TOTAL EQUITY AND LIABILITIES", cy: bs.totalEquityAndLiabilities, py: bs.totalEquityAndLiabilities_py, isTotal: true }
   ];
+  const bsRowMap = { ppeRow: 0, receivablesRow: 0, cashRow: 0, shareCapitalRow: 0, ncBorrowingsRow: 0, cBorrowingsRow: 0, taxPayableRow: 0, totalAssetsRow: 0, totalLiabilitiesEquityRow: 0 };
+  let bsSection = "";
   rows.forEach((r) => {
+    if (r.isSectionHeader) bsSection = r.label;
+    if (r.label === "Property, Plant and Equipment") bsRowMap.ppeRow = row;
+    if (r.label === "Trade and Other Receivables") bsRowMap.receivablesRow = row;
+    if (r.label === "Cash and Cash Equivalents") bsRowMap.cashRow = row;
+    if (r.label === "Share Capital") bsRowMap.shareCapitalRow = row;
+    if (r.label === "Loans and Borrowings" && bsSection === "D.  NON-CURRENT LIABILITIES") bsRowMap.ncBorrowingsRow = row;
+    if (r.label === "Loans and Borrowings" && bsSection === "E.  CURRENT LIABILITIES") bsRowMap.cBorrowingsRow = row;
+    if (r.label === "Income Tax Liability") bsRowMap.taxPayableRow = row;
+    if (r.label === "TOTAL ASSETS") bsRowMap.totalAssetsRow = row;
+    if (r.label === "TOTAL EQUITY AND LIABILITIES") bsRowMap.totalLiabilitiesEquityRow = row;
     writeAmountRow(ws, row, r);
     row++;
   });
@@ -5041,6 +5051,7 @@ function writeBalanceSheet(ws, bs, company) {
     oddHeader: `&C${company.companyName ?? ""}`,
     oddFooter: "&CPage &P of &N"
   };
+  return bsRowMap;
 }
 function writeIncomeStatement(ws, is, company) {
   ws.columns = [{ width: 42 }, { width: 8 }, { width: 18 }, { width: 18 }];
@@ -5075,7 +5086,13 @@ function writeIncomeStatement(ws, is, company) {
     { label: "Less: Income Tax Expense", note: "3.23", cy: is.incomeTaxExpense, py: is.incomeTaxExpense_py, indent: 1 },
     { label: "Net Profit/(Loss) for the Year", cy: is.netProfit, py: is.netProfit_py, isTotal: true }
   ];
+  const isRowMap = { revenueRow: 0, empExpenseRow: 0, adminExpenseRow: 0, depreciationRow: 0, taxRow: 0 };
   rows.forEach((r) => {
+    if (r.label === "Revenue from Operations") isRowMap.revenueRow = row;
+    if (r.label === "Employee Benefit Expenses") isRowMap.empExpenseRow = row;
+    if (r.label === "Administrative & Other Exp") isRowMap.adminExpenseRow = row;
+    if (r.label === "Depreciation") isRowMap.depreciationRow = row;
+    if (r.label === "Less: Income Tax Expense") isRowMap.taxRow = row;
     writeAmountRow(ws, row, r);
     row++;
   });
@@ -5087,6 +5104,7 @@ function writeIncomeStatement(ws, is, company) {
   }, row + 2);
   ws.pageSetup = { paperSize: 9, orientation: "portrait", fitToPage: true, fitToWidth: 1 };
   ws.headerFooter = { oddHeader: `&C${company.companyName ?? ""}`, oddFooter: "&CPage &P of &N" };
+  return isRowMap;
 }
 function writeCashFlowStatement(ws, cf, company) {
   ws.columns = [{ width: 50 }, { width: 8 }, { width: 18 }, { width: 18 }];
@@ -5263,6 +5281,7 @@ function writeNote31_PPE(ws, depnSummary) {
     row.getCell(depnSummary.length + 2).alignment = { horizontal: "right" };
     row.height = 15;
   });
+  SHEET_ROW_REGISTRY.ppeDepreciationRow = r - depnRows.length + depnRows.findIndex(([label]) => label === "Charge for the Year");
   ws.getRow(r).getCell(1).value = "NET BOOK VALUE";
   ws.getRow(r).getCell(1).font = FONTS.SUBHEADING;
   r++;
@@ -5293,6 +5312,7 @@ function writeNote31_PPE(ws, depnSummary) {
     applyHeaderFill(tc, COLORS.TOTAL_BG);
     row.height = 15;
   });
+  SHEET_ROW_REGISTRY.ppeNetBookValueRow = r - 1;
 }
 function writeNote37_Inventories(ws, note37) {
   ws.getRow(1).getCell(1).value = "3.7  Inventories";
@@ -5330,6 +5350,7 @@ function writeNote37_Inventories(ws, note37) {
       applyAllBorders(c);
     });
   });
+  SHEET_ROW_REGISTRY.inventoryTotalRow = 4 + rows.length - 1;
 }
 function writeNote38_Cash(ws, note38) {
   ws.getRow(1).getCell(1).value = "3.8  Cash and Cash Equivalents";
@@ -5363,6 +5384,7 @@ function writeNote38_Cash(ws, note38) {
   totRow.getCell(2).alignment = { horizontal: "right" };
   totRow.getCell(2).font = FONTS.TOTAL;
   applyHeaderFill(totRow.getCell(2), COLORS.TOTAL_BG);
+  SHEET_ROW_REGISTRY.cashTotalRow = r;
 }
 function writeNote39_ShareCapital(ws, note39) {
   ws.getRow(1).getCell(1).value = "3.9  Share Capital";
@@ -5385,6 +5407,7 @@ function writeNote39_ShareCapital(ws, note39) {
     r.getCell(2).numFmt = NUMBER_FORMAT;
     r.getCell(2).alignment = { horizontal: "right" };
   });
+  SHEET_ROW_REGISTRY.shareCapitalRow = 3 + rows.length - 1;
 }
 function writeNote311_Borrowings(ws, note311) {
   ws.getRow(1).getCell(1).value = "3.11  Loans and Borrowings";
@@ -5413,6 +5436,7 @@ function writeNote311_Borrowings(ws, note311) {
       }
     });
   });
+  SHEET_ROW_REGISTRY.ncBorrowingsRow = r - 1;
   r++;
   ws.getRow(r).getCell(1).value = "Current Borrowings";
   ws.getRow(r).getCell(1).font = FONTS.SUBHEADING;
@@ -5429,6 +5453,7 @@ function writeNote311_Borrowings(ws, note311) {
       }
     });
   });
+  SHEET_ROW_REGISTRY.cBorrowingsRow = r - 1;
 }
 function writeNote323_Tax(ws, note323) {
   ws.getRow(1).getCell(1).value = "3.23  Income Tax";
@@ -5449,6 +5474,7 @@ function writeNote323_Tax(ws, note323) {
     r.getCell(2).numFmt = NUMBER_FORMAT;
     r.getCell(2).alignment = { horizontal: "right" };
   });
+  SHEET_ROW_REGISTRY.taxPayableRow = 3 + items.length - 1;
 }
 function writeSundryDebtors(ws, tb) {
   ws.getRow(1).getCell(1).value = "Sundry Debtors";
@@ -5821,8 +5847,8 @@ async function generateNFRSWorkbook(params) {
     writeInstructions(addSheet("Instructions", COLORS.LIGHT_GRAY));
     writeEnterDetails(addSheet("Enter Details", COLORS.GREEN_INPUT), company);
     writeTrialBalance(addSheet("Trial Balance", COLORS.BRAND_BLUE), trialBalance);
-    writeBalanceSheet(addSheet("Balance Sheet", COLORS.BRAND_BLUE), balanceSheet, company);
-    writeIncomeStatement(addSheet("Income Statement", COLORS.BRAND_BLUE), incomeStatement, company);
+    const bsRowMap = writeBalanceSheet(addSheet("Balance Sheet", COLORS.BRAND_BLUE), balanceSheet, company);
+    const isRowMap = writeIncomeStatement(addSheet("Income Statement", COLORS.BRAND_BLUE), incomeStatement, company);
     writeChangesInEquity(addSheet("Change in Equity", COLORS.BRAND_BLUE), changesInEquity, company);
     writeCashFlowStatement(addSheet("Cash Flow", COLORS.BRAND_BLUE), cashFlow, company);
     writeNote1_AccountingPolicies(wb, {
@@ -5835,6 +5861,9 @@ async function generateNFRSWorkbook(params) {
       fiscalYear: company.fiscalYear?.bsFY ?? ""
     });
     writeNote31_PPE(addSheet("Note 3.1 - PPE", "16A34A"), notes.note31_ppe);
+    writeGenericNoteRecord(addSheet("Note 3.21b - Depn Summary", "16A34A"), "3.21  Depreciation Summary", Object.fromEntries(
+      (notes.note321_depreciation?.byClass ?? []).map((item) => [item.categoryName, { cy: item.depreciationForYear, py: 0 }])
+    ));
     writeGenericNoteRecord(addSheet("Note 3.2 - Investments", "16A34A"), "3.2  Investments", {});
     writeGenericNoteRecord(addSheet("Note 3.3 - Receivables", "16A34A"), "3.3  Trade Receivables", {
       "Net Trade Receivables": {
@@ -5842,6 +5871,7 @@ async function generateNFRSWorkbook(params) {
         py: notes.note33_tradeReceivables?.netReceivables_py ?? 0
       }
     });
+    SHEET_ROW_REGISTRY.receivablesNetRow = 4;
     writeGenericNoteRecord(addSheet("Note 3.4 - Other Recv", "16A34A"), "3.4  Other Receivables", notes.note34_otherReceivables);
     writeGenericNoteRecord(addSheet("Note 3.5 - NC Assets", "16A34A"), "3.5  Other Non-Current Assets", notes.note35_otherNonCurrentAssets);
     writeGenericNoteRecord(addSheet("Note 3.6 - CA Other", "16A34A"), "3.6  Other Current Assets", notes.note36_otherCurrentAssets);
@@ -5863,7 +5893,16 @@ async function generateNFRSWorkbook(params) {
     ));
     writeGenericNoteRecord(addSheet("Note 3.13 - Payables", "16A34A"), "3.13  Trade and Other Payables", notes.note313_tradePayables);
     writeGenericNoteRecord(addSheet("Note 3.14 - Provisions", "16A34A"), "3.14  Provisions", {});
+    writeGenericNoteRecord(addSheet("Note 3.15 - TDS", "16A34A"), "3.15  TDS Payable", Object.fromEntries(
+      (notes.note313_tradePayables?.tdsPayableBreakdown ?? []).map((item) => [item.ledgerName, { cy: item.amount, py: 0 }])
+    ));
+    writeGenericNoteRecord(addSheet("Note 3.16 - Dividend", "16A34A"), "3.16  Dividend Payable", {
+      "Total Dividend Declared": { cy: notes.note316_dividendPayable?.totalDividendDeclared ?? 0, py: 0 },
+      "TDS on Dividend": { cy: notes.note316_dividendPayable?.tdsOnDividend ?? 0, py: 0 },
+      "Net Dividend Payable": { cy: notes.note316_dividendPayable?.netDividendPayable ?? 0, py: 0 }
+    });
     writeGenericNoteRecord(addSheet("Note 3.17 - Revenue", "16A34A"), "3.17  Revenue", notes.note317_revenue);
+    SHEET_ROW_REGISTRY.revenueTotalRow = 4 + Object.keys(notes.note317_revenue ?? {}).length - 1;
     writeGenericNoteRecord(addSheet("Note 3.18 - Materials", "16A34A"), "3.18  Material Consumed", {
       "Opening Stock": { cy: notes.note318_materialConsumed?.openingInventory ?? 0, py: 0 },
       "Purchases": { cy: notes.note318_materialConsumed?.purchases ?? 0, py: 0 },
@@ -5871,11 +5910,21 @@ async function generateNFRSWorkbook(params) {
       "Material Consumed": { cy: notes.note318_materialConsumed?.consumed ?? 0, py: 0 }
     });
     writeGenericNoteRecord(addSheet("Note 3.19 - Direct Exp", "16A34A"), "3.19  Direct Expenses", notes.note319_directExpenses);
+    writeGenericNoteRecord(addSheet("Note 3.19b - Other Income", "16A34A"), "3.19  Other Income (Detail)", {
+      "Interest Income": notes.note319_otherIncome?.interestIncome ?? { cy: 0, py: 0 },
+      "Commission Income": notes.note319_otherIncome?.commissionIncome ?? { cy: 0, py: 0 },
+      "Rental Income": notes.note319_otherIncome?.rentalIncome ?? { cy: 0, py: 0 },
+      "Dividend Received": notes.note319_otherIncome?.dividendReceived ?? { cy: 0, py: 0 },
+      "Gain on Disposal of Assets": notes.note319_otherIncome?.gainOnDisposalAssets ?? { cy: 0, py: 0 },
+      "Miscellaneous Income": notes.note319_otherIncome?.miscellaneousIncome ?? { cy: 0, py: 0 }
+    });
     writeGenericNoteRecord(addSheet("Note 3.20 - Emp Expense", "16A34A"), "3.20  Employee Benefit Expenses", notes.note320_employeeBenefitExpenses);
+    SHEET_ROW_REGISTRY.empExpenseTotalRow = 4 + Object.keys(notes.note320_employeeBenefitExpenses ?? {}).length - 1;
     writeGenericNoteRecord(addSheet("Note 3.21 - Impairment", "16A34A"), "3.21  Impairment", Object.fromEntries(
       (notes.note321_impairment ?? []).map((item) => [item.description, { cy: item.cy, py: item.py }])
     ));
     writeGenericNoteRecord(addSheet("Note 3.22 - Admin Exp", "16A34A"), "3.22  Administrative Expenses", notes.note322_adminExpenses);
+    SHEET_ROW_REGISTRY.adminExpenseTotalRow = 4 + Object.keys(notes.note322_adminExpenses ?? {}).length - 1;
     writeNote323_Tax(addSheet("Note 3.23 - Tax", "16A34A"), notes.note323_incomeTax ?? {
       profitBeforeTax: 0,
       addDisallowableExpenses: {},
@@ -5887,6 +5936,11 @@ async function generateNFRSWorkbook(params) {
       tdsCreditAvailable: 0,
       netTaxPayable: 0
     });
+    writeGenericNoteRecord(addSheet("Note 3.24 - Related Party", "16A34A"), "3.24  Related Party Disclosures", Object.fromEntries(
+      (notes.note324_relatedParty?.relatedParties ?? []).map((p) => [p.partyName, { cy: p.outstandingBalance, py: 0 }])
+    ));
+    writeGenericNoteRecord(addSheet("Note 3.25 - Contingencies", "16A34A"), "3.25  Contingent Liabilities", {});
+    writeGenericNoteRecord(addSheet("Note 3.26 - Subsequent Events", "16A34A"), "3.26  Events After Reporting Date", {});
     writeAdjustments(addSheet("Adjustments", COLORS.LIGHT_GRAY), adjustments);
     writeTaxCalculation(addSheet("Tax Calculation", COLORS.LIGHT_GRAY), notes.note323_incomeTax);
     writeSundryDebtors(addSheet("Sundry Debtors", "16A34A"), trialBalance);
@@ -5900,30 +5954,14 @@ async function generateNFRSWorkbook(params) {
       shareCapital: "Note 3.9 - Share Capital",
       borrowings: "Note 3.11 - Borrowings",
       tax: "Note 3.23 - Tax"
-    }, {
-      ppeRow: 8,
-      receivablesRow: 16,
-      cashRow: 17,
-      shareCapitalRow: 22,
-      ncBorrowingsRow: 27,
-      cBorrowingsRow: 32,
-      taxPayableRow: 34,
-      totalAssetsRow: 20,
-      totalLiabilitiesEquityRow: 38
-    });
+    }, bsRowMap);
     applyIncomeStatementCrossReferences(wb, "Income Statement", {
       revenue: "Note 3.17 - Revenue",
       empExpense: "Note 3.20 - Emp Expense",
       adminExpense: "Note 3.22 - Admin Exp",
       ppe: "Note 3.1 - PPE",
       tax: "Note 3.23 - Tax"
-    }, {
-      revenueRow: 8,
-      empExpenseRow: 15,
-      adminExpenseRow: 19,
-      depreciationRow: 17,
-      taxRow: 24
-    });
+    }, isRowMap);
     applyCashFlowReconciliation(wb, "Cash Flow", "Balance Sheet", {
       openingCashRow: 42,
       closingCashRow: 43,
@@ -6314,7 +6352,7 @@ function appendComplianceStatement(ws, params, startRow) {
   addRow("");
   addRow("1. STATEMENT OF COMPLIANCE", true);
   addRow(
-    `These financial statements of \${params.companyName} have been prepared in accordance with Nepal Accounting Standards for Micro Entities (NAS for MEs) issued by the Institute of Chartered Accountants of Nepal (ICAN).`,
+    `These financial statements of ${params.companyName} have been prepared in accordance with Nepal Accounting Standards for Micro Entities (NAS for MEs) issued by the Institute of Chartered Accountants of Nepal (ICAN).`,
     false,
     false,
     1
@@ -6322,7 +6360,7 @@ function appendComplianceStatement(ws, params, startRow) {
   addRow("");
   addRow("2. BASIS OF PREPARATION", true);
   addRow(
-    `These financial statements are prepared on the historical cost basis except for certain financial instruments measured at fair values as described in the accounting policies. The financial statements are presented in Nepalese Rupees (NPR) rounded to the nearest NPR \${params.roundingLevel.toLocaleString('en-IN')}.`,
+    `These financial statements are prepared on the historical cost basis except for certain financial instruments measured at fair values as described in the accounting policies. The financial statements are presented in Nepalese Rupees (NPR) rounded to the nearest NPR ${params.roundingLevel.toLocaleString("en-IN")}.`,
     false,
     false,
     1
@@ -6330,7 +6368,7 @@ function appendComplianceStatement(ws, params, startRow) {
   addRow("");
   addRow("3. AUTHORIZATION FOR ISSUE", true);
   addRow(
-    `These financial statements for the fiscal year \${params.fiscalYear} were authorized for issue by the Board of Directors of \${params.companyName} on \${params.authorizationDate ?? '[Board Meeting Date]'}.`,
+    `These financial statements for the fiscal year ${params.fiscalYear} were authorized for issue by the Board of Directors of ${params.companyName} on ${params.authorizationDate ?? "[Board Meeting Date]"}.`,
     false,
     false,
     1
@@ -6505,7 +6543,7 @@ var aiLimiter = createRateLimiter(6e4, 5);
 app.use("/api", standardLimiter);
 app.use("/api/trial-balance", uploadLimiter);
 app.use("/api/output", outputLimiter);
-app.use("/api/trial-balance/ai-match", aiLimiter);
+app.use("/api/trial-balance/:companyId/rematch-ai", aiLimiter);
 app.get("/api/health", (_req, res) => {
   const mem = process.memoryUsage();
   res.json({
