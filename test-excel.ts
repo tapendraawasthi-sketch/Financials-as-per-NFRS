@@ -5,7 +5,7 @@ import { SAMPLE_COMPANY, SAMPLE_EXPECTED } from './src/data/sampleData.js';
 async function main() {
   console.log('🔧 Starting Excel generation test...');
   console.log('   Company:', SAMPLE_COMPANY.companyName);
-  console.log('   Fiscal Year:', SAMPLE_COMPANY.fiscalYear.bsYear);
+  console.log('   Fiscal Year:', SAMPLE_COMPANY.fiscalYear.bsFY);
 
   // Minimal mock financial data for testing
   const mockParams = {

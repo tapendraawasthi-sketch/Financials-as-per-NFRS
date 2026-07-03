@@ -68,383 +68,168 @@ var sessionStore = new SessionStore();
 import crypto from "crypto";
 
 // src/utils/validation.ts
-var EMAIL_REGEX = /^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/;
-var PAN_REGEX = /^\d{9}$/;
-var VAT_REGEX = /^\d{9}(\d{2})?$/;
-var DEBIT_NORMAL_PREFIXES = [
-  "ppe_",
-  "nca_",
-  "investment_",
-  "other_noncurrent_assets",
-  "ca_",
-  "inventory_",
-  "trade_receivables",
-  "other_receivables_",
-  "other_current_assets",
-  "bank_current_account",
-  "bank_fixed_deposit_current",
-  "cash_in_hand",
-  "cogs_",
-  "direct_wages",
-  "direct_expenses_",
-  "emp_expense_",
-  "finance_cost_",
-  "depreciation_expense",
-  "impairment_expense",
-  "admin_",
-  "income_tax_expense"
-];
-function isNormallyDebit(category) {
-  const cat = category;
-  for (const prefix of DEBIT_NORMAL_PREFIXES) {
-    if (cat.startsWith(prefix) || cat === prefix.replace(/_$/, "")) return true;
-  }
-  return false;
-}
-function validateCompanyProfile(data) {
-  const errors = {};
-  if (!data.companyName || data.companyName.trim() === "") {
-    errors.companyName = "Company name is required.";
-  } else if (data.companyName.trim().length > 200) {
-    errors.companyName = "Company name must not exceed 200 characters.";
-  }
-  if (!data.panVatNumber || data.panVatNumber.trim() === "") {
-    errors.panVatNumber = "PAN/VAT number is required.";
-  } else {
-    const panVal = data.panVatNumber.replace(/\s/g, "");
-    if (!PAN_REGEX.test(panVal) && !VAT_REGEX.test(panVal)) {
-      errors.panVatNumber = "PAN must be exactly 9 digits; VAT must be 9 or 11 digits.";
-    }
-  }
-  if (!data.registrationNumber || data.registrationNumber.trim() === "") {
-    errors.registrationNumber = "Company registration number is required.";
-  }
-  if (!data.companyType) {
-    errors.companyType = "Company type is required.";
-  }
-  if (!data.fiscalYear || !data.fiscalYear.bsYear) {
-    errors.fiscalYear = "Fiscal year is required.";
-  }
-  if (!data.email || data.email.trim() === "") {
-    errors.email = "Email address is required.";
-  } else if (!validateEmail(data.email.trim())) {
-    errors.email = "Please enter a valid email address.";
-  }
-  return {
-    isValid: Object.keys(errors).length === 0,
-    errors
-  };
-}
-function validateAccountingPolicies(policies) {
-  const errors = {};
-  const VALID_ROUNDING = [1, 10, 100, 1e3, 1e4];
-  if (policies.incomeTaxRatePercent !== void 0) {
-    if (policies.incomeTaxRatePercent < 0 || policies.incomeTaxRatePercent > 50) {
-      errors.incomeTaxRatePercent = "Income tax rate must be between 0 and 50 percent.";
-    }
-  }
-  if (policies.gratuityDaysPerYear !== void 0) {
-    if (policies.gratuityDaysPerYear < 1 || policies.gratuityDaysPerYear > 30) {
-      errors.gratuityDaysPerYear = "Gratuity days per year must be between 1 and 30.";
-    }
-  }
-  if (policies.bonusRatePercent !== void 0) {
-    if (policies.bonusRatePercent < 0 || policies.bonusRatePercent > 100) {
-      errors.bonusRatePercent = "Staff bonus rate must be between 0 and 100 percent.";
-    }
-  }
-  if (policies.roundingLevel !== void 0) {
-    if (!VALID_ROUNDING.includes(policies.roundingLevel)) {
-      errors.roundingLevel = `Rounding level must be one of: ${VALID_ROUNDING.join(", ")}.`;
-    }
-  }
-  if (!policies.assetCategories || policies.assetCategories.length === 0) {
-    errors.assetCategories = "At least one asset category (e.g. Land, Buildings) must be defined.";
-  }
-  return {
-    isValid: Object.keys(errors).length === 0,
-    errors
-  };
-}
 function validateTrialBalanceTotals(rows) {
+  const errors = [];
+  const warnings = [];
   let totalOpeningDr = 0;
   let totalOpeningCr = 0;
-  let totalDuringDr = 0;
-  let totalDuringCr = 0;
   let totalClosingDr = 0;
   let totalClosingCr = 0;
-  const warnings = [];
-  const errors = [];
-  const unmappedAccounts = [];
-  const negativeBalanceWarnings = [];
   for (const row of rows) {
+    if (row.isGroupRow) continue;
     totalOpeningDr += row.openingDr ?? 0;
     totalOpeningCr += row.openingCr ?? 0;
-    totalDuringDr += row.duringDr ?? 0;
-    totalDuringCr += row.duringCr ?? 0;
     totalClosingDr += row.closingDr ?? 0;
     totalClosingCr += row.closingCr ?? 0;
-    if (!row.nfrsCategory || row.nfrsCategory === "unclassified") {
-      unmappedAccounts.push(row.rawLabel);
-    }
-    const closingNet = (row.closingDr ?? 0) - (row.closingCr ?? 0);
-    if (Math.abs(closingNet) > 5e7) {
-      warnings.push(
-        `"${row.rawLabel}" has an unusually large closing balance of NPR ${Math.abs(closingNet).toLocaleString()}. Please verify.`
-      );
-    }
-    if (row.nfrsCategory && row.nfrsCategory !== "unclassified") {
-      const isDebit = isNormallyDebit(row.nfrsCategory);
-      if (isDebit && closingNet < 0) {
-        negativeBalanceWarnings.push(
-          `${row.rawLabel} has unexpected credit balance of ${closingNet}`
-        );
-      }
-      if (!isDebit && closingNet > 0) {
-        negativeBalanceWarnings.push(
-          `${row.rawLabel} has unexpected debit balance of ${closingNet}`
-        );
-      }
-    }
   }
-  const roundedClosingDr = Math.round(totalClosingDr * 100) / 100;
-  const roundedClosingCr = Math.round(totalClosingCr * 100) / 100;
-  const difference = Math.round((roundedClosingDr - roundedClosingCr) * 100) / 100;
-  const isBalanced = Math.abs(difference) < 1;
+  totalClosingDr = Math.round(totalClosingDr * 100) / 100;
+  totalClosingCr = Math.round(totalClosingCr * 100) / 100;
+  const difference = Math.abs(totalClosingDr - totalClosingCr);
+  const isBalanced = difference < 1;
   if (!isBalanced) {
     errors.push(
-      `Trial balance does not foot: total closing debit NPR ${roundedClosingDr.toLocaleString()} \u2260 total closing credit NPR ${roundedClosingCr.toLocaleString()} (difference: NPR ${difference.toLocaleString()}). This must be resolved before financial statements can be generated.`
+      `Trial balance is not balanced. Closing Dr: ${totalClosingDr.toLocaleString("en-IN")}, Closing Cr: ${totalClosingCr.toLocaleString("en-IN")}. Difference: ${difference.toLocaleString("en-IN")}.`
     );
   }
-  if (unmappedAccounts.length > 0) {
-    warnings.push(
-      `${unmappedAccounts.length} account(s) are unclassified and will be excluded from financial statements. Please map all accounts before proceeding.`
-    );
+  const unmapped = rows.filter((r) => !r.isGroupRow && (!r.nfrsCategory || r.nfrsCategory === "unclassified"));
+  if (unmapped.length > 0) {
+    warnings.push(`${unmapped.length} account(s) are not yet classified to an NFRS category.`);
   }
-  if (negativeBalanceWarnings.length > 0) {
-    warnings.push(
-      `${negativeBalanceWarnings.length} account(s) have an unexpected balance sign (e.g. a debit account showing a credit balance). Review before finalising.`
-    );
+  const lowConfidence = rows.filter((r) => !r.isGroupRow && (r.confidence ?? 0) > 0 && (r.confidence ?? 0) < 80);
+  if (lowConfidence.length > 0) {
+    warnings.push(`${lowConfidence.length} account(s) have low-confidence mappings that should be reviewed.`);
   }
   return {
-    isBalanced,
-    totalOpeningDr: Math.round(totalOpeningDr),
-    totalOpeningCr: Math.round(totalOpeningCr),
-    totalDuringDr: Math.round(totalDuringDr),
-    totalDuringCr: Math.round(totalDuringCr),
-    totalClosingDr: Math.round(roundedClosingDr),
-    totalClosingCr: Math.round(roundedClosingCr),
-    difference,
-    openingDifference: Math.round(totalOpeningDr - totalOpeningCr),
-    duringDifference: Math.round(totalDuringDr - totalDuringCr),
-    warnings,
+    isValid: errors.length === 0,
     errors,
-    unmappedAccounts,
-    negativBalanceWarnings: negativeBalanceWarnings
+    warnings,
+    totalClosingDr,
+    totalClosingCr,
+    totalDebitBalance: totalClosingDr,
+    totalCreditBalance: totalClosingCr,
+    openingDebitTotal: Math.round(totalOpeningDr * 100) / 100,
+    openingCreditTotal: Math.round(totalOpeningCr * 100) / 100,
+    closingDebitTotal: totalClosingDr,
+    closingCreditTotal: totalClosingCr,
+    isBalanced
   };
 }
-function validateEmail(email) {
-  if (!email) return false;
-  return EMAIL_REGEX.test(email.trim());
+function validateCompanyProfile(data) {
+  const errors = [];
+  const warnings = [];
+  if (!data.companyName?.trim()) errors.push("Company name is required.");
+  if (!data.fiscalYear) errors.push("Fiscal year must be selected.");
+  return {
+    isValid: errors.length === 0,
+    errors,
+    warnings,
+    totalClosingDr: 0,
+    totalClosingCr: 0,
+    isBalanced: true
+  };
+}
+function validateAccountingPolicies(data) {
+  const errors = [];
+  const warnings = [];
+  if (data.incomeTaxRatePercent !== void 0) {
+    if (data.incomeTaxRatePercent < 0 || data.incomeTaxRatePercent > 100) {
+      errors.push("Income tax rate must be between 0% and 100%.");
+    }
+  }
+  return {
+    isValid: errors.length === 0,
+    errors,
+    warnings,
+    totalClosingDr: 0,
+    totalClosingCr: 0,
+    isBalanced: true
+  };
 }
 
 // src/data/fiscalYears.ts
-var FISCAL_YEARS = [
-  {
-    bsYear: "2072/73",
-    startDateBS: "1 Shrawan 2072",
-    endDateBS: "31 Ashadh 2073",
-    startDateAD: "July 17, 2015",
-    endDateAD: "July 15, 2016",
-    startYear: 2015,
-    endYear: 2016,
-    isLeapYear: false
-  },
-  {
-    bsYear: "2073/74",
-    startDateBS: "1 Shrawan 2073",
-    endDateBS: "32 Ashadh 2074",
-    startDateAD: "July 16, 2016",
-    endDateAD: "July 16, 2017",
-    startYear: 2016,
-    endYear: 2017,
-    isLeapYear: true
-  },
-  {
-    bsYear: "2074/75",
-    startDateBS: "1 Shrawan 2074",
-    endDateBS: "31 Ashadh 2075",
-    startDateAD: "July 17, 2017",
-    endDateAD: "July 15, 2018",
-    startYear: 2017,
-    endYear: 2018,
-    isLeapYear: false
-  },
-  {
-    bsYear: "2075/76",
-    startDateBS: "1 Shrawan 2075",
-    endDateBS: "31 Ashadh 2076",
-    startDateAD: "July 16, 2018",
-    endDateAD: "July 15, 2019",
-    startYear: 2018,
-    endYear: 2019,
-    isLeapYear: false
-  },
-  {
-    bsYear: "2076/77",
-    startDateBS: "1 Shrawan 2076",
-    endDateBS: "32 Ashadh 2077",
-    startDateAD: "July 16, 2019",
-    endDateAD: "July 15, 2020",
-    startYear: 2019,
-    endYear: 2020,
-    isLeapYear: true
-  },
-  {
-    bsYear: "2077/78",
-    startDateBS: "1 Shrawan 2077",
-    endDateBS: "31 Ashadh 2078",
-    startDateAD: "July 16, 2020",
-    endDateAD: "July 15, 2021",
-    startYear: 2020,
-    endYear: 2021,
-    isLeapYear: false
-  },
-  {
-    bsYear: "2078/79",
-    startDateBS: "1 Shrawan 2078",
-    endDateBS: "31 Ashadh 2079",
-    startDateAD: "July 16, 2021",
-    endDateAD: "July 15, 2022",
-    startYear: 2021,
-    endYear: 2022,
-    isLeapYear: false
-  },
-  {
-    bsYear: "2079/80",
-    startDateBS: "1 Shrawan 2079",
-    endDateBS: "31 Ashadh 2080",
-    startDateAD: "July 17, 2022",
-    endDateAD: "July 15, 2023",
-    startYear: 2022,
-    endYear: 2023,
-    isLeapYear: false
-  },
-  {
-    bsYear: "2080/81",
-    startDateBS: "1 Shrawan 2080",
-    endDateBS: "31 Ashadh 2081",
-    startDateAD: "July 16, 2023",
-    endDateAD: "July 15, 2024",
-    startYear: 2023,
-    endYear: 2024,
-    isLeapYear: false
-  },
-  {
-    bsYear: "2081/82",
-    startDateBS: "1 Shrawan 2081",
-    endDateBS: "31 Ashadh 2082",
-    startDateAD: "July 16, 2024",
-    endDateAD: "July 15, 2025",
-    startYear: 2024,
-    endYear: 2025,
-    isLeapYear: false
-  },
-  {
-    bsYear: "2082/83",
-    startDateBS: "1 Shrawan 2082",
-    endDateBS: "32 Ashadh 2083",
-    startDateAD: "July 16, 2025",
-    endDateAD: "July 16, 2026",
-    startYear: 2025,
-    endYear: 2026,
-    isLeapYear: true
-  },
-  {
-    bsYear: "2083/84",
-    startDateBS: "1 Shrawan 2083",
-    endDateBS: "31 Ashadh 2084",
-    startDateAD: "July 17, 2026",
-    endDateAD: "July 15, 2027",
-    startYear: 2026,
-    endYear: 2027,
-    isLeapYear: false
-  },
-  {
-    bsYear: "2084/85",
-    startDateBS: "1 Shrawan 2084",
-    endDateBS: "31 Ashadh 2085",
-    startDateAD: "July 16, 2027",
-    endDateAD: "July 15, 2028",
-    startYear: 2027,
-    endYear: 2028,
-    isLeapYear: false
-  },
-  {
-    bsYear: "2085/86",
-    startDateBS: "1 Shrawan 2085",
-    endDateBS: "32 Ashadh 2086",
-    startDateAD: "July 15, 2028",
-    endDateAD: "July 15, 2029",
-    startYear: 2028,
-    endYear: 2029,
-    isLeapYear: true
-  },
-  {
-    bsYear: "2086/87",
-    startDateBS: "1 Shrawan 2086",
-    endDateBS: "31 Ashadh 2087",
-    startDateAD: "July 16, 2029",
-    endDateAD: "July 15, 2030",
-    startYear: 2029,
-    endYear: 2030,
-    isLeapYear: false
-  },
-  {
-    bsYear: "2087/88",
-    startDateBS: "1 Shrawan 2087",
-    endDateBS: "31 Ashadh 2088",
-    startDateAD: "July 16, 2030",
-    endDateAD: "July 15, 2031",
-    startYear: 2030,
-    endYear: 2031,
-    isLeapYear: false
-  },
-  {
-    bsYear: "2088/89",
-    startDateBS: "1 Shrawan 2088",
-    endDateBS: "32 Ashadh 2089",
-    startDateAD: "July 17, 2031",
-    endDateAD: "July 16, 2032",
-    startYear: 2031,
-    endYear: 2032,
-    isLeapYear: true
-  },
-  {
-    bsYear: "2089/90",
-    startDateBS: "1 Shrawan 2089",
-    endDateBS: "31 Ashadh 2090",
-    startDateAD: "July 16, 2032",
-    endDateAD: "July 15, 2033",
-    startYear: 2032,
-    endYear: 2033,
-    isLeapYear: false
-  },
-  {
-    bsYear: "2090/91",
-    startDateBS: "1 Shrawan 2090",
-    endDateBS: "31 Ashadh 2091",
-    startDateAD: "July 16, 2033",
-    endDateAD: "July 15, 2034",
-    startYear: 2033,
-    endYear: 2034,
-    isLeapYear: false
-  }
+var AD_MONTHS = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December"
 ];
+function excelSerialToAD(serial) {
+  const utcDays = Math.floor(serial) - 25569;
+  return new Date(utcDays * 864e5);
+}
+function formatADDate(d) {
+  return `${d.getUTCDate()} ${AD_MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+}
+function endYearFromFY(bsFY) {
+  const parts = bsFY.split("/");
+  return parseInt(parts[1] ?? "0", 10) + 2e3;
+}
+function startYearFromFY(bsFY) {
+  const parts = bsFY.split("/");
+  return parseInt(parts[0] ?? "0", 10);
+}
+function buildEntry(bsFY, startSerial, endSerial, endBS, prevEndBS) {
+  const startAD = excelSerialToAD(startSerial);
+  const endAD = excelSerialToAD(endSerial);
+  const prevEndAD = excelSerialToAD(endSerial - 365);
+  return {
+    bsFY,
+    bsYear: endYearFromFY(bsFY),
+    startBS: `1 Shrawan ${startYearFromFY(bsFY)}`,
+    endBS,
+    startAD,
+    endAD,
+    startExcelSerial: startSerial,
+    endExcelSerial: endSerial,
+    reportingDateBS: endBS,
+    reportingDateAD: formatADDate(endAD),
+    previousReportingDateBS: prevEndBS,
+    previousReportingDateAD: formatADDate(prevEndAD),
+    // Legacy aliases
+    startDateBS: `1 Shrawan ${startYearFromFY(bsFY)}`,
+    endDateBS: endBS,
+    startDateAD: formatADDate(startAD),
+    endDateAD: formatADDate(endAD),
+    startYear: startAD.getUTCFullYear(),
+    endYear: endAD.getUTCFullYear(),
+    isLeapYear: endBS.startsWith("32")
+  };
+}
+var FY_SERIALS = [
+  { bsFY: "2078/79", start: 44393, end: 44758, endBS: "31 Ashadh 2079" },
+  { bsFY: "2079/80", start: 44759, end: 45123, endBS: "31 Ashadh 2080" },
+  { bsFY: "2080/81", start: 45124, end: 45488, endBS: "31 Ashadh 2081" },
+  { bsFY: "2081/82", start: 45489, end: 45853, endBS: "31 Ashadh 2082" },
+  { bsFY: "2082/83", start: 45854, end: 46219, endBS: "32 Ashadh 2083" },
+  { bsFY: "2083/84", start: 46220, end: 46584, endBS: "31 Ashadh 2084" },
+  { bsFY: "2084/85", start: 46585, end: 46980, endBS: "31 Ashadh 2085" },
+  { bsFY: "2085/86", start: 46981, end: 47314, endBS: "32 Ashadh 2086" },
+  { bsFY: "2086/87", start: 47315, end: 47680, endBS: "31 Ashadh 2087" },
+  { bsFY: "2087/88", start: 47681, end: 48046, endBS: "31 Ashadh 2088" },
+  { bsFY: "2088/89", start: 48047, end: 48411, endBS: "32 Ashadh 2089" },
+  { bsFY: "2089/90", start: 48412, end: 48776, endBS: "31 Ashadh 2090" }
+];
+var FISCAL_YEARS = FY_SERIALS.map((fy, i) => {
+  const prevEndBS = i > 0 ? FY_SERIALS[i - 1].endBS : "31 Ashadh 2078";
+  const entry = buildEntry(fy.bsFY, fy.start, fy.end, fy.endBS, prevEndBS);
+  if (i > 0) {
+    const prevEndAD = excelSerialToAD(FY_SERIALS[i - 1].end);
+    entry.previousReportingDateAD = formatADDate(prevEndAD);
+  }
+  return entry;
+});
 function getFiscalYearOptions() {
   return FISCAL_YEARS.map((fy) => ({
-    value: fy.bsYear,
-    label: `${fy.bsYear}  (${fy.startDateAD} \u2013 ${fy.endDateAD})`
+    value: fy.bsFY,
+    label: `${fy.bsFY}  (${formatADDate(fy.startAD)} \u2013 ${formatADDate(fy.endAD)})`
   }));
 }
 
@@ -697,33 +482,16 @@ function countLeadingSpaces(label) {
   if (!match) return 0;
   return match[1].replace(/\t/g, "    ").length;
 }
-function detectRowLevel(label, amounts) {
+function detectRowLevel(label, amounts, isBold = false) {
   const rawIndentSpaces = countLeadingSpaces(label);
+  const trimmed = label.trim();
   const hasAnyAmount = amounts.some((a) => a !== 0);
-  let rowLevel;
-  let isGroupRow;
-  if (!hasAnyAmount) {
-    if (rawIndentSpaces === 0) {
-      rowLevel = 0;
-    } else if (rawIndentSpaces <= 4) {
-      rowLevel = 1;
-    } else {
-      rowLevel = 1;
-    }
-    isGroupRow = true;
-  } else {
-    if (rawIndentSpaces >= 8) {
-      rowLevel = 2;
-    } else if (rawIndentSpaces >= 4) {
-      rowLevel = 2;
-    } else {
-      rowLevel = 2;
-    }
-    isGroupRow = false;
-  }
+  const isGroupRow = rawIndentSpaces === 0 && !hasAnyAmount || KNOWN_GROUP_NAMES.test(trimmed) || isBold && !hasAnyAmount;
+  const rowLevel = isGroupRow ? 0 : rawIndentSpaces > 0 ? 1 : 2;
   return { rowLevel, isGroupRow, rawIndentSpaces };
 }
-var MAX_HEADER_SCAN = 15;
+var MAX_HEADER_SCAN = 25;
+var KNOWN_GROUP_NAMES = /^(capital account|non.?current liabilities?|current liabilities?|property.? plant|direct income|indirect income|employee benefit|administrative expenses?|sundry debtors?|sundry creditors?|fixed assets?|current assets?|equity|expenses?|income|loans?|investments?|provisions?)/i;
 function detectColumns(matrix) {
   for (let r = 0; r < Math.min(matrix.length, MAX_HEADER_SCAN); r++) {
     const row = matrix[r] ?? [];
@@ -829,8 +597,9 @@ function extractRow(matRow, rowIndex, colMap, format) {
     const idx = colMap[key];
     return idx !== void 0 ? toNumber(matRow[idx]) : 0;
   };
-  const rawLabel = String(matRow[colMap["label"] ?? 0] ?? "").trim();
-  const trimmedLabel = rawLabel.trim();
+  const rawLabelCell = String(matRow[colMap["label"] ?? 0] ?? "");
+  const rawLabel = rawLabelCell.trim();
+  const rawIndentSpaces = countLeadingSpaces(rawLabelCell);
   let openingDr = 0, openingCr = 0, duringDr = 0, duringCr = 0;
   let adjustmentDr = 0, adjustmentCr = 0, closingDr = 0, closingCr = 0;
   switch (format) {
@@ -841,8 +610,16 @@ function extractRow(matRow, rowIndex, colMap, format) {
       duringCr = g("duringCr");
       adjustmentDr = 0;
       adjustmentCr = 0;
-      closingDr = g("closingDr");
-      closingCr = g("closingCr");
+      const balanceAmt = g("closingDr") || g("closingCr") || g("duringDr");
+      const drCrIdx = colMap["drCr"];
+      const drCrVal = drCrIdx !== void 0 ? normCell(matRow[drCrIdx]) : "";
+      if (drCrVal.includes("cr") || drCrVal === "c") {
+        closingCr = Math.abs(balanceAmt);
+        closingDr = 0;
+      } else {
+        closingDr = Math.abs(balanceAmt);
+        closingCr = 0;
+      }
       break;
     }
     case "3col": {
@@ -885,12 +662,11 @@ function extractRow(matRow, rowIndex, colMap, format) {
       break;
     }
   }
-  const amounts = [openingDr, openingCr, duringDr, duringCr, closingDr, closingCr];
-  const { rowLevel, isGroupRow, rawIndentSpaces } = detectRowLevel(rawLabel, amounts);
+  const amounts = [openingDr, openingCr, duringDr, duringCr, adjustmentDr, adjustmentCr, closingDr, closingCr];
+  const { rowLevel, isGroupRow } = detectRowLevel(rawLabelCell, amounts);
   return {
     rowIndex,
-    rawLabel: trimmedLabel,
-    // store trimmed label for matching
+    rawLabel,
     openingDr,
     openingCr,
     duringDr,
@@ -906,7 +682,7 @@ function extractRow(matRow, rowIndex, colMap, format) {
     rawIndentSpaces
   };
 }
-function parseCSV(text) {
+function parseCSVText(text) {
   const lines = text.split(/\r?\n/);
   return lines.map((line) => {
     const cells = [];
@@ -949,6 +725,90 @@ function assignParentGroups(rows) {
     }
   });
 }
+function parseMatrix(matrix) {
+  const warnings = [];
+  const headerDetection = detectColumns(matrix);
+  const { format, colMap, headerRowIndex } = detectFormat(matrix, headerDetection);
+  const mode = format;
+  if (mode === "3col") {
+    warnings.push("Treating file as 3-column (label, debit, credit) layout.");
+  } else if (mode === "2col") {
+    warnings.push("Treating file as 2-column net balance layout (positive=Dr, negative=Cr).");
+  }
+  if (mode === "full" && colMap["label"] === void 0) {
+    throw Object.assign(
+      new Error("Could not detect column headers."),
+      { status: 400, code: "NO_HEADERS" }
+    );
+  }
+  const rows = [];
+  const skippedSubtotals = [];
+  for (let r = headerRowIndex + 1; r < matrix.length; r++) {
+    const matRow = matrix[r] ?? [];
+    const labelVal = matRow[colMap["label"] ?? 0];
+    const label = String(labelVal ?? "").trim();
+    if (!label) continue;
+    if (SUBTOTAL_PATTERNS.test(label)) {
+      skippedSubtotals.push(label);
+      continue;
+    }
+    const row = extractRow(matRow, r, colMap, mode);
+    if (!row.rawLabel) continue;
+    if (!row.isGroupRow && row.closingDr === 0 && row.closingCr === 0 && row.openingDr === 0 && row.openingCr === 0) {
+      warnings.push(`Zero-amount leaf row skipped or flagged: "${row.rawLabel}"`);
+    }
+    rows.push(row);
+  }
+  if (skippedSubtotals.length > 0) {
+    warnings.push(`${skippedSubtotals.length} subtotal row(s) skipped.`);
+  }
+  const rowsWithParents = assignParentGroups(rows);
+  const leafRows = rowsWithParents.filter((r) => !r.isGroupRow);
+  if (leafRows.length === 0) {
+    throw Object.assign(new Error("No data rows found."), { status: 400, code: "NO_DATA_ROWS" });
+  }
+  let totalOpeningDr = 0, totalOpeningCr = 0, totalDuringDr = 0, totalDuringCr = 0;
+  let totalClosingDr = 0, totalClosingCr = 0;
+  for (const row of rowsWithParents) {
+    if (row.isGroupRow) continue;
+    totalOpeningDr += row.openingDr;
+    totalOpeningCr += row.openingCr;
+    totalDuringDr += row.duringDr;
+    totalDuringCr += row.duringCr;
+    totalClosingDr += row.closingDr;
+    totalClosingCr += row.closingCr;
+  }
+  const round2 = (n) => Math.round(n * 100) / 100;
+  totalClosingDr = round2(totalClosingDr);
+  totalClosingCr = round2(totalClosingCr);
+  const difference = round2(totalClosingDr - totalClosingCr);
+  const isBalanced = Math.abs(difference) < 1;
+  if (!isBalanced) {
+    warnings.push(`Trial Balance not balanced. Difference: ${Math.abs(difference).toLocaleString("en-IN")}.`);
+  }
+  return {
+    rows: rowsWithParents,
+    totalOpeningDr: round2(totalOpeningDr),
+    totalOpeningCr: round2(totalOpeningCr),
+    totalDuringDr: round2(totalDuringDr),
+    totalDuringCr: round2(totalDuringCr),
+    totalClosingDr,
+    totalClosingCr,
+    isBalanced,
+    difference,
+    warnings,
+    detectedColumns: colMap,
+    headerRowIndex,
+    detectedFormat: mode
+  };
+}
+function parseCsv(buffer) {
+  let text = buffer.toString("utf-8");
+  if (text.includes("\uFFFD")) {
+    text = buffer.toString("latin1");
+  }
+  return parseMatrix(parseCSVText(text));
+}
 async function parseTrialBalance(buffer, filename) {
   if (!buffer || buffer.length === 0) {
     throw Object.assign(
@@ -956,12 +816,10 @@ async function parseTrialBalance(buffer, filename) {
       { status: 400, code: "EMPTY_FILE" }
     );
   }
-  const warnings = [];
   const ext = filename.toLowerCase().slice(filename.lastIndexOf("."));
   let matrix = [];
   if (ext === ".csv") {
-    const text = buffer.toString("utf-8");
-    matrix = parseCSV(text);
+    return parseCsv(buffer);
   } else {
     const workbook = new ExcelJS.Workbook();
     try {
@@ -971,7 +829,7 @@ async function parseTrialBalance(buffer, filename) {
         "Could not read the uploaded file as an Excel workbook. If the file is in .xls (old format), please re-save it as .xlsx in Excel first."
       );
     }
-    const ws = workbook.worksheets[0];
+    const ws = workbook.getWorksheet("Trial Balance") ?? workbook.getWorksheet("TB") ?? workbook.worksheets[0];
     if (!ws) {
       throw new Error("The uploaded workbook has no worksheets.");
     }
@@ -996,1648 +854,1216 @@ async function parseTrialBalance(buffer, filename) {
   if (matrix.length === 0) {
     throw new Error("The uploaded file appears to be empty.");
   }
-  const headerDetection = detectColumns(matrix);
-  const { format, colMap, headerRowIndex } = detectFormat(matrix, headerDetection);
-  let mode = format;
-  if (mode === "3col") {
-    warnings.push(
-      "Could not detect a standard TB header row. Treating file as a 3-column (label, debit balance, credit balance) layout. Please verify the imported data carefully."
-    );
-  } else if (mode === "2col") {
-    warnings.push(
-      "Could not detect a standard TB header row. Treating file as a 2-column (label, net amount) layout where positive = Dr, negative = Cr. Please verify the imported data carefully."
-    );
-  } else if (mode === "tally_prime") {
-  }
-  if (mode === "full" && colMap["label"] === void 0) {
-    throw Object.assign(
-      new Error(
-        "Could not detect column headers. Please ensure your file has clear column headers for account name and amounts."
-      ),
-      { status: 400, code: "NO_HEADERS" }
-    );
-  }
-  const rows = [];
-  const skippedSubtotals = [];
-  for (let r = headerRowIndex + 1; r < matrix.length; r++) {
-    const matRow = matrix[r] ?? [];
-    const labelVal = matRow[colMap["label"] ?? 0];
-    const label = String(labelVal ?? "").trim();
-    if (!label) continue;
-    if (SUBTOTAL_PATTERNS.test(label)) {
-      skippedSubtotals.push(label);
-      continue;
-    }
-    const row = extractRow(matRow, r, colMap, mode);
-    if (row.rawLabel === "") continue;
-    if (mode === "full" && colMap["closingDr"] !== void 0 && colMap["openingDr"] !== void 0) {
-      const derivedDr = row.openingDr + row.duringDr + row.adjustmentDr;
-      const derivedCr = row.openingCr + row.duringCr + row.adjustmentCr;
-      if (!row.isGroupRow && (Math.abs(derivedDr - row.closingDr) > 1.5 || Math.abs(derivedCr - row.closingCr) > 1.5)) {
-        warnings.push(
-          `"${label}" (row ${r + 1}): opening + during + adjustment does not reconcile to closing (Dr: ${derivedDr.toFixed(0)} vs ${row.closingDr.toFixed(0)}, Cr: ${derivedCr.toFixed(0)} vs ${row.closingCr.toFixed(0)}).`
-        );
-      }
-    }
-    rows.push(row);
-  }
-  if (skippedSubtotals.length > 0) {
-    warnings.push(
-      `${skippedSubtotals.length} subtotal row(s) were automatically skipped to avoid double-counting: "${skippedSubtotals.slice(0, 3).join('", "')}". ` + (skippedSubtotals.length > 3 ? `\u2026and ${skippedSubtotals.length - 3} more.` : "")
-    );
-  }
-  if (rows.filter((r) => !r.isGroupRow).length === 0) {
-    throw Object.assign(
-      new Error(
-        "No data rows found in the uploaded file. Please check your export and ensure it contains account entries."
-      ),
-      { status: 400, code: "NO_DATA_ROWS" }
-    );
-  }
-  const rowsWithParents = assignParentGroups(rows);
-  const leafRows = rowsWithParents.filter((r) => !r.isGroupRow);
-  if (leafRows.length > 2e3) {
-    warnings.push(
-      `File contains ${leafRows.length} ledger rows which exceeds the recommended limit of 2000. Processing may be slow. Consider filtering inactive accounts before uploading.`
-    );
-  }
-  let totalOpeningDr = 0, totalOpeningCr = 0;
-  let totalDuringDr = 0, totalDuringCr = 0;
-  let totalClosingDr = 0, totalClosingCr = 0;
-  for (const row of rowsWithParents) {
-    if (row.isGroupRow) continue;
-    totalOpeningDr += row.openingDr;
-    totalOpeningCr += row.openingCr;
-    totalDuringDr += row.duringDr;
-    totalDuringCr += row.duringCr;
-    totalClosingDr += row.closingDr;
-    totalClosingCr += row.closingCr;
-  }
-  const round2 = (n) => Math.round(n * 100) / 100;
-  totalClosingDr = round2(totalClosingDr);
-  totalClosingCr = round2(totalClosingCr);
-  const difference = round2(totalClosingDr - totalClosingCr);
-  const isBalanced = Math.abs(difference) < 1;
-  if (!isBalanced) {
-    warnings.push(
-      `Trial Balance is not balanced. Total Debit Closing: ${totalClosingDr.toLocaleString("en-IN")} vs Total Credit Closing: ${totalClosingCr.toLocaleString("en-IN")}. Difference: ${Math.abs(difference).toLocaleString("en-IN")}. Please verify your exported trial balance from the accounting software before uploading.`
-    );
-  }
-  const allOpeningZero = totalOpeningDr === 0 && totalOpeningCr === 0 && (mode === "full" || mode === "tally_prime");
-  if (allOpeningZero) {
-    warnings.push(
-      `All opening balances are zero. If this is not the first year of accounting, please ensure your export includes opening balances.`
-    );
-  }
-  return {
-    rows: rowsWithParents,
-    totalOpeningDr: round2(totalOpeningDr),
-    totalOpeningCr: round2(totalOpeningCr),
-    totalDuringDr: round2(totalDuringDr),
-    totalDuringCr: round2(totalDuringCr),
-    totalClosingDr,
-    totalClosingCr,
-    isBalanced,
-    difference,
-    warnings,
-    detectedColumns: colMap,
-    headerRowIndex,
-    detectedFormat: mode
-  };
+  return parseMatrix(matrix);
 }
 
 // src/data/chartOfAccounts.ts
 var CHART_OF_ACCOUNTS = [
-  // ══════════════════════════════════════════════════════════════════════════
-  // EQUITY
-  // ══════════════════════════════════════════════════════════════════════════
-  {
-    label: "Paid-up Capital",
-    nfrsCategory: "share_capital",
-    noteRef: "3.9",
-    normalBalance: "credit",
-    synonyms: [
-      "share capital",
-      "paid up capital",
-      "capital",
-      "equity share capital",
-      "issued capital",
-      "subscribed capital",
-      "issued share capital",
-      "authorized capital paid up",
-      "ordinary share capital",
-      "common stock"
-    ]
-  },
-  {
-    label: "Share Premium",
-    nfrsCategory: "share_premium",
-    noteRef: "3.10",
-    normalBalance: "credit",
-    synonyms: [
-      "securities premium",
-      "premium on shares",
-      "capital premium",
-      "share issue premium",
-      "additional paid-in capital"
-    ]
-  },
-  {
-    label: "General Reserve",
-    nfrsCategory: "general_reserve",
-    noteRef: "3.10",
-    normalBalance: "credit",
-    synonyms: [
-      "reserves",
-      "reserve fund",
-      "general fund",
-      "free reserve",
-      "revenue reserve",
-      "statutory reserve",
-      "capital redemption reserve"
-    ]
-  },
-  {
-    label: "Retained Earnings",
-    nfrsCategory: "retained_earnings",
-    noteRef: "3.10",
-    normalBalance: "credit",
-    synonyms: [
-      "retained profit",
-      "accumulated profit",
-      "profit and loss account",
-      "surplus",
-      "accumulated surplus",
-      "p&l balance",
-      "unappropriated profit",
-      "profit brought forward",
-      "balance of profit and loss",
-      "undistributed profit"
-    ]
-  },
-  // ══════════════════════════════════════════════════════════════════════════
-  // NON-CURRENT BORROWINGS
-  // ══════════════════════════════════════════════════════════════════════════
-  {
-    label: "Term Loan - Bank",
-    nfrsCategory: "borrowings_noncurrent_bank",
-    noteRef: "3.11",
-    normalBalance: "credit",
-    bucket: "bank_term_loans",
-    synonyms: [
-      "bank loan",
-      "term loan",
-      "secured loan",
-      "long term loan",
-      "loan from bank",
-      "nabil bank loan",
-      "sbi loan",
-      "nic asia loan",
-      "himalayan bank loan",
-      "sanima bank loan",
-      "global ime loan",
-      "kumari bank loan",
-      "everest bank loan",
-      "nepal investment bank loan",
-      "standard chartered loan",
-      "citizens bank loan",
-      "bank of kathmandu loan",
-      "agriculture development bank loan",
-      "rastriya banijya bank loan",
-      "nepal bank loan",
-      "prabhu bank loan",
-      "sunrise bank loan",
-      "lumbini bank loan",
-      "janata bank loan",
-      "mahalaxmi bank loan",
-      "sindhu bank loan",
-      "green development bank loan",
-      "muktinath development bank loan",
-      "excel development bank loan",
-      "garima development bank loan",
-      "machhapuchchhre bank loan",
-      "century commercial bank loan",
-      "prime commercial bank loan",
-      "megha bank loan",
-      "civil bank loan",
-      "siddhartha bank loan"
-    ]
-  },
-  // ══════════════════════════════════════════════════════════════════════════
-  // TRADE PAYABLES
-  // ══════════════════════════════════════════════════════════════════════════
-  {
-    label: "Sundry Creditors",
-    nfrsCategory: "trade_payables_creditors",
-    noteRef: "3.13",
-    normalBalance: "credit",
-    bucket: "sundry_creditors",
-    synonyms: [
-      "creditors",
-      "accounts payable",
-      "trade creditors",
-      "sundry creditors control",
-      "payable to suppliers",
-      "supplier payable",
-      "trade payable",
-      "creditor control",
-      "purchase creditors",
-      "vendor payable",
-      "creditors for goods",
-      "payable to vendors"
-    ]
-  },
-  {
-    label: "Advance from Customer",
-    nfrsCategory: "trade_payables_advance_customers",
-    noteRef: "3.16",
-    normalBalance: "credit",
-    synonyms: [
-      "customer advance",
-      "advance received",
-      "advance from customers",
-      "customer deposit",
-      "receipt in advance",
-      "deferred income - advance",
-      "advance against orders",
-      "booking advance",
-      "earnest money received"
-    ]
-  },
-  // ══════════════════════════════════════════════════════════════════════════
-  // CURRENT BORROWINGS
-  // ══════════════════════════════════════════════════════════════════════════
-  {
-    label: "Bank Overdraft",
-    nfrsCategory: "borrowings_current_od",
-    noteRef: "3.11",
-    normalBalance: "credit",
-    synonyms: [
-      "od",
-      "overdraft",
-      "bank od",
-      "current account overdraft",
-      "od account",
-      "overdraft facility"
-    ]
-  },
-  {
-    label: "Cash Credit",
-    nfrsCategory: "borrowings_current_cc",
-    noteRef: "3.11",
-    normalBalance: "credit",
-    synonyms: [
-      "cc",
-      "cash credit account",
-      "cc loan",
-      "working capital cc",
-      "cc facility"
-    ]
-  },
-  {
-    label: "Working Capital Loan",
-    nfrsCategory: "borrowings_current_wc",
-    noteRef: "3.11",
-    normalBalance: "credit",
-    synonyms: [
-      "wc loan",
-      "working capital",
-      "short term loan",
-      "demand loan",
-      "current portion bank",
-      "revolving credit",
-      "short-term bank loan"
-    ]
-  },
-  // ══════════════════════════════════════════════════════════════════════════
-  // EMPLOYEE & STATUTORY PAYABLES
-  // ══════════════════════════════════════════════════════════════════════════
-  {
-    label: "TDS Payable",
-    nfrsCategory: "tds_payable",
-    noteRef: "3.13",
-    normalBalance: "credit",
-    synonyms: [
-      "tds payable",
-      "withholding tax payable",
-      "tax deducted at source",
-      "tds on salary",
-      "tds on rent",
-      "tds on service fee",
-      "tds on audit fee",
-      "tds - audit fee",
-      "tds - ltd. company",
-      "tds- propritership",
-      "tds - pvt. ltd",
-      "tds- salary",
-      "tds - sst",
-      "tds - rental",
-      "tds - dividend",
-      "tds on interest",
-      "tds payable-contractor"
-    ]
-  },
-  {
-    label: "VAT Payable",
-    nfrsCategory: "other_payables",
-    noteRef: "3.13",
-    normalBalance: "credit",
-    synonyms: [
-      "vat payable",
-      "value added tax payable",
-      "vat liability",
-      "output vat"
-    ]
-  },
-  {
-    label: "Provident Fund Payable",
-    nfrsCategory: "employee_payables_pf",
-    noteRef: "3.12",
-    normalBalance: "credit",
-    synonyms: [
-      "pf payable",
-      "provident fund payable",
-      "ssf payable",
-      "cit payable",
-      "social security fund",
-      "employees provident fund",
-      "employer pf payable",
-      "ssf contribution payable"
-    ]
-  },
-  {
-    label: "Staff Bonus Payable",
-    nfrsCategory: "employee_payables_bonus",
-    noteRef: "3.12",
-    normalBalance: "credit",
-    synonyms: [
-      "bonus payable",
-      "employee bonus",
-      "profit sharing bonus",
-      "staff bonus",
-      "performance bonus payable"
-    ]
-  },
-  {
-    label: "Audit Fee Payable",
-    nfrsCategory: "audit_fee_payable",
-    noteRef: "3.13",
-    normalBalance: "credit",
-    synonyms: [
-      "audit fees payable",
-      "provision for audit fee",
-      "auditor fees",
-      "statutory audit fee payable",
-      "external auditor payable"
-    ]
-  },
-  {
-    label: "Salary Payable",
-    nfrsCategory: "employee_payables_salary",
-    noteRef: "3.12",
-    normalBalance: "credit",
-    synonyms: [
-      "salary payable",
-      "wages payable",
-      "outstanding salary",
-      "accrued salary",
-      "payroll payable",
-      "salary outstanding",
-      "employee a",
-      "employee b",
-      "employee c",
-      "staff salary payable"
-    ]
-  },
-  {
-    label: "Income Tax Payable",
-    nfrsCategory: "income_tax_payable",
-    noteRef: "3.14",
-    normalBalance: "credit",
-    synonyms: [
-      "income tax payable",
-      "corporate tax payable",
-      "advance tax recoverable",
-      "provision for income tax",
-      "income tax provision",
-      "current tax liability"
-    ]
-  },
-  // ══════════════════════════════════════════════════════════════════════════
-  // PPE ASSETS
-  // ══════════════════════════════════════════════════════════════════════════
-  {
-    label: "Land",
-    nfrsCategory: "ppe_land",
-    noteRef: "3.1",
-    normalBalance: "debit",
-    synonyms: [
-      "land",
-      "plot",
-      "land and site",
-      "land at cost",
-      "agricultural land",
-      "commercial land",
-      "property",
-      "land - freehold"
-    ]
-  },
-  {
-    label: "Buildings",
-    nfrsCategory: "ppe_buildings",
-    noteRef: "3.1",
-    normalBalance: "debit",
-    synonyms: [
-      "building",
-      "office building",
-      "factory building",
-      "godown",
-      "warehouse",
-      "shop",
-      "structure",
-      "premises",
-      "factory",
-      "plant building",
-      "commercial building",
-      "residential building",
-      "leasehold improvement",
-      "leasehold"
-    ]
-  },
-  {
-    label: "Vehicles",
-    nfrsCategory: "ppe_vehicles",
-    noteRef: "3.1",
-    normalBalance: "debit",
-    synonyms: [
-      "vehicle",
-      "motor vehicle",
-      "car",
-      "motorcycle",
-      "truck",
-      "van",
-      "jeep",
-      "bus",
-      "tempo",
-      "auto",
-      "two wheeler",
-      "four wheeler",
-      "transport",
-      "ambulance",
-      "tractor"
-    ]
-  },
-  {
-    label: "Office Equipment",
-    nfrsCategory: "ppe_office_equipment",
-    noteRef: "3.1",
-    normalBalance: "debit",
-    synonyms: [
-      "office equipment",
-      "equipment",
-      "printer",
-      "photocopier",
-      "fax",
-      "air conditioner",
-      "ac",
-      "generator",
-      "ups",
-      "telephone set",
-      "projector",
-      "scanner",
-      "inverter",
-      "cctv camera"
-    ]
-  },
-  {
-    label: "Computers",
-    nfrsCategory: "ppe_computers",
-    noteRef: "3.1",
-    normalBalance: "debit",
-    synonyms: [
-      "computer",
-      "laptop",
-      "desktop",
-      "server",
-      "tablet",
-      "it equipment",
-      "hardware",
-      "computing equipment",
-      "network equipment",
-      "router",
-      "switch"
-    ]
-  },
-  {
-    label: "Furniture & Fixtures",
-    nfrsCategory: "ppe_furniture",
-    noteRef: "3.1",
-    normalBalance: "debit",
-    synonyms: [
-      "furniture",
-      "fixture",
-      "fitting",
-      "sofa",
-      "chair",
-      "table",
-      "desk",
-      "shelf",
-      "rack",
-      "almirah",
-      "cupboard",
-      "furniture & office equipment",
-      "office furniture",
-      "partition"
-    ]
-  },
-  {
-    label: "Plant & Machinery",
-    nfrsCategory: "ppe_plant_machinery",
-    noteRef: "3.1",
-    normalBalance: "debit",
-    synonyms: [
-      "plant",
-      "machinery",
-      "machine",
-      "equipment heavy",
-      "manufacturing equipment",
-      "production machinery",
-      "plant equipment",
-      "plant and machinery",
-      "industrial equipment",
-      "generator set",
-      "boiler",
-      "compressor"
-    ]
-  },
-  {
-    label: "Intangible Assets",
-    nfrsCategory: "ppe_intangibles",
-    noteRef: "3.1",
-    normalBalance: "debit",
-    synonyms: [
-      "software",
-      "intangible",
-      "patent",
-      "trademark",
-      "goodwill",
-      "licence",
-      "license",
-      "tally software",
-      "erp software",
-      "accounting software",
-      "computer software",
-      "crm software",
-      "domain name"
-    ]
-  },
-  {
-    label: "Capital Work in Progress",
-    nfrsCategory: "ppe_cwip",
-    noteRef: "3.1",
-    normalBalance: "debit",
-    synonyms: [
-      "cwip",
-      "capital wip",
-      "construction in progress",
-      "building under construction",
-      "work in progress fixed assets",
-      "capital expenditure in progress",
-      "plant under installation"
-    ]
-  },
-  {
-    label: "Accumulated Depreciation",
-    nfrsCategory: "accum_depreciation",
-    noteRef: "3.1",
-    normalBalance: "credit",
-    synonyms: [
-      "accumulated depreciation",
-      "accumulated dep",
-      "provision for depreciation",
-      "depreciation reserve",
-      "depreciation fund",
-      "less depreciation",
-      "acc. depreciation",
-      "total depreciation"
-    ]
-  },
-  // ══════════════════════════════════════════════════════════════════════════
-  // INVESTMENTS
-  // ══════════════════════════════════════════════════════════════════════════
-  {
-    label: "Investment in Listed Shares",
-    nfrsCategory: "investment_listed_trading",
-    noteRef: "3.2",
-    normalBalance: "debit",
-    synonyms: [
-      "listed shares",
-      "shares",
-      "equity shares",
-      "mutual fund",
-      "stock investment",
-      "nepse shares",
-      "stock market investment",
-      "shares of xyz ltd. (listed company)",
-      "investment in listed shares",
-      "listed equity",
-      "trading securities"
-    ]
-  },
-  {
-    label: "Investment in Unlisted Shares",
-    nfrsCategory: "investment_unlisted",
-    noteRef: "3.2",
-    normalBalance: "debit",
-    synonyms: [
-      "unlisted shares",
-      "private company shares",
-      "unlisted equity",
-      "investment in pvt company",
-      "shares of pqr ltd. (unlisted company)",
-      "investment in unlisted company",
-      "strategic investment"
-    ]
-  },
-  {
-    label: "Fixed Deposit (Long-term)",
-    nfrsCategory: "investment_fixed_deposit_noncurrent",
-    noteRef: "3.2",
-    normalBalance: "debit",
-    synonyms: [
-      "fixed deposit",
-      "fd",
-      "term deposit long term",
-      "recurring deposit",
-      "fd more than 1 year",
-      "long term fd",
-      "term deposit noncurrent"
-    ]
-  },
-  // ══════════════════════════════════════════════════════════════════════════
-  // OTHER NON-CURRENT ASSETS
-  // ══════════════════════════════════════════════════════════════════════════
-  {
-    label: "Deposits (Non-Current)",
-    nfrsCategory: "nca_deposits",
-    noteRef: "3.4",
-    normalBalance: "debit",
-    synonyms: [
-      "security deposit",
-      "electricity deposit",
-      "telephone deposit",
-      "rent deposit",
-      "leasehold deposit",
-      "security deposit landlord",
-      "deposit given",
-      "advance to landlord long term",
-      "deposits"
-    ]
-  },
-  {
-    label: "Loans & Advances (Non-Current)",
-    nfrsCategory: "nca_loans_advances",
-    noteRef: "3.4",
-    normalBalance: "debit",
-    synonyms: [
-      "loan given",
-      "advance given",
-      "long term advance",
-      "loan to subsidiary",
-      "advance to directors long term",
-      "loan to related party",
-      "inter-company loan"
-    ]
-  },
-  {
-    label: "Biological Assets",
-    nfrsCategory: "nca_other",
-    noteRef: "3.5",
-    normalBalance: "debit",
-    synonyms: [
-      "biological assets",
-      "livestock",
-      "animals",
-      "crops",
-      "aquaculture",
-      "timber",
-      "orchards"
-    ]
-  },
-  // ══════════════════════════════════════════════════════════════════════════
-  // TRADE RECEIVABLES
-  // ══════════════════════════════════════════════════════════════════════════
-  {
-    label: "Sundry Debtors",
-    nfrsCategory: "trade_receivables",
-    noteRef: "3.3",
-    normalBalance: "debit",
-    bucket: "sundry_debtors",
-    synonyms: [
-      "debtors",
-      "accounts receivable",
-      "trade debtors",
-      "debtor control",
-      "trade receivable",
-      "receivable from customers",
-      "customer receivable",
-      "book debts",
-      "debtor a",
-      "debtor b",
-      "debtor c",
-      "debtor d",
-      "bills receivable"
-    ]
-  },
-  {
-    label: "Provision for Impairment on Debtors",
-    nfrsCategory: "provision_impairment_debtors",
-    noteRef: "3.3",
-    normalBalance: "credit",
-    synonyms: [
-      "provision for bad debts",
-      "provision for doubtful debts",
-      "bad debt provision",
-      "allowance for doubtful accounts",
-      "provision impairment",
-      "credit loss provision",
-      "provision for impairment on debtors"
-    ]
-  },
-  // ══════════════════════════════════════════════════════════════════════════
-  // OTHER CURRENT ASSETS
-  // ══════════════════════════════════════════════════════════════════════════
-  {
-    label: "Advance to Suppliers",
-    nfrsCategory: "other_receivables_advance_supplier",
-    noteRef: "3.4",
-    normalBalance: "debit",
-    synonyms: [
-      "advance to supplier",
-      "purchase advance",
-      "supplier advance",
-      "advance payment",
-      "advance to vendors",
-      "prepaid to supplier",
-      "advance for goods",
-      "advance to contractor"
-    ]
-  },
-  {
-    label: "Prepayments",
-    nfrsCategory: "other_receivables_prepayments",
-    noteRef: "3.4",
-    normalBalance: "debit",
-    synonyms: [
-      "prepaid expense",
-      "prepaid",
-      "advance rent",
-      "prepaid insurance",
-      "advance to landlord",
-      "prepaid expenses",
-      "payments in advance",
-      "prepaid subscriptions",
-      "prepaid maintenance"
-    ]
-  },
-  {
-    label: "Staff Advance",
-    nfrsCategory: "other_receivables_staff_advance",
-    noteRef: "3.4",
-    normalBalance: "debit",
-    synonyms: [
-      "staff advance",
-      "employee advance",
-      "advance to staff",
-      "salary advance",
-      "loan to employees",
-      "advance to employees",
-      "personal advance"
-    ]
-  },
-  {
-    label: "TDS Receivable",
-    nfrsCategory: "other_receivables_tds",
-    noteRef: "3.6",
-    normalBalance: "debit",
-    synonyms: [
-      "tds receivable",
-      "tds credit",
-      "tax deducted at source receivable",
-      "withholding tax credit",
-      "advance tax",
-      "tds balance",
-      "tds refundable",
-      "advance income tax",
-      "self-assessment tax paid",
-      "tax paid in advance"
-    ]
-  },
-  {
-    label: "Fixed Deposit (Current)",
-    nfrsCategory: "bank_fixed_deposit_current",
-    noteRef: "3.8",
-    normalBalance: "debit",
-    synonyms: [
-      "fd current",
-      "short term fd",
-      "fixed deposit less than 1 year",
-      "term deposit short term",
-      "fd maturing within year",
-      "call deposit",
-      "short term fixed deposit"
-    ]
-  },
-  {
-    label: "Loans & Advances (Current)",
-    nfrsCategory: "other_receivables_loans",
-    noteRef: "3.4",
-    normalBalance: "debit",
-    synonyms: [
-      "short term advance",
-      "loans and advances current",
-      "loans & advances (asset)",
-      "advance to third party",
-      "advance to others",
-      "miscellaneous advance"
-    ]
-  },
-  {
-    label: "Non-Current Assets Held for Sale",
-    nfrsCategory: "other_receivables_other",
-    noteRef: "3.6",
-    normalBalance: "debit",
-    synonyms: [
-      "assets held for sale",
-      "asset held for sale",
-      "non current assets held for sale",
-      "disposal group"
-    ]
-  },
-  // ══════════════════════════════════════════════════════════════════════════
-  // CASH & BANK
-  // ══════════════════════════════════════════════════════════════════════════
-  {
-    label: "Cash in Hand",
-    nfrsCategory: "cash_in_hand",
-    noteRef: "3.8",
-    normalBalance: "debit",
-    synonyms: [
-      "cash",
-      "petty cash",
-      "cash on hand",
-      "imprest cash",
-      "cash balance",
-      "cash at hand",
-      "cash in office",
-      "vault cash"
-    ]
-  },
-  {
-    label: "Bank Balance",
-    nfrsCategory: "bank_current_account",
-    noteRef: "3.8",
-    normalBalance: "debit",
-    bucket: "bank_accounts",
-    synonyms: [
-      "bank",
-      "current account",
-      "ca",
-      "bank balance",
-      "bank account",
-      "savings account",
-      "nabil bank",
-      "nic asia bank",
-      "himalayan bank",
-      "sbi bank",
-      "standard chartered bank",
-      "global ime bank",
-      "kumari bank",
-      "everest bank",
-      "citizens bank",
-      "bank of kathmandu",
-      "sanima bank",
-      "prabhu bank",
-      "sunrise bank",
-      "lumbini bank",
-      "machhapuchchhre bank",
-      "century bank",
-      "prime bank",
-      "megha bank",
-      "civil bank",
-      "siddhartha bank",
-      "bank c",
-      "bank d",
-      "bank e",
-      "rastriya banijya bank",
-      "nepal bank",
-      "agricultural development bank",
-      "nepal investment bank"
-    ]
-  },
-  // ══════════════════════════════════════════════════════════════════════════
-  // INVENTORY
-  // ══════════════════════════════════════════════════════════════════════════
-  {
-    label: "Raw Materials",
-    nfrsCategory: "inventory_raw_materials",
-    noteRef: "3.7",
-    normalBalance: "debit",
-    synonyms: [
-      "raw material",
-      "materials",
-      "stock raw material",
-      "input material",
-      "raw stock",
-      "raw materials and consumables",
-      "consumables",
-      "store and spares"
-    ]
-  },
-  {
-    label: "Work in Progress",
-    nfrsCategory: "inventory_wip",
-    noteRef: "3.7",
-    normalBalance: "debit",
-    synonyms: [
-      "wip",
-      "semi-finished goods",
-      "work-in-process",
-      "goods in process",
-      "work-in-progress"
-    ]
-  },
-  {
-    label: "Finished Goods",
-    nfrsCategory: "inventory_finished_goods",
-    noteRef: "3.7",
-    normalBalance: "debit",
-    synonyms: [
-      "finished goods",
-      "stock in trade",
-      "goods for sale",
-      "trading stock",
-      "trading goods",
-      "merchandise",
-      "closing stock",
-      "inventory",
-      "stock",
-      "finished goods and goods for resale"
-    ]
-  },
-  // ══════════════════════════════════════════════════════════════════════════
-  // REVENUE
-  // ══════════════════════════════════════════════════════════════════════════
-  {
-    label: "Sales Revenue",
-    nfrsCategory: "revenue_sales",
-    noteRef: "3.17",
-    normalBalance: "credit",
-    synonyms: [
-      "sales",
-      "revenue",
-      "turnover",
-      "net sales",
-      "gross sales",
-      "sale of goods",
-      "product sales",
-      "goods sold",
-      "trading revenue",
-      "domestic sales",
-      "export sales"
-    ]
-  },
-  {
-    label: "Service Income",
-    nfrsCategory: "revenue_services",
-    noteRef: "3.17",
-    normalBalance: "credit",
-    synonyms: [
-      "service income",
-      "service revenue",
-      "service charge",
-      "professional income",
-      "consultancy income",
-      "fee income",
-      "service fees",
-      "rendering of services"
-    ]
-  },
-  {
-    label: "Interest Income",
-    nfrsCategory: "other_income_interest",
-    noteRef: "3.17",
-    normalBalance: "credit",
-    synonyms: [
-      "interest income",
-      "interest earned",
-      "interest on fd",
-      "bank interest",
-      "interest received",
-      "interest on loan given",
-      "interest on deposit",
-      "interest on call account"
-    ]
-  },
-  {
-    label: "Dividend Income",
-    nfrsCategory: "other_income_dividend",
-    noteRef: "3.17",
-    normalBalance: "credit",
-    synonyms: [
-      "dividend income",
-      "dividend received",
-      "dividend",
-      "bonus share income",
-      "cash dividend"
-    ]
-  },
-  {
-    label: "Rental Income",
-    nfrsCategory: "other_income_rental",
-    noteRef: "3.17",
-    normalBalance: "credit",
-    synonyms: [
-      "rental income",
-      "rent received",
-      "house rent income",
-      "property rent",
-      "income from rent",
-      "lease income"
-    ]
-  },
-  {
-    label: "Gain on Sale of Assets",
-    nfrsCategory: "other_income_disposal_gain",
-    noteRef: "3.17",
-    normalBalance: "credit",
-    synonyms: [
-      "gain on disposal",
-      "profit on sale of asset",
-      "gain on sale of fixed asset",
-      "profit on disposal",
-      "gain on disposal of assets"
-    ]
-  },
-  {
-    label: "Commission Income",
-    nfrsCategory: "other_income_misc",
-    noteRef: "3.17",
-    normalBalance: "credit",
-    synonyms: [
-      "commission income",
-      "commission received",
-      "brokerage income",
-      "agency income"
-    ]
-  },
-  {
-    label: "Other Income",
-    nfrsCategory: "other_income_misc",
-    noteRef: "3.17",
-    normalBalance: "credit",
-    synonyms: [
-      "other income",
-      "miscellaneous income",
-      "sundry income",
-      "insurance claim income",
-      "scrap sales",
-      "rebate received",
-      "discount received",
-      "other indirect income",
-      "gain on fv adjustment of listed share",
-      "gain on fair value adjustment"
-    ]
-  },
-  // ══════════════════════════════════════════════════════════════════════════
-  // PURCHASES / COST OF GOODS SOLD
-  // ══════════════════════════════════════════════════════════════════════════
-  {
-    label: "Purchases",
-    nfrsCategory: "cogs_purchases",
-    noteRef: "3.18",
-    normalBalance: "debit",
-    synonyms: [
-      "purchase",
-      "goods purchased",
-      "material purchased",
-      "raw material purchased",
-      "trading purchase",
-      "import purchase",
-      "local purchase",
-      "net purchase",
-      "purchase of goods"
-    ]
-  },
-  {
-    label: "Opening Stock",
-    nfrsCategory: "cogs_opening_stock",
-    noteRef: "3.18",
-    normalBalance: "debit",
-    synonyms: [
-      "opening stock",
-      "opening inventory",
-      "stock opening",
-      "opening balance stock",
-      "inventory opening"
-    ]
-  },
-  // ══════════════════════════════════════════════════════════════════════════
-  // DIRECT EXPENSES
-  // ══════════════════════════════════════════════════════════════════════════
-  {
-    label: "Direct Wages",
-    nfrsCategory: "direct_wages",
-    noteRef: "3.19",
-    normalBalance: "debit",
-    synonyms: [
-      "wages",
-      "factory wages",
-      "production wages",
-      "labour charges",
-      "labour cost",
-      "packing wages",
-      "direct labour",
-      "manufacturing labour"
-    ]
-  },
-  {
-    label: "Direct Expenses",
-    nfrsCategory: "direct_expenses_other",
-    noteRef: "3.19",
-    normalBalance: "debit",
-    synonyms: [
-      "direct expenses",
-      "factory overhead",
-      "production overhead",
-      "manufacturing expenses",
-      "direct cost",
-      "packing charges",
-      "carriage inward",
-      "freight inward",
-      "other direct expenses",
-      "import duty",
-      "clearing charges"
-    ]
-  },
-  // ══════════════════════════════════════════════════════════════════════════
-  // EMPLOYEE BENEFIT EXPENSES
-  // ══════════════════════════════════════════════════════════════════════════
-  {
-    label: "Salaries",
-    nfrsCategory: "emp_expense_salaries",
-    noteRef: "3.20",
-    normalBalance: "debit",
-    synonyms: [
-      "salary",
-      "salaries",
-      "staff salary",
-      "office salary",
-      "monthly salary",
-      "management salary",
-      "staff cost",
-      "wages and salaries",
-      "personnel cost",
-      "salaries & wages",
-      "staff remuneration"
-    ]
-  },
-  {
-    label: "Provident Fund Expense",
-    nfrsCategory: "emp_expense_pf",
-    noteRef: "3.20",
-    normalBalance: "debit",
-    synonyms: [
-      "provident fund expense",
-      "pf contribution",
-      "ssf contribution",
-      "employer pf",
-      "employer contribution pf",
-      "social security contribution",
-      "pf / ssf / cit",
-      "ssf expense"
-    ]
-  },
-  {
-    label: "Gratuity",
-    nfrsCategory: "emp_expense_gratuity",
-    noteRef: "3.20",
-    normalBalance: "debit",
-    synonyms: [
-      "gratuity",
-      "gratuity expense",
-      "gratuity provision",
-      "end of service benefit",
-      "severance",
-      "retirement benefit expense"
-    ]
-  },
-  {
-    label: "Staff Welfare",
-    nfrsCategory: "emp_expense_welfare",
-    noteRef: "3.20",
-    normalBalance: "debit",
-    synonyms: [
-      "staff welfare",
-      "employee welfare",
-      "medical expense",
-      "staff medical",
-      "uniform expense",
-      "staff training",
-      "employee benefit",
-      "allowances",
-      "leave encashment",
-      "other employee related expenses"
-    ]
-  },
-  {
-    label: "Staff Bonus",
-    nfrsCategory: "emp_expense_bonus",
-    noteRef: "3.20",
-    normalBalance: "debit",
-    synonyms: [
-      "staff bonus",
-      "bonus expense",
-      "employee bonus expense",
-      "profit bonus"
-    ]
-  },
-  // ══════════════════════════════════════════════════════════════════════════
-  // FINANCE COSTS
-  // ══════════════════════════════════════════════════════════════════════════
-  {
-    label: "Interest Expense",
-    nfrsCategory: "finance_cost_interest",
-    noteRef: "3.22",
-    normalBalance: "debit",
-    synonyms: [
-      "interest expense",
-      "interest paid",
-      "interest on loan",
-      "bank interest expense",
-      "finance charges",
-      "interest on overdraft",
-      "interest on cc",
-      "loan interest",
-      "interest on term loan",
-      "borrowing cost",
-      "interest costs"
-    ]
-  },
-  {
-    label: "Bank Charges",
-    nfrsCategory: "finance_cost_bank_charges",
-    noteRef: "3.22",
-    normalBalance: "debit",
-    synonyms: [
-      "bank charges",
-      "bank commission",
-      "bank fee",
-      "loan processing fee",
-      "service charge bank",
-      "bank service fee",
-      "dd commission",
-      "swift charges"
-    ]
-  },
-  // ══════════════════════════════════════════════════════════════════════════
-  // ADMINISTRATIVE EXPENSES
-  // ══════════════════════════════════════════════════════════════════════════
-  {
-    label: "Rent",
-    nfrsCategory: "admin_rent",
-    noteRef: "3.22",
-    normalBalance: "debit",
-    synonyms: [
-      "rent",
-      "house rent",
-      "office rent",
-      "shop rent",
-      "warehouse rent",
-      "land rent",
-      "lease rent",
-      "monthly rent",
-      "lease rentals"
-    ]
-  },
-  {
-    label: "Rates & Taxes",
-    nfrsCategory: "admin_rates_taxes",
-    noteRef: "3.22",
-    normalBalance: "debit",
-    synonyms: [
-      "rates and taxes",
-      "local tax",
-      "municipal tax",
-      "property tax",
-      "road tax",
-      "vehicle tax",
-      "professional tax",
-      "renewal fee",
-      "registration fee",
-      "ird registration",
-      "octroi",
-      "dastur",
-      "renew dastur",
-      "renew charge",
-      "company registrar office fee",
-      "cro fee",
-      "ird fine"
-    ]
-  },
-  {
-    label: "Insurance",
-    nfrsCategory: "admin_insurance",
-    noteRef: "3.22",
-    normalBalance: "debit",
-    synonyms: [
-      "insurance",
-      "insurance premium",
-      "vehicle insurance",
-      "fire insurance",
-      "asset insurance",
-      "business insurance",
-      "marine insurance",
-      "insurance expenses"
-    ]
-  },
-  {
-    label: "Repairs & Maintenance",
-    nfrsCategory: "admin_repairs",
-    noteRef: "3.22",
-    normalBalance: "debit",
-    synonyms: [
-      "repairs",
-      "maintenance",
-      "repair and maintenance",
-      "vehicle repair",
-      "building repair",
-      "machine repair",
-      "electrical repair",
-      "amc charges",
-      "pool a",
-      "pool b",
-      "pool c",
-      "pool d",
-      "pool e",
-      "annual maintenance charges"
-    ]
-  },
-  {
-    label: "Electricity & Water",
-    nfrsCategory: "admin_electricity",
-    noteRef: "3.22",
-    normalBalance: "debit",
-    synonyms: [
-      "electricity",
-      "electricity expense",
-      "power expense",
-      "water expense",
-      "nea bill",
-      "electricity bill",
-      "utility expense",
-      "electricity and water",
-      "water & electricity charges",
-      "water & electricity expenses"
-    ]
-  },
-  {
-    label: "Communication",
-    nfrsCategory: "admin_communication",
-    noteRef: "3.22",
-    normalBalance: "debit",
-    synonyms: [
-      "telephone",
-      "internet",
-      "communication expense",
-      "mobile bill",
-      "telephone expense",
-      "broadband",
-      "ntc bill",
-      "ncell bill",
-      "isps",
-      "internet & communication expense"
-    ]
-  },
-  {
-    label: "Printing & Stationery",
-    nfrsCategory: "admin_printing",
-    noteRef: "3.22",
-    normalBalance: "debit",
-    synonyms: [
-      "printing",
-      "stationery",
-      "printing and stationery",
-      "office supplies",
-      "paper expense",
-      "photocopy expense",
-      "printing & stationery"
-    ]
-  },
-  {
-    label: "Legal & Professional",
-    nfrsCategory: "admin_legal_professional",
-    noteRef: "3.22",
-    normalBalance: "debit",
-    synonyms: [
-      "legal fee",
-      "professional fee",
-      "consultancy fee",
-      "advocate fee",
-      "legal expenses",
-      "professional charges",
-      "advisory fee",
-      "legal and professional",
-      "consultancy charges"
-    ]
-  },
-  {
-    label: "Audit Fee",
-    nfrsCategory: "admin_audit_fee",
-    noteRef: "3.22",
-    normalBalance: "debit",
-    synonyms: [
-      "audit fee",
-      "audit fees",
-      "statutory audit fee",
-      "external audit fee",
-      "auditor remuneration",
-      "audit fee and expenses"
-    ]
-  },
-  {
-    label: "Traveling & Conveyance",
-    nfrsCategory: "admin_traveling",
-    noteRef: "3.22",
-    normalBalance: "debit",
-    synonyms: [
-      "traveling",
-      "conveyance",
-      "travel expense",
-      "ta da",
-      "field allowance",
-      "transportation expense",
-      "fuel expense",
-      "petrol expense",
-      "vehicle expense",
-      "tour expense",
-      "fuel expenses",
-      "travelling"
-    ]
-  },
-  {
-    label: "Advertisement & Promotion",
-    nfrsCategory: "admin_other",
-    noteRef: "3.22",
-    normalBalance: "debit",
-    synonyms: [
-      "advertisement",
-      "advertising",
-      "marketing expense",
-      "promotion expense",
-      "business promotion",
-      "advertisement & business promotion",
-      "advertisement expenses"
-    ]
-  },
-  {
-    label: "Refreshment Expenses",
-    nfrsCategory: "admin_other",
-    noteRef: "3.22",
-    normalBalance: "debit",
-    synonyms: [
-      "refreshment",
-      "refreshment expense",
-      "tea and snacks",
-      "staff refreshment",
-      "food expense",
-      "refreshment expenses",
-      "chiya kharcha",
-      "staff chiya",
-      "atithi satkar",
-      "guest entertainment",
-      "tea expense"
-    ]
-  },
-  {
-    label: "Miscellaneous Expenses",
-    nfrsCategory: "admin_other",
-    noteRef: "3.22",
-    normalBalance: "debit",
-    synonyms: [
-      "miscellaneous expenses",
-      "misc expenses",
-      "sundry expenses",
-      "general expenses",
-      "other overhead",
-      "miscellaneous expense",
-      "chanda",
-      "donation",
-      "pooja kharcha",
-      "dashain kharcha",
-      "tihar kharcha",
-      "festival expense"
-    ]
-  },
-  {
-    label: "CSR Expenses",
-    nfrsCategory: "admin_other",
-    noteRef: "3.22",
-    normalBalance: "debit",
-    synonyms: [
-      "csr expenses",
-      "corporate social responsibility",
-      "csr expense",
-      "social responsibility expense"
-    ]
-  },
-  {
-    label: "AGM & Board Meeting Expenses",
-    nfrsCategory: "admin_other",
-    noteRef: "3.22",
-    normalBalance: "debit",
-    synonyms: [
-      "agm expenses",
-      "board meeting expenses",
-      "annual general meeting expense",
-      "board meeting fee",
-      "board expenses"
-    ]
-  },
-  // ══════════════════════════════════════════════════════════════════════════
-  // DEPRECIATION & IMPAIRMENT
-  // ══════════════════════════════════════════════════════════════════════════
-  {
-    label: "Depreciation Expense",
-    nfrsCategory: "depreciation_expense",
-    noteRef: "3.1",
-    normalBalance: "debit",
-    synonyms: [
-      "depreciation",
-      "depreciation expense",
-      "depreciation charge",
-      "depreciation on fixed assets",
-      "amortization",
-      "amortisation"
-    ]
-  },
-  {
-    label: "Impairment Expense",
-    nfrsCategory: "impairment_expense",
-    noteRef: "3.21",
-    normalBalance: "debit",
-    synonyms: [
-      "impairment",
-      "impairment loss",
-      "write off",
-      "bad debt written off",
-      "provision expense",
-      "impairment on receivables",
-      "impairment on unlisted shares",
-      "loss on fair fv adjustment of listed share",
-      "fair value loss",
-      "loss on fair value adjustment"
-    ]
-  },
-  // ══════════════════════════════════════════════════════════════════════════
-  // INCOME TAX
-  // ══════════════════════════════════════════════════════════════════════════
-  {
-    label: "Income Tax Expense",
-    nfrsCategory: "income_tax_expense",
-    noteRef: "3.23",
-    normalBalance: "debit",
-    synonyms: [
-      "income tax",
-      "corporate tax",
-      "company tax",
-      "income tax provision",
-      "deferred tax expense",
-      "current tax",
-      "tax on profit"
-    ]
-  },
-  // ══════════════════════════════════════════════════════════════════════════
-  // OTHER ADMIN / CATCH-ALL
-  // ══════════════════════════════════════════════════════════════════════════
-  {
-    label: "Other Administrative Expenses",
-    nfrsCategory: "admin_other",
-    noteRef: "3.22",
-    normalBalance: "debit",
-    synonyms: [
-      "other expenses",
-      "administrative expense",
-      "office expense",
-      "general overhead",
-      "indirect expenses",
-      "indirect expense"
-    ]
+  {
+    category: "share_capital",
+    displayLabel: "Share Capital",
+    statementLine: "BS Equity",
+    normalBalance: "Cr",
+    isGroup: false,
+    keywords: ["share capital", "paid up capital", "paid-up capital", "issued capital", "subscribed capital", "equity share", "ordinary shares", "common stock", "authorized capital paid", "share money", "capital account", "registered capital", "equity capital", "share fund", "capital stock", "shareholders capital", "company capital", "stated capital"],
+    synonyms: ["paid up capital", "issued share capital", "equity share capital", "ordinary share capital", "subscribed share capital", "capital", "share money", "registered share capital"],
+    nepaliRomanized: ["sheyer kapital", "punji", "share punji", "darta kapital", "sheyer dhan"],
+    exclusionKeywords: []
+  },
+  {
+    category: "share_premium",
+    displayLabel: "Share Premium",
+    statementLine: "BS Equity",
+    normalBalance: "Cr",
+    isGroup: false,
+    keywords: ["share premium", "securities premium", "premium on shares", "capital premium", "share issue premium", "additional paid in", "share premium account", "premium reserve", "issue premium", "share premium reserve", "excess over par", "premium on issue", "share premium fund"],
+    synonyms: ["securities premium account", "premium on share issue", "additional paid-in capital", "share premium reserve", "capital surplus"],
+    nepaliRomanized: ["share premium", "adhik premium", "sheyer premium"],
+    exclusionKeywords: []
+  },
+  {
+    category: "general_reserve",
+    displayLabel: "General Reserve",
+    statementLine: "BS Equity",
+    normalBalance: "Cr",
+    isGroup: false,
+    keywords: ["general reserve", "reserve fund", "general fund", "free reserve", "revenue reserve", "statutory reserve", "accumulated reserve", "general reserves", "reserve account", "appropriation reserve", "retained reserve", "general reserve fund", "reserve and surplus", "other reserve general"],
+    synonyms: ["reserve fund", "free reserves", "general fund", "revenue reserves", "statutory reserves", "appropriated profits"],
+    nepaliRomanized: ["sadharan jama", "jama khata", "reserve khata", "sadharan reserve"],
+    exclusionKeywords: []
+  },
+  {
+    category: "retained_earnings",
+    displayLabel: "Retained Earnings",
+    statementLine: "BS Equity",
+    normalBalance: "Cr",
+    isGroup: false,
+    keywords: ["retained earnings", "retained profit", "accumulated profit", "profit and loss", "p and l", "surplus", "accumulated surplus", "unappropriated profit", "profit brought forward", "balance of profit", "undistributed profit", "profit loss account", "pl account", "retained income", "accumulated deficit", "profit reserve"],
+    synonyms: ["profit and loss account", "accumulated profits", "retained profits", "p&l balance", "surplus account", "unappropriated profits"],
+    nepaliRomanized: ["nafaa khata", "naafaa", "afi ko nafaa", "profit loss", "baki nafaa"],
+    exclusionKeywords: []
+  },
+  {
+    category: "capital_reserve",
+    displayLabel: "Capital Reserve",
+    statementLine: "BS Equity",
+    normalBalance: "Cr",
+    isGroup: false,
+    keywords: ["capital reserve", "capital redemption reserve", "revaluation surplus capital", "capital reserves", "reserve on revaluation", "capital reserve account", "share forfeiture reserve", "capital reserve fund", "premium reserve capital", "capital gain reserve"],
+    synonyms: ["capital redemption reserve", "capital reserve account", "capital reserve fund"],
+    nepaliRomanized: ["punji jama", "capital jama", "punji reserve"],
+    exclusionKeywords: []
+  },
+  {
+    category: "revaluation_reserve",
+    displayLabel: "Revaluation Reserve",
+    statementLine: "BS Equity",
+    normalBalance: "Cr",
+    isGroup: false,
+    keywords: ["revaluation reserve", "asset revaluation reserve", "revaluation surplus", "revaluation reserve account", "property revaluation", "land revaluation reserve", "building revaluation", "revaluation gain reserve", "fair value reserve equity", "revaluation reserve fund"],
+    synonyms: ["asset revaluation reserve", "revaluation surplus account", "property revaluation reserve"],
+    nepaliRomanized: ["punarmulyankan jama", "revaluation jama", "punarmulyan reserve"],
+    exclusionKeywords: []
+  },
+  {
+    category: "borrowings_noncurrent_bank",
+    displayLabel: "Long-term Bank Borrowings",
+    statementLine: "BS NCL Borrowings",
+    normalBalance: "Cr",
+    isGroup: false,
+    keywords: ["term loan", "long term loan", "bank loan long", "secured loan", "loan from bank ncl", "non current bank loan", "term borrowing", "long term borrowing", "bank term loan", "loan bank a", "loan bank b", "nabil term", "hbl term loan", "nic asia term", "loan payable long term", "mortgage loan", "housing loan long"],
+    synonyms: ["term loan from bank", "long-term bank loan", "secured term loan", "bank borrowing non-current"],
+    nepaliRomanized: ["dirghkalin bank loan", "bank bata loan", "rinn"],
+    exclusionKeywords: []
+  },
+  {
+    category: "borrowings_noncurrent_related",
+    displayLabel: "Related Party Loan (NCL)",
+    statementLine: "BS NCL Borrowings",
+    normalBalance: "Cr",
+    isGroup: false,
+    keywords: ["loan from director long", "loan from shareholder", "related party loan ncl", "director loan long term", "loan from partner long", "loan from proprietor long", "unsecured loan related", "loan from holding company", "intercompany loan long", "loan from associate long"],
+    synonyms: ["loan from director", "director loan long-term", "loan from shareholder long-term"],
+    nepaliRomanized: ["sanchalak bata loan", "sambandhit party loan"],
+    exclusionKeywords: []
+  },
+  {
+    category: "employee_benefit_noncurrent",
+    displayLabel: "Employee Benefit Liability (NCL)",
+    statementLine: "BS NCL Employee Benefits",
+    normalBalance: "Cr",
+    isGroup: false,
+    keywords: ["gratuity provision long", "gratuity liability ncl", "employee benefit ncl", "long term gratuity", "gratuity fund liability", "post employment benefit", "defined benefit obligation", "gratuity payable long", "leave encashment ncl", "employee benefit obligation"],
+    synonyms: ["gratuity liability non-current", "long-term employee benefits", "post-employment benefit obligation"],
+    nepaliRomanized: ["dirghkalin upadhan", "karmachari labh dayitwa"],
+    exclusionKeywords: []
+  },
+  {
+    category: "deferred_tax_liability",
+    displayLabel: "Deferred Tax Liability",
+    statementLine: "BS NCL",
+    normalBalance: "Cr",
+    isGroup: false,
+    keywords: ["deferred tax liability", "dtl", "deferred taxation", "deferred tax provision", "timing difference liability", "deferred income tax", "deferred tax payable", "tax timing difference", "deferred tax credit liability"],
+    synonyms: ["deferred tax", "deferred income tax liability", "DTL account"],
+    nepaliRomanized: ["sthir kar dayitwa", "deferred kar"],
+    exclusionKeywords: []
+  },
+  {
+    category: "provisions_noncurrent",
+    displayLabel: "Non-current Provisions",
+    statementLine: "BS NCL Provisions",
+    normalBalance: "Cr",
+    isGroup: false,
+    keywords: ["provision non current", "long term provision", "warranty provision long", "decommissioning provision", "provision for claims long", "litigation provision", "environmental provision", "restructuring provision long", "provision ncl"],
+    synonyms: ["non-current provisions", "long-term provision", "provision for liabilities long-term"],
+    nepaliRomanized: ["dirghkalin prabandhan", "sthir prabandhan"],
+    exclusionKeywords: []
+  },
+  {
+    category: "trade_payables",
+    displayLabel: "Trade Payables",
+    statementLine: "BS CL Trade Payables",
+    normalBalance: "Cr",
+    isGroup: false,
+    keywords: ["trade payable", "trade creditor", "sundry creditor", "accounts payable", "creditor a", "creditor b", "creditor c", "supplier payable", "bills payable trade", "trade accounts payable", "local supplier", "foreign supplier payable", "purchase creditor", "vendor payable", "payable to supplier", "trade dues", "commercial creditor"],
+    synonyms: ["sundry creditors", "trade creditors", "accounts payable", "creditors", "supplier dues"],
+    nepaliRomanized: ["lenidar", "byapari lenidar", "karidar", "supplier tirnu"],
+    exclusionKeywords: []
+  },
+  {
+    category: "borrowings_current_overdraft",
+    displayLabel: "Overdraft / Cash Credit",
+    statementLine: "BS CL Borrowings",
+    normalBalance: "Cr",
+    isGroup: false,
+    keywords: ["overdraft", "od account", "cash credit", "cc account", "bank od", "over draft", "od facility", "cash credit limit", "od bank", "cc limit", "overdraft facility", "bank overdraft", "cc bank", "od nabil", "od hbl", "cash credit working"],
+    synonyms: ["bank overdraft", "cash credit account", "OD facility", "CC limit"],
+    nepaliRomanized: ["overdraft", "cash credit", "bank od"],
+    exclusionKeywords: []
+  },
+  {
+    category: "borrowings_current_working",
+    displayLabel: "Working Capital Loan",
+    statementLine: "BS CL Borrowings",
+    normalBalance: "Cr",
+    isGroup: false,
+    keywords: ["working capital loan", "wc loan", "working capital facility", "short term wc", "working capital borrowing", "wc limit", "working capital bank loan", "demand loan wc", "packing credit", "export finance short"],
+    synonyms: ["WC loan", "working capital facility", "short-term working capital loan"],
+    nepaliRomanized: ["working capital loan", "chalu punji rin"],
+    exclusionKeywords: []
+  },
+  {
+    category: "borrowings_current_bank",
+    displayLabel: "Short-term Bank Loans",
+    statementLine: "BS CL Borrowings",
+    normalBalance: "Cr",
+    isGroup: false,
+    keywords: ["short term loan", "bank loan current", "loan payable current", "current portion term loan", "bank loan due 12 months", "demand loan", "short term borrowing", "loan bank current", "bridge loan", "loan repayment current", "installment due current", "bank loan cl"],
+    synonyms: ["short-term bank loan", "current portion of long-term debt", "demand loan"],
+    nepaliRomanized: ["chalu bank loan", "chhoto mudati loan"],
+    exclusionKeywords: []
+  },
+  {
+    category: "borrowings_related_current",
+    displayLabel: "Related Party Loan (CL)",
+    statementLine: "BS CL Borrowings",
+    normalBalance: "Cr",
+    isGroup: false,
+    keywords: ["loan from director current", "loan from partner current", "director loan short", "related party loan current", "loan from shareholder current", "loan from proprietor", "unsecured loan director", "loan payable director", "loan from md", "loan from chairman"],
+    synonyms: ["director loan current", "loan from director", "related party borrowing current"],
+    nepaliRomanized: ["sanchalak loan chalu", "sambandhit rin"],
+    exclusionKeywords: []
+  },
+  {
+    category: "tds_payable",
+    displayLabel: "TDS Payable",
+    statementLine: "BS CL Tax",
+    normalBalance: "Cr",
+    isGroup: false,
+    keywords: ["tds payable", "tds on salary", "tds on rent", "tds on service", "tds on commission", "tds on professional", "tds audit fee", "tds dividend", "tax deducted payable", "tds liability", "tds withheld payable", "tds contractor", "tds interest", "tds ird payable", "withholding tax payable"],
+    synonyms: ["TDS payable account", "tax deducted at source payable", "withholding tax liability"],
+    nepaliRomanized: ["tds tirnu", "kata gareko kar", "source ma kata"],
+    exclusionKeywords: []
+  },
+  {
+    category: "vat_payable",
+    displayLabel: "VAT Payable",
+    statementLine: "BS CL Tax",
+    normalBalance: "Cr",
+    isGroup: false,
+    keywords: ["vat payable", "output vat", "vat liability", "vat on sales", "sales tax payable", "vat 13 percent", "value added tax payable", "vat return payable", "ird vat payable", "vat collected", "output tax payable", "vat due", "hulak tirnu"],
+    synonyms: ["output VAT", "VAT liability", "value added tax payable"],
+    nepaliRomanized: ["vat tirnu", "hulak khata", "output vat"],
+    exclusionKeywords: []
+  },
+  {
+    category: "income_tax_payable",
+    displayLabel: "Income Tax Payable",
+    statementLine: "BS CL Tax",
+    normalBalance: "Cr",
+    isGroup: false,
+    keywords: ["income tax payable", "tax payable", "corporate tax payable", "provision for tax", "income tax liability", "tax provision current", "ird tax payable", "current tax payable", "tax due ird", "provision income tax", "income tax due", "net tax payable"],
+    synonyms: ["income tax liability", "corporate tax payable", "tax provision"],
+    nepaliRomanized: ["aaykar tirnu", "kar dayitwa", "income tax"],
+    exclusionKeywords: []
+  },
+  {
+    category: "advance_tax",
+    displayLabel: "Advance Tax Paid",
+    statementLine: "BS CA Tax",
+    normalBalance: "Dr",
+    isGroup: false,
+    keywords: ["advance tax", "advance income tax", "advance tax paid", "tax paid in advance", "advance ird", "advance corporate tax", "prepaid income tax", "tax advance asset", "advance tax recoverable", "quarterly advance tax", "advance tax q1", "advance tax q2", "advance tax q3"],
+    synonyms: ["advance income tax paid", "prepaid tax", "advance corporate tax"],
+    nepaliRomanized: ["agadi tireko kar", "advance kar"],
+    exclusionKeywords: []
+  },
+  {
+    category: "salary_payable",
+    displayLabel: "Salary Payable",
+    statementLine: "BS CL Employee",
+    normalBalance: "Cr",
+    isGroup: false,
+    keywords: ["salary payable", "wages payable", "employee payable", "staff salary due", "salary due", "net salary payable", "employee a", "employee b", "employee c", "unpaid salary", "salary outstanding", "payroll payable", "remuneration payable", "salary accrual", "staff dues"],
+    synonyms: ["salaries payable", "wages payable", "staff salary payable", "payroll liability"],
+    nepaliRomanized: ["tankha tirnu", "tanabu baki", "karmachari tirnu"],
+    exclusionKeywords: []
+  },
+  {
+    category: "bonus_payable",
+    displayLabel: "Staff Bonus Payable",
+    statementLine: "BS CL Employee",
+    normalBalance: "Cr",
+    isGroup: false,
+    keywords: ["bonus payable", "staff bonus payable", "employee bonus due", "festival bonus payable", "dashain bonus payable", "bonus accrual", "bonus provision payable", "staff bonus due", "year end bonus payable", "bonus liability"],
+    synonyms: ["staff bonus payable", "employee bonus payable", "bonus due to staff"],
+    nepaliRomanized: ["bonus tirnu", "karmachari bonus"],
+    exclusionKeywords: []
+  },
+  {
+    category: "pf_ssf_payable",
+    displayLabel: "PF / SSF / CIT Payable",
+    statementLine: "BS CL Employee",
+    normalBalance: "Cr",
+    isGroup: false,
+    keywords: ["pf payable", "provident fund payable", "ssf payable", "cit payable", "epf payable", "pf contribution payable", "ssf contribution", "cit contribution", "employee pf payable", "employer pf payable", "pf ssf payable", "social security fund", "cit fund payable"],
+    synonyms: ["provident fund payable", "SSF payable", "CIT payable", "EPF payable"],
+    nepaliRomanized: ["pf tirnu", "ssf tirnu", "cit tirnu", "provident fund"],
+    exclusionKeywords: []
+  },
+  {
+    category: "audit_fee_payable",
+    displayLabel: "Audit Fee Payable",
+    statementLine: "BS CL",
+    normalBalance: "Cr",
+    isGroup: false,
+    keywords: ["audit fee payable", "statutory audit fee payable", "auditor fee due", "audit fee accrued", "audit fee outstanding", "audit remuneration payable", "audit fee liability", "professional audit fee payable"],
+    synonyms: ["statutory audit fee payable", "auditor fee payable", "audit fee due"],
+    nepaliRomanized: ["audit fee tirnu", "audit kharcha tirnu"],
+    exclusionKeywords: []
+  },
+  {
+    category: "dividend_payable",
+    displayLabel: "Dividend Payable",
+    statementLine: "BS CL",
+    normalBalance: "Cr",
+    isGroup: false,
+    keywords: ["dividend payable", "proposed dividend", "interim dividend payable", "final dividend payable", "dividend declared", "dividend due shareholders", "unpaid dividend", "dividend liability", "tds dividend payable", "dividend distribution payable"],
+    synonyms: ["proposed dividend payable", "dividend declared payable", "unpaid dividend"],
+    nepaliRomanized: ["dividend tirnu", "labhansh tirnu"],
+    exclusionKeywords: []
+  },
+  {
+    category: "advance_from_customers",
+    displayLabel: "Advance from Customers",
+    statementLine: "BS CL",
+    normalBalance: "Cr",
+    isGroup: false,
+    keywords: ["advance from customer", "advance from customers", "customer advance", "advance receipt", "booking advance", "order advance", "advance against order", "security from customer", "customer deposit liability", "advance sales", "unearned revenue advance"],
+    synonyms: ["customer advance", "advance received from customers", "booking money received"],
+    nepaliRomanized: ["grahak bata advance", "advance prapti"],
+    exclusionKeywords: []
+  },
+  {
+    category: "provisions_csr",
+    displayLabel: "CSR Provision",
+    statementLine: "BS CL Provisions",
+    normalBalance: "Cr",
+    isGroup: false,
+    keywords: ["csr provision", "provision for csr", "corporate social responsibility", "csr fund provision", "csr liability", "csr expense provision", "social responsibility provision", "csr reserve provision"],
+    synonyms: ["provision for CSR", "CSR fund", "corporate social responsibility provision"],
+    nepaliRomanized: ["csr prabandhan", "samajik dayitwa"],
+    exclusionKeywords: []
+  },
+  {
+    category: "provisions_current",
+    displayLabel: "Current Provisions",
+    statementLine: "BS CL Provisions",
+    normalBalance: "Cr",
+    isGroup: false,
+    keywords: ["provision current", "provision for expenses", "general provision", "warranty provision", "provision for claims", "litigation provision current", "provision for doubtful", "expense provision", "year end provision", "provision cl", "contingent provision current"],
+    synonyms: ["current provisions", "provision for expenses", "general provision"],
+    nepaliRomanized: ["chalu prabandhan", "prabandhan kharcha"],
+    exclusionKeywords: []
+  },
+  {
+    category: "other_current_liabilities",
+    displayLabel: "Other Current Liabilities",
+    statementLine: "BS CL Other",
+    normalBalance: "Cr",
+    isGroup: false,
+    keywords: ["other current liability", "sundry payable", "miscellaneous payable", "other payable cl", "accrued expenses", "accrued liability", "other cl", "suspense credit", "unallocated credit", "other dues current", "outstanding expenses"],
+    synonyms: ["sundry payables", "miscellaneous payables", "accrued liabilities"],
+    nepaliRomanized: ["anya chalu dayitwa", "anya tirnu"],
+    exclusionKeywords: []
+  },
+  {
+    category: "ppe_land",
+    displayLabel: "Land",
+    statementLine: "BS NCA PPE",
+    normalBalance: "Dr",
+    isGroup: false,
+    keywords: ["land", "plot", "land and building land", "freehold land", "leasehold land", "land cost", "land asset", "agricultural land", "industrial land", "commercial plot", "residential plot", "land at cost", "land property", "jagga", "bhoomi", "land bank"],
+    synonyms: ["freehold land", "land and site", "plot of land", "land property"],
+    nepaliRomanized: ["bhoomi", "jagga", "jamin", "jameen", "sthal"],
+    exclusionKeywords: []
+  },
+  {
+    category: "ppe_buildings",
+    displayLabel: "Buildings",
+    statementLine: "BS NCA PPE",
+    normalBalance: "Dr",
+    isGroup: false,
+    keywords: ["building", "factory building", "office building", "warehouse", "godown", "structure", "industrial shed", "commercial building", "residential building", "building at cost", "premises", "plant building", "workshop building", "building improvement"],
+    synonyms: ["factory building", "office premises", "godown", "warehouse building"],
+    nepaliRomanized: ["bhawan", "imarat", "ghar", "karkhana bhawan"],
+    exclusionKeywords: []
+  },
+  {
+    category: "ppe_vehicles",
+    displayLabel: "Vehicles",
+    statementLine: "BS NCA PPE",
+    normalBalance: "Dr",
+    isGroup: false,
+    keywords: ["vehicle", "motor vehicle", "car", "truck", "van", "jeep", "bus", "motorcycle", "bike", "transport vehicle", "company vehicle", "delivery van", "forklift", "loader vehicle", "automobile"],
+    synonyms: ["motor car", "company car", "truck", "delivery vehicle"],
+    nepaliRomanized: ["gadi", "sawari", "motor", "gaadi"],
+    exclusionKeywords: []
+  },
+  {
+    category: "ppe_office_equipment",
+    displayLabel: "Office Equipment",
+    statementLine: "BS NCA PPE",
+    normalBalance: "Dr",
+    isGroup: false,
+    keywords: ["office equipment", "furniture and fixture", "furniture office", "fixture fitting", "office fixture", "equipment office", "photocopier", "printer asset", "scanner asset", "ac unit asset", "air conditioner asset", "generator asset", "ups asset", "office machines"],
+    synonyms: ["furniture and fixtures", "office fixtures", "furniture & office equipment"],
+    nepaliRomanized: ["office saman", "furniture", "sajawat"],
+    exclusionKeywords: []
+  },
+  {
+    category: "ppe_computers",
+    displayLabel: "Computers & IT Equipment",
+    statementLine: "BS NCA PPE",
+    normalBalance: "Dr",
+    isGroup: false,
+    keywords: ["computer", "laptop", "desktop", "server hardware", "it equipment", "network equipment", "router asset", "switch asset", "monitor asset", "computer hardware", "pc asset", "notebook computer", "workstation", "tablet asset", "peripheral"],
+    synonyms: ["computer equipment", "IT hardware", "laptop computer", "desktop computer"],
+    nepaliRomanized: ["computer", "laptop", "pc"],
+    exclusionKeywords: []
+  },
+  {
+    category: "ppe_furniture",
+    displayLabel: "Furniture",
+    statementLine: "BS NCA PPE",
+    normalBalance: "Dr",
+    isGroup: false,
+    keywords: ["furniture", "office furniture", "chair", "table asset", "desk", "cabinet", "sofa asset", "almirah", "rack", "shelf asset", "wooden furniture", "steel furniture", "furnishing asset", "interior furniture"],
+    synonyms: ["office furniture", "furnishings", "furniture and fittings"],
+    nepaliRomanized: ["furniture", "mej kursi", "sajawat"],
+    exclusionKeywords: []
+  },
+  {
+    category: "ppe_plant_machinery",
+    displayLabel: "Plant & Machinery",
+    statementLine: "BS NCA PPE",
+    normalBalance: "Dr",
+    isGroup: false,
+    keywords: ["plant machinery", "plant and machinery", "machinery", "production machine", "manufacturing equipment", "industrial machine", "boiler", "turbine", "compressor", "generator plant", "pm asset", "factory machine", "processing equipment", "heavy machinery"],
+    synonyms: ["plant & machinery", "P&M", "production machinery", "industrial machinery"],
+    nepaliRomanized: ["yantra", "machine", "plant machinery"],
+    exclusionKeywords: []
+  },
+  {
+    category: "ppe_intangibles",
+    displayLabel: "Intangible Assets",
+    statementLine: "BS NCA PPE",
+    normalBalance: "Dr",
+    isGroup: false,
+    keywords: ["intangible", "tally software", "computer software", "leasehold improvement", "trademark", "goodwill", "patent", "copyright", "license asset", "erp software", "accounting software", "software license", "brand asset", "franchise asset", "intellectual property"],
+    synonyms: ["software", "Tally software", "leasehold", "intangible assets", "goodwill"],
+    nepaliRomanized: ["software", "abhilekh sampatti", "intangible"],
+    exclusionKeywords: []
+  },
+  {
+    category: "ppe_cwip",
+    displayLabel: "Capital Work in Progress",
+    statementLine: "BS NCA PPE",
+    normalBalance: "Dr",
+    isGroup: false,
+    keywords: ["cwip", "capital wip", "work in progress asset", "under construction", "construction in progress", "capital work progress", "asset under construction", "building under construction", "plant under installation", "project wip", "capitalized wip"],
+    synonyms: ["capital WIP", "work in progress capital", "under construction asset"],
+    nepaliRomanized: ["nirman adhura", "cwip", "kaam adhura"],
+    exclusionKeywords: []
+  },
+  {
+    category: "accum_depreciation",
+    displayLabel: "Accumulated Depreciation",
+    statementLine: "BS NCA PPE Contra",
+    normalBalance: "Cr",
+    isGroup: false,
+    keywords: ["accumulated depreciation", "accum depreciation", "depreciation accumulated", "less depreciation", "provision depreciation", "depreciation reserve asset", "accum depn", "total depreciation", "depreciation till date", "written down accumulated"],
+    synonyms: ["accumulated depn", "less: accumulated depreciation", "depreciation provision"],
+    nepaliRomanized: ["jamma mur", "mur jamma", "depreciation jamma"],
+    exclusionKeywords: []
+  },
+  {
+    category: "investment_listed_trading",
+    displayLabel: "Listed Share Investments",
+    statementLine: "BS NCA/CA Investments",
+    normalBalance: "Dr",
+    isGroup: false,
+    keywords: ["listed shares", "shares listed", "nepse shares", "trading securities", "equity shares listed", "demat shares", "share investment listed", "quoted shares", "marketable securities", "shares of ltd listed", "stock investment listed", "nepse investment"],
+    synonyms: ["listed equity shares", "NEPSE shares", "trading investment"],
+    nepaliRomanized: ["sheyar lagani listed", "nepse share"],
+    exclusionKeywords: []
+  },
+  {
+    category: "investment_unlisted",
+    displayLabel: "Unlisted Investments",
+    statementLine: "BS NCA Investments",
+    normalBalance: "Dr",
+    isGroup: false,
+    keywords: ["unlisted shares", "private ltd investment", "investment in pvt ltd", "unquoted shares", "associate investment", "subsidiary investment", "investment in company", "share of pqr ltd", "long term investment unlisted", "equity investment unlisted", "partnership investment"],
+    synonyms: ["unlisted equity", "investment in private company", "shares unlisted"],
+    nepaliRomanized: ["unlisted lagani", "private company share"],
+    exclusionKeywords: []
+  },
+  {
+    category: "investment_fixed_deposit_noncurrent",
+    displayLabel: "Fixed Deposit (NCA)",
+    statementLine: "BS NCA",
+    normalBalance: "Dr",
+    isGroup: false,
+    keywords: ["fixed deposit long", "fd more than 12 months", "fixed deposit nca", "term deposit long", "bank fd long term", "fixed deposit over 1 year", "long term fd", "fd investment", "fixed deposit non current"],
+    synonyms: ["long-term fixed deposit", "FD > 12 months", "term deposit non-current"],
+    nepaliRomanized: ["dirghkalin fd", "fixed deposit"],
+    exclusionKeywords: []
+  },
+  {
+    category: "nca_deposits",
+    displayLabel: "Security Deposits (NCA)",
+    statementLine: "BS NCA",
+    normalBalance: "Dr",
+    isGroup: false,
+    keywords: ["security deposit", "deposits long term", "caution money", "refundable deposit", "tenant deposit", "rent deposit", "utility deposit", "margin deposit long", "earnest money deposit", "performance deposit"],
+    synonyms: ["security deposits", "caution money", "refundable deposits"],
+    nepaliRomanized: ["dhilauni", "security deposit", "jamanat"],
+    exclusionKeywords: []
+  },
+  {
+    category: "nca_loans_advances",
+    displayLabel: "Loans & Advances (NCA)",
+    statementLine: "BS NCA",
+    normalBalance: "Dr",
+    isGroup: false,
+    keywords: ["loans advances nca", "long term advance", "loan receivable long", "advance recoverable long", "staff loan long", "director loan asset long", "intercompany advance long", "deposit long term receivable"],
+    synonyms: ["long-term loans and advances", "non-current loans receivable"],
+    nepaliRomanized: ["dirghkalin advance", "rin prapta"],
+    exclusionKeywords: []
+  },
+  {
+    category: "biological_assets",
+    displayLabel: "Biological Assets",
+    statementLine: "BS NCA",
+    normalBalance: "Dr",
+    isGroup: false,
+    keywords: ["biological asset", "livestock", "poultry", "plantation", "crops standing", "aquaculture", "dairy cattle", "goat farm asset", "fish pond asset", "nursery plants", "tea plantation"],
+    synonyms: ["livestock assets", "poultry farm", "plantation assets"],
+    nepaliRomanized: ["jeevit sampatti", "pashu palan", "kukhura farm"],
+    exclusionKeywords: []
+  },
+  {
+    category: "provision_impairment_investments",
+    displayLabel: "Provision on Investments",
+    statementLine: "BS NCA Contra",
+    normalBalance: "Cr",
+    isGroup: false,
+    keywords: ["provision impairment investment", "impairment on investment", "provision for diminution investment", "investment provision", "provision unlisted shares", "impairment provision investment"],
+    synonyms: ["provision for impairment on investments", "investment impairment provision"],
+    nepaliRomanized: ["lagani mur prabandhan"],
+    exclusionKeywords: []
+  },
+  {
+    category: "other_noncurrent_assets",
+    displayLabel: "Other Non-current Assets",
+    statementLine: "BS NCA Other",
+    normalBalance: "Dr",
+    isGroup: false,
+    keywords: ["other nca", "non current asset other", "assets held for sale nca", "deferred tax asset long", "prepaid expense long", "other long term asset", "nca miscellaneous", "long term receivable other"],
+    synonyms: ["other non-current assets", "miscellaneous NCA"],
+    nepaliRomanized: ["anya sthir sampatti"],
+    exclusionKeywords: []
+  },
+  {
+    category: "inventory_raw_materials",
+    displayLabel: "Raw Materials",
+    statementLine: "BS CA Inventory",
+    normalBalance: "Dr",
+    isGroup: false,
+    keywords: ["raw material", "raw materials stock", "rm stock", "material stock", "inventory raw", "opening raw material", "closing raw material", "raw material inventory", "stores raw", "components stock", "packing material stock"],
+    synonyms: ["raw materials", "RM inventory", "materials stock"],
+    nepaliRomanized: ["kachcha saman", "raw material stock"],
+    exclusionKeywords: []
+  },
+  {
+    category: "inventory_wip",
+    displayLabel: "Work in Progress",
+    statementLine: "BS CA Inventory",
+    normalBalance: "Dr",
+    isGroup: false,
+    keywords: ["work in progress inventory", "wip stock", "semi finished goods", "goods in process", "production wip", "manufacturing wip", "wip inventory", "work in process stock", "job in progress"],
+    synonyms: ["WIP", "work-in-progress", "semi-finished goods"],
+    nepaliRomanized: ["adhura kaam", "wip stock"],
+    exclusionKeywords: []
+  },
+  {
+    category: "inventory_finished_goods",
+    displayLabel: "Finished Goods",
+    statementLine: "BS CA Inventory",
+    normalBalance: "Dr",
+    isGroup: false,
+    keywords: ["finished goods", "trading stock", "closing stock", "stock in trade", "stock in hand", "inventory finished", "fg stock", "merchandise inventory", "goods for sale", "closing inventory", "trading inventory", "manufactured goods stock"],
+    synonyms: ["closing stock", "stock in trade", "finished goods inventory", "trading stock"],
+    nepaliRomanized: ["tayar saman", "stock", "inventory"],
+    exclusionKeywords: []
+  },
+  {
+    category: "trade_receivables",
+    displayLabel: "Trade Receivables",
+    statementLine: "BS CA Receivables",
+    normalBalance: "Dr",
+    isGroup: false,
+    keywords: ["trade receivable", "trade debtor", "sundry debtor", "accounts receivable", "debtor a", "debtor b", "debtor c", "customer receivable", "bills receivable trade", "sales debtor", "receivable from customer", "commercial debtor", "trade dues receivable"],
+    synonyms: ["sundry debtors", "trade debtors", "accounts receivable", "debtors"],
+    nepaliRomanized: ["dhani", "paune", "byapari dhani", "receivable"],
+    exclusionKeywords: []
+  },
+  {
+    category: "provision_impairment_debtors",
+    displayLabel: "Provision on Debtors",
+    statementLine: "BS CA Contra",
+    normalBalance: "Cr",
+    isGroup: false,
+    keywords: ["provision impairment debtors", "provision bad debts", "provision doubtful debts", "impairment receivables", "bad debt provision", "doubtful debt provision", "provision for debtors", "allowance bad debts"],
+    synonyms: ["provision for bad debts", "provision for doubtful debts", "impairment on receivables"],
+    nepaliRomanized: ["dhani mur prabandhan", "doubtful debt"],
+    exclusionKeywords: []
+  },
+  {
+    category: "related_party_receivable",
+    displayLabel: "Related Party Receivable",
+    statementLine: "BS CA Receivables",
+    normalBalance: "Dr",
+    isGroup: false,
+    keywords: ["director receivable", "loan to director", "receivable related party", "director c", "director d", "shareholder receivable", "loan to partner", "advance to director", "due from director", "intercompany receivable", "associate receivable"],
+    synonyms: ["receivable from related party", "loan to director", "director advance"],
+    nepaliRomanized: ["sanchalak bata paune", "sambandhit paune"],
+    exclusionKeywords: []
+  },
+  {
+    category: "other_receivables_advance_supplier",
+    displayLabel: "Advance to Suppliers",
+    statementLine: "BS CA Other Receivables",
+    normalBalance: "Dr",
+    isGroup: false,
+    keywords: ["advance to supplier", "advance supplier", "prepaid supplier", "supplier advance", "purchase advance", "advance against purchase", "vendor advance", "advance payment supplier", "import advance"],
+    synonyms: ["advance to suppliers", "prepayment to supplier", "vendor advance"],
+    nepaliRomanized: ["supplier lai advance", "karidar advance"],
+    exclusionKeywords: []
+  },
+  {
+    category: "other_receivables_prepayments",
+    displayLabel: "Prepayments",
+    statementLine: "BS CA Other Receivables",
+    normalBalance: "Dr",
+    isGroup: false,
+    keywords: ["prepayment", "prepaid expense", "prepaid rent", "prepaid insurance", "prepaid license", "advance expense", "prepaid subscription", "prepaid annual", "deferred expense prepaid"],
+    synonyms: ["prepaid expenses", "prepaid rent", "prepaid insurance"],
+    nepaliRomanized: ["agadi tireko kharcha", "prepaid"],
+    exclusionKeywords: []
+  },
+  {
+    category: "other_receivables_staff_advance",
+    displayLabel: "Staff Advance",
+    statementLine: "BS CA Other Receivables",
+    normalBalance: "Dr",
+    isGroup: false,
+    keywords: ["staff advance", "employee advance", "salary advance", "advance to staff", "advance to employee", "staff loan short", "imprest advance", "travel advance staff"],
+    synonyms: ["employee advance", "salary advance", "staff loan"],
+    nepaliRomanized: ["karmachari advance", "staff advance"],
+    exclusionKeywords: []
+  },
+  {
+    category: "other_receivables_tds",
+    displayLabel: "TDS Receivable",
+    statementLine: "BS CA Other Receivables",
+    normalBalance: "Dr",
+    isGroup: false,
+    keywords: ["tds receivable", "tds deducted at source", "tds asset", "tds recoverable", "withholding tax receivable", "tds credit receivable", "tds on income received", "input tds"],
+    synonyms: ["TDS recoverable", "tax deducted at source receivable", "TDS asset"],
+    nepaliRomanized: ["tds paune", "kata prapta"],
+    exclusionKeywords: []
+  },
+  {
+    category: "other_receivables_loans",
+    displayLabel: "Loans & Advances (CA)",
+    statementLine: "BS CA Other Receivables",
+    normalBalance: "Dr",
+    isGroup: false,
+    keywords: ["loans advances current", "short term loan given", "advance recoverable", "loan receivable current", "staff loan current", "deposit receivable short", "advance other current"],
+    synonyms: ["current loans and advances", "short-term advances"],
+    nepaliRomanized: ["chalu advance", "rin dinu"],
+    exclusionKeywords: []
+  },
+  {
+    category: "bank_current_account",
+    displayLabel: "Bank Current/Savings",
+    statementLine: "BS CA Cash",
+    normalBalance: "Dr",
+    isGroup: false,
+    keywords: ["bank current", "current account", "savings account", "bank a", "bank b", "bank c", "bank d", "nabil bank", "hbl account", "nic asia", "himalayan bank", "everest bank", "global ime", "kumari bank", "sanima bank", "nmb bank", "prabhu bank", "siddhartha bank", "mega bank", "civil bank", "bank balance"],
+    synonyms: ["current account", "savings account", "bank account", "CA account"],
+    nepaliRomanized: ["bank khata", "current khata", "bank balance"],
+    exclusionKeywords: []
+  },
+  {
+    category: "bank_fixed_deposit_current",
+    displayLabel: "Fixed Deposit (CA)",
+    statementLine: "BS CA Cash",
+    normalBalance: "Dr",
+    isGroup: false,
+    keywords: ["fixed deposit current", "fd short term", "fd within 12 months", "fixed deposit ca", "term deposit current", "bank fd current", "fd maturing within year"],
+    synonyms: ["short-term FD", "FD \u2264 12 months", "current fixed deposit"],
+    nepaliRomanized: ["chalu fd", "short fd"],
+    exclusionKeywords: []
+  },
+  {
+    category: "cash_in_hand",
+    displayLabel: "Cash in Hand",
+    statementLine: "BS CA Cash",
+    normalBalance: "Dr",
+    isGroup: false,
+    keywords: ["cash in hand", "petty cash", "cash", "cash book", "cash at office", "cash drawer", "imprest cash", "cash float", "khajana", "nakad", "physical cash", "cash balance"],
+    synonyms: ["petty cash", "cash", "cash at bank and in hand"],
+    nepaliRomanized: ["nakad", "khajana", "haat ma nakad", "petty cash"],
+    exclusionKeywords: []
+  },
+  {
+    category: "lc_bg_margin",
+    displayLabel: "LC/BG Margin",
+    statementLine: "BS CA Other",
+    normalBalance: "Dr",
+    isGroup: false,
+    keywords: ["lc margin", "bg margin", "letter of credit margin", "bank guarantee margin", "guarantee margin", "lc deposit", "bg deposit", "margin money lc", "margin money bg", "bid bond margin"],
+    synonyms: ["LC margin", "BG margin", "guarantee margin deposit"],
+    nepaliRomanized: ["lc margin", "bg jamanat"],
+    exclusionKeywords: []
+  },
+  {
+    category: "other_current_assets",
+    displayLabel: "Other Current Assets",
+    statementLine: "BS CA Other",
+    normalBalance: "Dr",
+    isGroup: false,
+    keywords: ["other current asset", "miscellaneous current asset", "suspense debit", "unallocated debit", "other ca", "prepaid current other", "input vat asset", "assets held for sale current"],
+    synonyms: ["miscellaneous current assets", "other CA"],
+    nepaliRomanized: ["anya chalu sampatti"],
+    exclusionKeywords: []
+  },
+  {
+    category: "revenue_sales",
+    displayLabel: "Sales Revenue",
+    statementLine: "IS Revenue",
+    normalBalance: "Cr",
+    isGroup: false,
+    keywords: ["sales", "sales revenue", "revenue from sales", "turnover", "gross sales", "net sales", "sales account", "sales income", "product sales", "goods sold revenue", "domestic sales", "export sales", "trading income sales"],
+    synonyms: ["sales", "revenue", "turnover", "sales income"],
+    nepaliRomanized: ["bikri", "sales aamdani", "byapar"],
+    exclusionKeywords: []
+  },
+  {
+    category: "revenue_services",
+    displayLabel: "Service Revenue",
+    statementLine: "IS Revenue",
+    normalBalance: "Cr",
+    isGroup: false,
+    keywords: ["service income", "service revenue", "rendering of services", "professional fees income", "consultancy income", "service charges", "fees income service", "contract revenue service", "commission service income"],
+    synonyms: ["service income", "services rendered", "fee income"],
+    nepaliRomanized: ["sewa aamdani", "service income"],
+    exclusionKeywords: []
+  },
+  {
+    category: "interest_income",
+    displayLabel: "Interest Income",
+    statementLine: "IS Other Income",
+    normalBalance: "Cr",
+    isGroup: false,
+    keywords: ["interest income", "interest received", "interest on fd", "interest on deposit", "bank interest income", "interest earned", "finance income interest", "interest on loan given"],
+    synonyms: ["interest received", "interest earned", "bank interest"],
+    nepaliRomanized: ["byaj aamdani", "interest"],
+    exclusionKeywords: []
+  },
+  {
+    category: "dividend_income",
+    displayLabel: "Dividend Income",
+    statementLine: "IS Other Income",
+    normalBalance: "Cr",
+    isGroup: false,
+    keywords: ["dividend income", "dividend received", "income from dividend", "share dividend", "investment dividend", "dividend on shares"],
+    synonyms: ["dividend received", "income from dividends"],
+    nepaliRomanized: ["dividend aamdani"],
+    exclusionKeywords: []
+  },
+  {
+    category: "commission_income",
+    displayLabel: "Commission Income",
+    statementLine: "IS Other Income",
+    normalBalance: "Cr",
+    isGroup: false,
+    keywords: ["commission income", "commission received", "brokerage income", "agency commission", "sales commission income", "referral income"],
+    synonyms: ["commission received", "brokerage income"],
+    nepaliRomanized: ["commission aamdani"],
+    exclusionKeywords: []
+  },
+  {
+    category: "rental_income",
+    displayLabel: "Rental Income",
+    statementLine: "IS Other Income",
+    normalBalance: "Cr",
+    isGroup: false,
+    keywords: ["rental income", "rent received", "lease income", "property rent income", "building rent received", "hire income"],
+    synonyms: ["rent received", "lease income", "rental revenue"],
+    nepaliRomanized: ["bhada aamdani", "kiraya prapti"],
+    exclusionKeywords: []
+  },
+  {
+    category: "gain_on_disposal",
+    displayLabel: "Gain on Disposal",
+    statementLine: "IS Other Income",
+    normalBalance: "Cr",
+    isGroup: false,
+    keywords: ["gain on disposal", "profit on sale of asset", "gain on sale ppe", "profit on disposal", "gain on asset sale", "surplus on disposal", "gain on sale of vehicle", "gain on sale building"],
+    synonyms: ["profit on disposal of assets", "gain on sale of fixed assets"],
+    nepaliRomanized: ["bikri bata nafaa"],
+    exclusionKeywords: []
+  },
+  {
+    category: "insurance_claim_income",
+    displayLabel: "Insurance Claim Income",
+    statementLine: "IS Other Income",
+    normalBalance: "Cr",
+    isGroup: false,
+    keywords: ["insurance claim", "insurance recovery", "claim received insurance", "insurance compensation", "insurance settlement income"],
+    synonyms: ["insurance claim received", "insurance recovery income"],
+    nepaliRomanized: ["bima dabi aamdani"],
+    exclusionKeywords: []
+  },
+  {
+    category: "fv_gain_listed",
+    displayLabel: "FV Gain on Listed Shares",
+    statementLine: "IS Other Income",
+    normalBalance: "Cr",
+    isGroup: false,
+    keywords: ["fair value gain listed", "fv gain listed", "gain on revaluation listed shares", "market value gain shares", "nepse gain", "unrealized gain listed"],
+    synonyms: ["fair value gain on listed shares", "FV adjustment gain"],
+    nepaliRomanized: ["listed share gain"],
+    exclusionKeywords: []
+  },
+  {
+    category: "other_income",
+    displayLabel: "Other Income",
+    statementLine: "IS Other Income",
+    normalBalance: "Cr",
+    isGroup: false,
+    keywords: ["other income", "miscellaneous income", "indirect income", "sundry income", "other operating income", "misc income", "non operating income other", "scrap sales income", "exchange gain"],
+    synonyms: ["miscellaneous income", "indirect income", "sundry income"],
+    nepaliRomanized: ["anya aamdani", "bibhinna aamdani"],
+    exclusionKeywords: []
+  },
+  {
+    category: "purchase",
+    displayLabel: "Purchases",
+    statementLine: "IS COGS",
+    normalBalance: "Dr",
+    isGroup: false,
+    keywords: ["purchase", "purchases", "goods purchased", "purchase account", "trading purchase", "raw material purchase", "import purchase", "local purchase", "purchase of goods", "cost of goods purchased", "merchandise purchase"],
+    synonyms: ["purchases", "goods purchased", "purchase of stock"],
+    nepaliRomanized: ["kharid", "kinmel", "purchase"],
+    exclusionKeywords: []
+  },
+  {
+    category: "wages_direct",
+    displayLabel: "Direct Wages",
+    statementLine: "IS COGS",
+    normalBalance: "Dr",
+    isGroup: false,
+    keywords: ["direct wages", "factory wages", "production wages", "labour direct", "direct labour", "wages production", "manufacturing wages", "shop floor wages", "piece rate wages"],
+    synonyms: ["direct labour", "factory wages", "production labour"],
+    nepaliRomanized: ["pratyaksh masanga", "direct wages"],
+    exclusionKeywords: []
+  },
+  {
+    category: "other_direct_expenses",
+    displayLabel: "Other Direct Expenses",
+    statementLine: "IS COGS",
+    normalBalance: "Dr",
+    isGroup: false,
+    keywords: ["other direct expense", "factory overhead", "direct expenses other", "production overhead", "manufacturing overhead", "job work charges direct", "packing direct", "freight inward"],
+    synonyms: ["factory overhead", "direct overheads", "production expenses"],
+    nepaliRomanized: ["anya pratyaksh kharcha"],
+    exclusionKeywords: []
+  },
+  {
+    category: "materials_consumed",
+    displayLabel: "Materials Consumed",
+    statementLine: "IS COGS",
+    normalBalance: "Dr",
+    isGroup: false,
+    keywords: ["materials consumed", "material consumed", "raw material consumed", "consumption of materials", "cost of materials used", "material usage", "stores consumed"],
+    synonyms: ["material consumed", "raw materials consumed", "cost of materials"],
+    nepaliRomanized: ["kharcha saman", "material consumed"],
+    exclusionKeywords: []
+  },
+  {
+    category: "salary_wages_expense",
+    displayLabel: "Salaries & Wages",
+    statementLine: "IS Employee Benefits",
+    normalBalance: "Dr",
+    isGroup: false,
+    keywords: ["salary expense", "salaries wages", "staff salary", "employee salary", "wages expense", "remuneration expense", "payroll expense", "salaries and wages", "staff cost salary", "gross salary expense"],
+    synonyms: ["salaries & wages", "staff salaries", "wages and salaries"],
+    nepaliRomanized: ["tankha kharcha", "tanabu", "salary expense"],
+    exclusionKeywords: []
+  },
+  {
+    category: "allowances_expense",
+    displayLabel: "Allowances",
+    statementLine: "IS Employee Benefits",
+    normalBalance: "Dr",
+    isGroup: false,
+    keywords: ["allowance expense", "hra", "house rent allowance", "ta travelling allowance", "da dearness", "medical allowance", "conveyance allowance", "special allowance", "overtime allowance"],
+    synonyms: ["HRA", "TA", "DA", "staff allowances"],
+    nepaliRomanized: ["bhatta kharcha", "allowance"],
+    exclusionKeywords: []
+  },
+  {
+    category: "pf_ssf_expense",
+    displayLabel: "PF/SSF Expense",
+    statementLine: "IS Employee Benefits",
+    normalBalance: "Dr",
+    isGroup: false,
+    keywords: ["pf expense", "ssf expense", "cit expense", "provident fund expense", "employer pf contribution", "ssf contribution expense", "epf expense", "retirement benefit expense"],
+    synonyms: ["PF contribution expense", "SSF expense", "CIT expense"],
+    nepaliRomanized: ["pf kharcha", "ssf kharcha"],
+    exclusionKeywords: []
+  },
+  {
+    category: "staff_bonus_expense",
+    displayLabel: "Staff Bonus Expense",
+    statementLine: "IS Employee Benefits",
+    normalBalance: "Dr",
+    isGroup: false,
+    keywords: ["staff bonus expense", "bonus expense", "employee bonus expense", "festival bonus expense", "dashain bonus expense", "year end bonus expense", "profit bonus expense"],
+    synonyms: ["bonus expense", "staff bonus", "employee bonus"],
+    nepaliRomanized: ["bonus kharcha"],
+    exclusionKeywords: []
+  },
+  {
+    category: "leave_encashment_expense",
+    displayLabel: "Leave Encashment",
+    statementLine: "IS Employee Benefits",
+    normalBalance: "Dr",
+    isGroup: false,
+    keywords: ["leave encashment", "leave encashment expense", "unused leave payment", "leave salary expense", "annual leave encashment"],
+    synonyms: ["leave encashment expense", "leave salary"],
+    nepaliRomanized: ["bida rupantaran kharcha"],
+    exclusionKeywords: []
+  },
+  {
+    category: "other_employee_expense",
+    displayLabel: "Other Employee Expense",
+    statementLine: "IS Employee Benefits",
+    normalBalance: "Dr",
+    isGroup: false,
+    keywords: ["other employee expense", "staff welfare", "employee welfare", "training expense staff", "recruitment expense", "staff insurance", "uniform expense", "canteen expense staff"],
+    synonyms: ["staff welfare", "employee welfare", "other HR expenses"],
+    nepaliRomanized: ["anya karmachari kharcha"],
+    exclusionKeywords: []
+  },
+  {
+    category: "interest_expense",
+    displayLabel: "Interest Expense",
+    statementLine: "IS Finance Costs",
+    normalBalance: "Dr",
+    isGroup: false,
+    keywords: ["interest expense", "interest on loan", "finance cost interest", "bank interest paid", "loan interest expense", "borrowing cost", "interest on overdraft", "interest on term loan", "finance charges interest"],
+    synonyms: ["interest on borrowings", "loan interest", "finance cost"],
+    nepaliRomanized: ["byaj kharcha", "interest kharcha"],
+    exclusionKeywords: []
+  },
+  {
+    category: "bank_charges",
+    displayLabel: "Bank Charges",
+    statementLine: "IS Finance Costs",
+    normalBalance: "Dr",
+    isGroup: false,
+    keywords: ["bank charges", "bank commission", "bank fees", "bank service charge", "swift charges", "lc charges bank", "collection charges", "remittance charges"],
+    synonyms: ["bank commission", "bank fees", "bank service charges"],
+    nepaliRomanized: ["bank charge", "bank commission"],
+    exclusionKeywords: []
+  },
+  {
+    category: "depreciation_expense",
+    displayLabel: "Depreciation Expense",
+    statementLine: "IS Depreciation",
+    normalBalance: "Dr",
+    isGroup: false,
+    keywords: ["depreciation expense", "depreciation charged", "depreciation for year", "depreciation ppe", "annual depreciation", "depreciation building", "depreciation vehicle", "depreciation machinery", "mur kharcha"],
+    synonyms: ["depreciation", "depreciation for the year", "depreciation charge"],
+    nepaliRomanized: ["mur kharcha", "depreciation"],
+    exclusionKeywords: []
+  },
+  {
+    category: "impairment_on_debtors",
+    displayLabel: "Impairment on Debtors",
+    statementLine: "IS Impairment",
+    normalBalance: "Dr",
+    isGroup: false,
+    keywords: ["impairment debtors", "bad debts written off", "impairment receivables", "doubtful debts expense", "bad debt expense", "provision expense debtors"],
+    synonyms: ["bad debts", "impairment on receivables", "doubtful debts"],
+    nepaliRomanized: ["dhani mur kharcha"],
+    exclusionKeywords: []
+  },
+  {
+    category: "impairment_on_investments",
+    displayLabel: "Impairment on Investments",
+    statementLine: "IS Impairment",
+    normalBalance: "Dr",
+    isGroup: false,
+    keywords: ["impairment investment", "impairment unlisted shares", "investment impairment loss", "diminution in value investment", "write down investment"],
+    synonyms: ["impairment on investments", "investment write-down"],
+    nepaliRomanized: ["lagani mur kharcha"],
+    exclusionKeywords: []
+  },
+  {
+    category: "fv_loss_listed",
+    displayLabel: "FV Loss on Listed Shares",
+    statementLine: "IS Impairment",
+    normalBalance: "Dr",
+    isGroup: false,
+    keywords: ["fair value loss listed", "fv loss listed", "loss on revaluation listed shares", "market value loss shares", "nepse loss", "unrealized loss listed"],
+    synonyms: ["fair value loss on listed shares", "FV adjustment loss"],
+    nepaliRomanized: ["listed share loss"],
+    exclusionKeywords: []
+  },
+  {
+    category: "admin_audit_fee",
+    displayLabel: "Audit Fee",
+    statementLine: "IS Admin",
+    normalBalance: "Dr",
+    isGroup: false,
+    keywords: ["audit fee", "statutory audit fee", "auditor remuneration", "audit expense", "audit charges", "external audit fee", "annual audit fee"],
+    synonyms: ["statutory audit fee", "auditor fee", "audit expenses"],
+    nepaliRomanized: ["audit kharcha"],
+    exclusionKeywords: []
+  },
+  {
+    category: "admin_advertisement",
+    displayLabel: "Advertisement",
+    statementLine: "IS Admin",
+    normalBalance: "Dr",
+    isGroup: false,
+    keywords: ["advertisement", "advertising", "marketing expense", "promotion expense", "business promotion", "publicity expense", "media advertisement", "digital marketing"],
+    synonyms: ["advertising", "marketing", "business promotion"],
+    nepaliRomanized: ["bijnapam kharcha"],
+    exclusionKeywords: []
+  },
+  {
+    category: "admin_fuel",
+    displayLabel: "Fuel",
+    statementLine: "IS Admin",
+    normalBalance: "Dr",
+    isGroup: false,
+    keywords: ["fuel expense", "petrol", "diesel", "lubricant", "vehicle fuel", "fuel cost", "gasoline expense"],
+    synonyms: ["petrol", "diesel", "fuel costs"],
+    nepaliRomanized: ["petrol diesel", "fuel"],
+    exclusionKeywords: []
+  },
+  {
+    category: "admin_rent",
+    displayLabel: "Rent",
+    statementLine: "IS Admin",
+    normalBalance: "Dr",
+    isGroup: false,
+    keywords: ["rent expense", "house rent", "office rent", "rent paid", "lease rent expense", "building rent expense", "shop rent"],
+    synonyms: ["office rent", "house rent", "rent"],
+    nepaliRomanized: ["bhada kharcha", "kiraya"],
+    exclusionKeywords: []
+  },
+  {
+    category: "admin_amc",
+    displayLabel: "AMC",
+    statementLine: "IS Admin",
+    normalBalance: "Dr",
+    isGroup: false,
+    keywords: ["amc", "annual maintenance charge", "maintenance contract", "service contract annual", "amc expense", "annual maintenance contract"],
+    synonyms: ["AMC", "annual maintenance charges", "maintenance contract"],
+    nepaliRomanized: ["amc kharcha"],
+    exclusionKeywords: []
+  },
+  {
+    category: "admin_communication",
+    displayLabel: "Communication",
+    statementLine: "IS Admin",
+    normalBalance: "Dr",
+    isGroup: false,
+    keywords: ["communication expense", "telephone", "mobile", "internet", "postage", "courier", "fax", "communication charges", "telecom expense"],
+    synonyms: ["telephone", "internet", "mobile charges"],
+    nepaliRomanized: ["sanchar kharcha", "telephone internet"],
+    exclusionKeywords: []
+  },
+  {
+    category: "admin_legal",
+    displayLabel: "Legal Expenses",
+    statementLine: "IS Admin",
+    normalBalance: "Dr",
+    isGroup: false,
+    keywords: ["legal expense", "legal fee", "lawyer fee", "litigation expense", "court fee", "legal consultancy", "advocate fee"],
+    synonyms: ["legal fees", "lawyer fees", "legal charges"],
+    nepaliRomanized: ["kanuni kharcha"],
+    exclusionKeywords: []
+  },
+  {
+    category: "admin_consultancy",
+    displayLabel: "Consultancy",
+    statementLine: "IS Admin",
+    normalBalance: "Dr",
+    isGroup: false,
+    keywords: ["consultancy fee", "professional fee", "consulting charges", "advisory fee", "management consultancy", "technical consultancy"],
+    synonyms: ["consultancy", "professional fees", "consulting fees"],
+    nepaliRomanized: ["salha kharcha"],
+    exclusionKeywords: []
+  },
+  {
+    category: "admin_board_agm",
+    displayLabel: "Board/AGM Expenses",
+    statementLine: "IS Admin",
+    normalBalance: "Dr",
+    isGroup: false,
+    keywords: ["board meeting expense", "agm expense", "meeting expenses", "directors meeting", "shareholders meeting", "board sitting fee expense", "annual general meeting"],
+    synonyms: ["board meeting", "AGM expenses", "meeting expenses"],
+    nepaliRomanized: ["board baithak kharcha"],
+    exclusionKeywords: []
+  },
+  {
+    category: "admin_csr",
+    displayLabel: "CSR Expenses",
+    statementLine: "IS Admin",
+    normalBalance: "Dr",
+    isGroup: false,
+    keywords: ["csr expense", "corporate social responsibility expense", "csr contribution", "social welfare expense", "donation csr", "community development expense"],
+    synonyms: ["CSR expenses", "corporate social responsibility"],
+    nepaliRomanized: ["csr kharcha"],
+    exclusionKeywords: []
+  },
+  {
+    category: "admin_insurance",
+    displayLabel: "Insurance",
+    statementLine: "IS Admin",
+    normalBalance: "Dr",
+    isGroup: false,
+    keywords: ["insurance premium", "insurance expense", "fire insurance", "vehicle insurance", "asset insurance", "liability insurance", "insurance charges"],
+    synonyms: ["insurance", "insurance premium"],
+    nepaliRomanized: ["bima kharcha"],
+    exclusionKeywords: []
+  },
+  {
+    category: "admin_miscellaneous",
+    displayLabel: "Miscellaneous",
+    statementLine: "IS Admin",
+    normalBalance: "Dr",
+    isGroup: false,
+    keywords: ["miscellaneous expense", "sundry expense", "misc admin", "general expense", "petty expenses admin", "other admin expense"],
+    synonyms: ["miscellaneous", "sundry expenses"],
+    nepaliRomanized: ["bibhinna kharcha"],
+    exclusionKeywords: []
+  },
+  {
+    category: "admin_printing_stationery",
+    displayLabel: "Printing & Stationery",
+    statementLine: "IS Admin",
+    normalBalance: "Dr",
+    isGroup: false,
+    keywords: ["printing expense", "stationery", "stationary", "printing and stationery", "office supplies", "paper expense", "toner cartridge"],
+    synonyms: ["printing", "stationery", "office stationery"],
+    nepaliRomanized: ["chapai kharcha", "stationery"],
+    exclusionKeywords: []
+  },
+  {
+    category: "admin_refreshment",
+    displayLabel: "Refreshment",
+    statementLine: "IS Admin",
+    normalBalance: "Dr",
+    isGroup: false,
+    keywords: ["refreshment", "tea coffee expense", "entertainment staff", "hospitality expense", "snacks expense", "canteen refreshment"],
+    synonyms: ["refreshments", "tea and snacks", "hospitality"],
+    nepaliRomanized: ["refreshment kharcha"],
+    exclusionKeywords: []
+  },
+  {
+    category: "admin_travelling",
+    displayLabel: "Travelling",
+    statementLine: "IS Admin",
+    normalBalance: "Dr",
+    isGroup: false,
+    keywords: ["travelling expense", "travel expense", "tour expense", "conveyance", "mileage", "air fare", "hotel expense travel", "ta da travel"],
+    synonyms: ["travel", "travelling", "tour expenses"],
+    nepaliRomanized: ["yatra kharcha", "travel"],
+    exclusionKeywords: []
+  },
+  {
+    category: "admin_water_electricity",
+    displayLabel: "Water & Electricity",
+    statementLine: "IS Admin",
+    normalBalance: "Dr",
+    isGroup: false,
+    keywords: ["electricity expense", "water expense", "utility expense", "power bill", "nea bill", "kukl water", "utilities expense", "electricity water"],
+    synonyms: ["electricity", "water", "utilities"],
+    nepaliRomanized: ["bijuli pani kharcha", "widyut"],
+    exclusionKeywords: []
+  },
+  {
+    category: "admin_repair_maintenance",
+    displayLabel: "Repair & Maintenance",
+    statementLine: "IS Admin",
+    normalBalance: "Dr",
+    isGroup: false,
+    keywords: ["repair maintenance", "repairs and maintenance", "maintenance expense", "r&m expense", "pool a repair", "pool b repair", "pool c repair", "annual repair", "breakdown maintenance"],
+    synonyms: ["repairs & maintenance", "R&M", "maintenance"],
+    nepaliRomanized: ["marammat kharcha", "repair"],
+    exclusionKeywords: []
+  },
+  {
+    category: "admin_others",
+    displayLabel: "Other Admin Expenses",
+    statementLine: "IS Admin",
+    normalBalance: "Dr",
+    isGroup: false,
+    keywords: ["other administrative expense", "admin expense other", "general administrative", "office expense other", "sundry admin"],
+    synonyms: ["other admin expenses", "general admin"],
+    nepaliRomanized: ["anya prashasan kharcha"],
+    exclusionKeywords: []
+  },
+  {
+    category: "income_tax_expense",
+    displayLabel: "Income Tax Expense",
+    statementLine: "IS Tax",
+    normalBalance: "Dr",
+    isGroup: false,
+    keywords: ["income tax expense", "tax expense", "corporate tax expense", "current tax expense", "provision for income tax expense", "tax on profit", "ird tax expense"],
+    synonyms: ["income tax", "tax expense", "corporate tax"],
+    nepaliRomanized: ["aaykar kharcha"],
+    exclusionKeywords: []
+  },
+  {
+    category: "unclassified",
+    displayLabel: "Unclassified",
+    statementLine: "N/A",
+    normalBalance: "Dr",
+    isGroup: true,
+    keywords: ["unclassified", "unknown", "suspense", "unmapped", "temporary", "opening balance equity"],
+    synonyms: ["suspense account", "unallocated"],
+    nepaliRomanized: ["anklassified"],
+    exclusionKeywords: []
   }
 ];
+var NFRS_CATEGORIES = CHART_OF_ACCOUNTS.filter((e) => !e.isGroup).map((e) => e.category);
 
 // server/services/accountMatcher.ts
-var CONFIDENCE_THRESHOLD = 80;
+var REVIEW_THRESHOLD = 75;
+var KEYWORD_THRESHOLD = 40;
 function normalize(s) {
   return s.toLowerCase().replace(/[.,()&\-_/\\]/g, " ").replace(/\s+/g, " ").trim();
 }
@@ -2650,1660 +2076,367 @@ function levenshtein(a, b) {
   const key = a < b ? `${a}\0${b}` : `${b}\0${a}`;
   const cached = levenshteinCache.get(key);
   if (cached !== void 0) return cached;
-  if (levenshteinCache.size >= CACHE_LIMIT) {
-    levenshteinCache.clear();
-  }
+  if (levenshteinCache.size >= CACHE_LIMIT) levenshteinCache.clear();
   const m = a.length;
   const n = b.length;
-  const dp = new Array(m + 1);
-  for (let i = 0; i <= m; i++) dp[i] = new Array(n + 1).fill(0);
-  for (let i = 0; i <= m; i++) dp[i][0] = i;
-  for (let j = 0; j <= n; j++) dp[0][j] = j;
+  const dp = Array.from({ length: n + 1 }, (_, j) => j);
   for (let i = 1; i <= m; i++) {
+    let prev = dp[0];
+    dp[0] = i;
     for (let j = 1; j <= n; j++) {
-      if (a[i - 1] === b[j - 1]) {
-        dp[i][j] = dp[i - 1][j - 1];
-      } else {
-        dp[i][j] = 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
-      }
+      const tmp = dp[j];
+      dp[j] = a[i - 1] === b[j - 1] ? prev : 1 + Math.min(prev, dp[j], dp[j - 1]);
+      prev = tmp;
     }
   }
-  const result = dp[m][n];
+  const result = dp[n];
   levenshteinCache.set(key, result);
   return result;
 }
-function similarityScore(a, b) {
-  const na = normalize(a);
-  const nb = normalize(b);
-  if (na === nb) return 100;
-  if (na.length === 0 || nb.length === 0) return 0;
-  const tokensA = na.split(" ").filter(Boolean);
-  const tokensB = nb.split(" ").filter(Boolean);
-  const shorter = tokensA.length <= tokensB.length ? tokensA : tokensB;
-  const longerSet = new Set(tokensA.length <= tokensB.length ? tokensB : tokensA);
-  const overlapCount = shorter.filter((t) => longerSet.has(t)).length;
-  const tokenScore = shorter.length > 0 ? overlapCount / shorter.length * 100 : 0;
-  const dist = levenshtein(na, nb);
-  const maxLen = Math.max(na.length, nb.length);
-  const editScore = maxLen > 0 ? (1 - dist / maxLen) * 100 : 0;
-  return Math.min(100, Math.round(0.7 * tokenScore + 0.3 * editScore));
+var EXACT_MATCH_MAP = /* @__PURE__ */ new Map();
+function buildExactMatchMap() {
+  if (EXACT_MATCH_MAP.size > 0) return;
+  for (const entry of CHART_OF_ACCOUNTS) {
+    if (entry.isGroup) continue;
+    EXACT_MATCH_MAP.set(normalize(entry.displayLabel), entry.category);
+    for (const syn of entry.synonyms) {
+      EXACT_MATCH_MAP.set(normalize(syn), entry.category);
+    }
+    for (const nr of entry.nepaliRomanized) {
+      EXACT_MATCH_MAP.set(normalize(nr), entry.category);
+    }
+  }
 }
-var KEYWORD_BUCKETS = [
-  // Trade receivables / debtors
-  { pattern: /\b(debtor|accounts? receivable|trade receivable|customer receivable)\b/i, nfrsCategory: "trade_receivables", confidence: 85 },
-  // Trade payables / creditors
-  { pattern: /\b(creditor|accounts? payable|trade payable|supplier payable)\b/i, nfrsCategory: "trade_payables_creditors", confidence: 85 },
-  // Cash
-  { pattern: /\bpetty cash\b/i, nfrsCategory: "cash_in_hand", confidence: 92 },
-  { pattern: /\bcash\b/i, nfrsCategory: "cash_in_hand", confidence: 80 },
-  // Bank borrowings
-  { pattern: /\b(term loan|long term loan|bank loan)\b/i, nfrsCategory: "borrowings_noncurrent_bank", confidence: 88 },
-  // Fixed deposits
-  { pattern: /\b(fd|fixed deposit)\b/i, nfrsCategory: "bank_fixed_deposit_current", confidence: 85 },
-  // Bank accounts
-  { pattern: /\bbank\b/i, nfrsCategory: "bank_current_account", confidence: 80 },
-  // PPE categories
-  { pattern: /\b(land|plot|property)\b/i, nfrsCategory: "ppe_land", confidence: 82 },
-  { pattern: /\bbuilding/i, nfrsCategory: "ppe_buildings", confidence: 82 },
-  { pattern: /\b(vehicle|motor vehicle|car)\b/i, nfrsCategory: "ppe_vehicles", confidence: 82 },
-  { pattern: /\b(computer|laptop|desktop|server)\b/i, nfrsCategory: "ppe_computers", confidence: 82 },
-  { pattern: /\b(furniture|fixture|fitting)\b/i, nfrsCategory: "ppe_furniture", confidence: 82 },
-  { pattern: /\b(plant|machinery|machine)\b/i, nfrsCategory: "ppe_plant_machinery", confidence: 82 },
-  { pattern: /\b(software|intangible|patent|trademark)\b/i, nfrsCategory: "ppe_intangibles", confidence: 82 },
-  { pattern: /\b(cwip|capital wip|construction in progress|work in progress)\b/i, nfrsCategory: "ppe_cwip", confidence: 82 },
-  // Accumulated depreciation
-  { pattern: /\baccumulated depreciation\b/i, nfrsCategory: "accum_depreciation", confidence: 92 },
-  { pattern: /\bless.?:?\s*(accumulated|accum)?\s*depreciation\b/i, nfrsCategory: "accum_depreciation", confidence: 90 },
-  // Employee salaries
-  { pattern: /\b(salary|salaries|wages and salary)\b/i, nfrsCategory: "emp_expense_salaries", confidence: 82 },
-  // PF/SSF
-  { pattern: /\b(provident fund|pf|ssf|cit)\b.*expense/i, nfrsCategory: "emp_expense_pf", confidence: 85 },
-  { pattern: /\b(provident fund|pf|ssf|cit)\b/i, nfrsCategory: "emp_expense_pf", confidence: 78 },
-  // Finance costs
-  { pattern: /\b(interest expense|loan interest|interest paid)\b/i, nfrsCategory: "finance_cost_interest", confidence: 87 },
-  { pattern: /\b(bank charge|bank commission|bank fee)\b/i, nfrsCategory: "finance_cost_bank_charges", confidence: 87 },
-  // TDS — disambiguation handled separately
-  { pattern: /\btds\b/i, nfrsCategory: "tds_payable", confidence: 80 },
-  // default; overridden by context
-  // VAT
-  { pattern: /\bvat payable\b/i, nfrsCategory: "other_payables", confidence: 90 },
-  { pattern: /\binput vat\b/i, nfrsCategory: "other_receivables_other", confidence: 88 },
-  // Revenue
-  { pattern: /\b(sales?|revenue|turnover)\b/i, nfrsCategory: "revenue_sales", confidence: 82 },
-  { pattern: /\bservice income\b/i, nfrsCategory: "revenue_services", confidence: 90 },
-  // Purchases / COGS
-  { pattern: /\b(purchase|goods purchased|raw material purchased)\b/i, nfrsCategory: "cogs_purchases", confidence: 82 },
-  // Admin expenses
-  { pattern: /\b(rent|office rent|house rent)\b.*expense/i, nfrsCategory: "admin_rent", confidence: 82 },
-  // Depreciation expense
-  { pattern: /\b(depreciation)\b/i, nfrsCategory: "depreciation_expense", confidence: 85 },
-  // Income tax
-  { pattern: /\b(income tax|corporate tax)\b.*expense/i, nfrsCategory: "income_tax_expense", confidence: 87 },
-  // Share capital
-  { pattern: /\b(share capital|paid.?up capital)\b/i, nfrsCategory: "share_capital", confidence: 92 },
-  // Retained earnings
-  { pattern: /\b(retained earnings|profit and loss)\b/i, nfrsCategory: "retained_earnings", confidence: 90 },
-  // Inventory
-  { pattern: /\b(inventory|closing stock|stock in trade|finished goods)\b/i, nfrsCategory: "inventory_finished_goods", confidence: 80 },
-  // Biological assets
-  { pattern: /\b(biological asset|livestock|aquaculture|crops)\b/i, nfrsCategory: "biological_assets", confidence: 85 },
-  // Security deposit
-  { pattern: /\b(security deposit|guarantee margin|refundable deposit)\b/i, nfrsCategory: "nca_deposits", confidence: 85 },
-  // CSR provision
-  { pattern: /\b(csr provision|provision for csr|corporate social responsibility provision)\b/i, nfrsCategory: "provisions_current", confidence: 87 },
-  // Dividend payable
-  { pattern: /\bdividend payable\b/i, nfrsCategory: "dividend_payable", confidence: 90 },
-  // Related party
-  { pattern: /\b(director loan|loan from director|loan from partner)\b/i, nfrsCategory: "related_party_payable", confidence: 88 },
-  { pattern: /\b(loan to director|receivable from related party|loan to partner)\b/i, nfrsCategory: "related_party_receivable", confidence: 88 },
-  // Staff advance
-  { pattern: /\bstaff advance\b/i, nfrsCategory: "other_receivables_staff_advance", confidence: 85 },
-  // Provision for bad debts / impairment on debtors
-  { pattern: /\b(provision for bad debts?|provision for doubtful debts?|provision for impairment on debtors?)\b/i, nfrsCategory: "provision_impairment_debtors", confidence: 90 },
-  // Provision for impairment on investment
-  { pattern: /\bprovision for impairment on investment\b/i, nfrsCategory: "provision_impairment_investment", confidence: 90 },
-  // NCA held for sale
-  { pattern: /\b(assets? held for sale|non.?current assets? held for sale)\b/i, nfrsCategory: "nca_held_for_sale", confidence: 88 },
-  // Advance tax / TDS asset
-  { pattern: /\b(advance tax|advance income tax|tds receivable|tax deducted at source.*asset)\b/i, nfrsCategory: "other_receivables_tds", confidence: 88 }
-];
-var NEPALI_ROMANIZED_ENTRIES = [
-  // Land
+var PARENT_GROUP_MAP = [
+  { pattern: /sundry debtors?/i, category: "trade_receivables" },
+  { pattern: /sundry creditors?/i, category: "trade_payables" },
+  { pattern: /salary payable/i, category: "salary_payable" },
+  { pattern: /tds payable/i, category: "tds_payable" },
+  { pattern: /loan from bank/i, category: "borrowings_noncurrent_bank" },
+  { pattern: /bank accounts?/i, category: "bank_current_account" },
   {
-    patterns: [/\bjameen\b/i, /\bjalin\b/i, /\bjamiyn\b/i],
-    nfrsCategory: "ppe_land",
-    confidence: 82
+    pattern: /property.*plant|ppe|fixed assets?/i,
+    category: "ppe_buildings",
+    subPatterns: [
+      { pattern: /land|bhoomi|jagga/i, category: "ppe_land" },
+      { pattern: /building|bhawan/i, category: "ppe_buildings" },
+      { pattern: /vehicle|gadi/i, category: "ppe_vehicles" },
+      { pattern: /computer|laptop/i, category: "ppe_computers" },
+      { pattern: /furniture/i, category: "ppe_furniture" },
+      { pattern: /plant|machinery/i, category: "ppe_plant_machinery" },
+      { pattern: /intangible|software|tally/i, category: "ppe_intangibles" },
+      { pattern: /cwip|under construction/i, category: "ppe_cwip" },
+      { pattern: /depreciation/i, category: "accum_depreciation" }
+    ]
   },
-  // Buildings
   {
-    patterns: [/\bbhawan\b/i, /\bghar\b/i, /\bimarat\b/i, /\bbhavan\b/i],
-    nfrsCategory: "ppe_buildings",
-    confidence: 82
+    pattern: /direct income/i,
+    category: "revenue_sales",
+    subPatterns: [{ pattern: /service/i, category: "revenue_services" }]
   },
-  // Inventory / goods
+  { pattern: /indirect income/i, category: "other_income" },
   {
-    patterns: [/\bsaman\b/i, /\bmaal\b/i, /\bmal\b/i, /\bsaaman\b/i, /\baamal\b/i, /\bkharcha saman\b/i],
-    nfrsCategory: "inventory_finished_goods",
-    confidence: 80
+    pattern: /employee benefit expenses?/i,
+    category: "salary_wages_expense",
+    subPatterns: [
+      { pattern: /pf|ssf|cit|provident/i, category: "pf_ssf_expense" },
+      { pattern: /bonus/i, category: "staff_bonus_expense" },
+      { pattern: /allowance/i, category: "allowances_expense" }
+    ]
   },
-  // Cash
   {
-    patterns: [/\bnakad\b/i, /\bnakaad\b/i, /\bnaqad\b/i],
-    nfrsCategory: "cash_in_hand",
-    confidence: 85
+    pattern: /administrative expenses?/i,
+    category: "admin_others",
+    subPatterns: [
+      { pattern: /rent|bhada/i, category: "admin_rent" },
+      { pattern: /audit/i, category: "admin_audit_fee" },
+      { pattern: /travel/i, category: "admin_travelling" },
+      { pattern: /electric|water|utility/i, category: "admin_water_electricity" },
+      { pattern: /advertis|market/i, category: "admin_advertisement" },
+      { pattern: /legal/i, category: "admin_legal" },
+      { pattern: /insurance/i, category: "admin_insurance" },
+      { pattern: /print|station/i, category: "admin_printing_stationery" }
+    ]
   },
-  // Trade receivables / debtors
+  { pattern: /repair.*maintenance/i, category: "admin_repair_maintenance" },
   {
-    patterns: [/\bdhani\b/i, /\bbujandar\b/i, /\bpaune\b/i, /\bpaunekha\b/i],
-    nfrsCategory: "trade_receivables",
-    confidence: 80
-  },
-  // Trade payables / creditors
-  {
-    patterns: [/\blenidar\b/i, /\bkharidan\b/i, /\btirnu parne\b/i],
-    nfrsCategory: "trade_payables_creditors",
-    confidence: 80
-  },
-  // TDS — default to payable; overridden by context check
-  {
-    patterns: [/\btdas\b/i, /\btda\b/i],
-    nfrsCategory: "tds_payable",
-    confidence: 80
-  },
-  // Share capital
-  {
-    patterns: [/\bpanjikaran\b/i, /\bdarta\b/i, /\bsheyer kapital\b/i],
-    nfrsCategory: "share_capital",
-    confidence: 80
-  },
-  // VAT / other payables
-  {
-    patterns: [/\bhulak\b/i, /\bhulak khata\b/i, /\bvat\b/i],
-    nfrsCategory: "other_payables",
-    confidence: 78
-  },
-  // Vehicles
-  {
-    patterns: [/\bgadi\b/i, /\bsawari\b/i, /\bmotor\b/i],
-    nfrsCategory: "ppe_vehicles",
-    confidence: 80
-  },
-  // Furniture
-  {
-    patterns: [/\bfurnichar\b/i, /\bsajawat\b/i],
-    nfrsCategory: "ppe_furniture",
-    confidence: 80
-  },
-  // Salary
-  {
-    patterns: [/\btankhwah\b/i, /\btlb\b/i, /\btankhah\b/i],
-    nfrsCategory: "emp_expense_salaries",
-    confidence: 82
-  },
-  // Gratuity
-  {
-    patterns: [/\bupadhan\b/i, /\bkaryamuktibhatta\b/i],
-    nfrsCategory: "emp_expense_gratuity",
-    confidence: 82
-  },
-  // Rent
-  {
-    patterns: [/\bbhada\b/i, /\bkiraya\b/i],
-    nfrsCategory: "admin_rent",
-    confidence: 82
-  },
-  // Electricity
-  {
-    patterns: [/\bbidhyut\b/i, /\bwidyut\b/i, /\bbidyut\b/i],
-    nfrsCategory: "admin_electricity",
-    confidence: 82
-  },
-  // Retained earnings / P&L
-  {
-    patterns: [/\bafi ko nakafaa\b/i, /\bnaafaa\b/i, /\bnafaa\b/i],
-    nfrsCategory: "retained_earnings",
-    confidence: 78
+    pattern: /impairment expense/i,
+    category: "impairment_on_debtors",
+    subPatterns: [{ pattern: /investment/i, category: "impairment_on_investments" }]
   }
 ];
-var ASSET_CURRENT_CATEGORIES = [
-  "trade_receivables",
-  "cash_in_hand",
-  "bank_current_account",
-  "bank_savings_account",
-  "bank_fixed_deposit_current",
-  "inventory_raw_materials",
-  "inventory_wip",
-  "inventory_finished_goods",
-  "other_receivables_tds",
-  "other_receivables_prepayments",
-  "other_receivables_staff_advance",
-  "other_receivables_loans",
-  "other_receivables_advance_supplier",
-  "other_receivables_other",
-  "provision_impairment_debtors"
-];
-var ASSET_NONCURRENT_CATEGORIES = [
-  "ppe_land",
-  "ppe_buildings",
-  "ppe_vehicles",
-  "ppe_office_equipment",
-  "ppe_computers",
-  "ppe_furniture",
-  "ppe_plant_machinery",
-  "ppe_intangibles",
-  "ppe_cwip",
-  "accum_depreciation",
-  "investment_listed_trading",
-  "investment_unlisted",
-  "investment_fixed_deposit_noncurrent",
-  "nca_deposits",
-  "nca_loans_advances",
-  "nca_other",
-  "biological_assets",
-  "nca_held_for_sale",
-  "related_party_receivable",
-  "provision_impairment_investment"
-];
-var LIABILITY_CURRENT_CATEGORIES = [
-  "trade_payables_creditors",
-  "trade_payables_advance_customers",
-  "borrowings_current_od",
-  "borrowings_current_cc",
-  "borrowings_current_wc",
-  "borrowings_current_portion_lt",
-  "income_tax_payable",
-  "tds_payable",
-  "other_payables",
-  "audit_fee_payable",
-  "employee_payables_salary",
-  "employee_payables_bonus",
-  "employee_payables_pf",
-  "provisions_current",
-  "dividend_payable",
-  "related_party_payable"
-];
-var LIABILITY_NONCURRENT_CATEGORIES = [
-  "borrowings_noncurrent_bank",
-  "borrowings_noncurrent_other",
-  "deferred_tax_liability",
-  "employee_benefit_gratuity",
-  "provisions_noncurrent",
-  "related_party_payable"
-];
-var EQUITY_CATEGORIES = [
-  "share_capital",
-  "share_premium",
-  "general_reserve",
-  "retained_earnings",
-  "other_reserves"
-];
-var INCOME_CATEGORIES = [
-  "revenue_sales",
-  "revenue_services",
-  "other_income_interest",
-  "other_income_dividend",
-  "other_income_rental",
-  "other_income_disposal_gain",
-  "other_income_misc"
-];
-var EXPENSE_CATEGORIES = [
-  "cogs_purchases",
-  "cogs_opening_stock",
-  "direct_wages",
-  "direct_expenses_other",
-  "emp_expense_salaries",
-  "emp_expense_pf",
-  "emp_expense_gratuity",
-  "emp_expense_welfare",
-  "emp_expense_bonus",
-  "emp_expense_other",
-  "finance_cost_interest",
-  "finance_cost_bank_charges",
-  "admin_rent",
-  "admin_rates_taxes",
-  "admin_insurance",
-  "admin_repairs",
-  "admin_electricity",
-  "admin_communication",
-  "admin_printing",
-  "admin_legal_professional",
-  "admin_audit_fee",
-  "admin_traveling",
-  "admin_advertisement",
-  "admin_other",
-  "depreciation_expense",
-  "impairment_expense",
-  "income_tax_expense"
-];
-var EMPLOYEE_EXPENSE_CATEGORIES = [
-  "emp_expense_salaries",
-  "emp_expense_pf",
-  "emp_expense_gratuity",
-  "emp_expense_welfare",
-  "emp_expense_bonus",
-  "emp_expense_other"
-];
-var PARENT_GROUP_CONTEXT_MAP = [
-  // ── Current Assets ──────────────────────────────────────────────────────────
-  {
-    patterns: [
-      /\bcurrent assets?\b/i,
-      /\b(ca)\b/i,
-      /\bcurrent asset group\b/i,
-      /\bchalu sampatti\b/i
-    ],
-    allowedCategories: ASSET_CURRENT_CATEGORIES,
-    confidence: 75
-    // boost confidence when parent group context matches
-  },
-  // ── Non-Current / Fixed Assets ───────────────────────────────────────────────
-  {
-    patterns: [
-      /\bnon.?current assets?\b/i,
-      /\bfixed assets?\b/i,
-      /\b(nca)\b/i,
-      /\bproperty plant.*(equipment|ppne)\b/i,
-      /\bppe\b/i,
-      /\bsthir sampatti\b/i,
-      /\bsthayee sampatti\b/i
-    ],
-    allowedCategories: ASSET_NONCURRENT_CATEGORIES,
-    confidence: 75
-  },
-  // ── Current Liabilities ──────────────────────────────────────────────────────
-  {
-    patterns: [
-      /\bcurrent liabilit/i,
-      /\b(cl)\b/i,
-      /\bchalu dayitwa\b/i,
-      /\bcurrent creditors?\b/i
-    ],
-    allowedCategories: LIABILITY_CURRENT_CATEGORIES,
-    confidence: 75
-  },
-  // ── Non-Current Liabilities ──────────────────────────────────────────────────
-  {
-    patterns: [
-      /\bnon.?current liabilit/i,
-      /\b(ncl)\b/i,
-      /\bdirghkalin dayitwa\b/i,
-      /\blong.?term liabilit/i
-    ],
-    allowedCategories: LIABILITY_NONCURRENT_CATEGORIES,
-    confidence: 75
-  },
-  // ── Equity / Capital ─────────────────────────────────────────────────────────
-  {
-    patterns: [
-      /\b(equity|capital account|shareholders? equity|owner.*equity)\b/i,
-      /\bpunjee\b/i,
-      /\bkapital\b/i
-    ],
-    allowedCategories: EQUITY_CATEGORIES,
-    confidence: 78
-  },
-  // ── Revenue / Income ─────────────────────────────────────────────────────────
-  {
-    patterns: [
-      /\b(income|revenue|sales|direct income|indirect income|other income)\b/i,
-      /\baamdani\b/i,
-      /\bbikri\b/i
-    ],
-    allowedCategories: INCOME_CATEGORIES,
-    confidence: 75
-  },
-  // ── Expenses ─────────────────────────────────────────────────────────────────
-  {
-    patterns: [
-      /\b(expenses?|overheads?|direct expenses?|indirect expenses?|operating expenses?)\b/i,
-      /\bkharcha\b/i
-    ],
-    allowedCategories: EXPENSE_CATEGORIES,
-    confidence: 72
-  },
-  // ── Employee / HR Expenses ───────────────────────────────────────────────────
-  {
-    patterns: [
-      /\b(employee benefit expenses?|staff expenses?|hr expenses?|personnel expenses?)\b/i,
-      /\bkarmachari kharcha\b/i
-    ],
-    allowedCategories: EMPLOYEE_EXPENSE_CATEGORIES,
-    confidence: 78
-  }
-];
-function getContextCategories(parentGroup) {
-  if (!parentGroup || parentGroup.trim() === "") return null;
-  for (const entry of PARENT_GROUP_CONTEXT_MAP) {
-    for (const pattern of entry.patterns) {
-      if (pattern.test(parentGroup)) {
-        return { categories: entry.allowedCategories, confidence: entry.confidence };
+function matchParentContext(parentGroup, label) {
+  if (!parentGroup.trim()) return null;
+  for (const entry of PARENT_GROUP_MAP) {
+    if (!entry.pattern.test(parentGroup)) continue;
+    if (entry.subPatterns) {
+      for (const sub of entry.subPatterns) {
+        if (sub.pattern.test(label)) {
+          return { category: sub.category, confidence: 65 };
+        }
       }
     }
+    return { category: entry.category, confidence: 60 };
   }
   return null;
 }
-function disambiguateTDS(parentGroup, closingBalance) {
-  const pg = (parentGroup ?? "").toLowerCase();
-  const isLiabilityContext = /liabilit/i.test(pg) || /current liabilit/i.test(pg) || /payable/i.test(pg) || /cl\b/i.test(pg);
-  const isAssetContext = /current assets?/i.test(pg) || /\bca\b/i.test(pg) || /non.?current assets?/i.test(pg) || /advance tax/i.test(pg) || /receivable/i.test(pg);
-  if (isLiabilityContext) return "tds_payable";
-  if (isAssetContext) return "other_receivables_tds";
-  if (closingBalance > 0) return "other_receivables_tds";
-  if (closingBalance < 0) return "tds_payable";
-  return "tds_payable";
+function scoreKeywords(entry, normalizedLabel, parentGroup) {
+  let score = 0;
+  const words = normalizedLabel.split(" ").filter(Boolean);
+  for (const kw of entry.keywords) {
+    const nkw = normalize(kw);
+    if (!nkw) continue;
+    if (words.includes(nkw) || normalizedLabel === nkw) {
+      score += 10;
+    } else if (normalizedLabel.includes(nkw)) {
+      score += 5;
+    }
+  }
+  for (const ex of entry.exclusionKeywords) {
+    if (normalizedLabel.includes(normalize(ex))) score -= 20;
+  }
+  const pg = normalize(parentGroup);
+  if (pg && entry.statementLine.toLowerCase().includes("equity") && /capital|equity|punji/i.test(pg)) {
+    score += 15;
+  }
+  if (pg && entry.statementLine.includes("NCA") && /fixed asset|ppe|non.?current asset/i.test(pg)) {
+    score += 15;
+  }
+  if (pg && entry.statementLine.includes("CA") && /current asset/i.test(pg)) {
+    score += 15;
+  }
+  if (pg && entry.statementLine.includes("CL") && /current liabilit/i.test(pg)) {
+    score += 15;
+  }
+  if (pg && entry.statementLine.includes("NCL") && /non.?current liabilit/i.test(pg)) {
+    score += 15;
+  }
+  if (pg && entry.statementLine.includes("IS") && /income|expense|direct|indirect/i.test(pg)) {
+    score += 15;
+  }
+  return score;
 }
-function matchSingleAccount(rawLabel, rowIndex, parentGroup = "", closingBalance = 0) {
-  const trimmed = rawLabel.trim();
+function keywordMatch(normalizedLabel, parentGroup) {
+  let best = null;
   for (const entry of CHART_OF_ACCOUNTS) {
-    if (normalize(trimmed) === normalize(entry.label)) {
-      return {
-        rowIndex,
-        rawLabel: trimmed,
-        matchedLabel: entry.label,
-        nfrsCategory: entry.nfrsCategory,
-        confidence: 100,
-        method: "exact",
-        candidates: [{ label: entry.label, nfrsCategory: entry.nfrsCategory, confidence: 100 }],
-        needsReview: false
-      };
-    }
+    if (entry.isGroup) continue;
+    const score = scoreKeywords(entry, normalizedLabel, parentGroup);
+    if (!best || score > best.score) best = { entry, score };
   }
-  for (const entry of CHART_OF_ACCOUNTS) {
-    for (const syn of entry.synonyms ?? []) {
-      if (normalize(trimmed) === normalize(syn)) {
-        return {
-          rowIndex,
-          rawLabel: trimmed,
-          matchedLabel: entry.label,
-          nfrsCategory: entry.nfrsCategory,
-          confidence: 95,
-          method: "synonym",
-          candidates: [{ label: entry.label, nfrsCategory: entry.nfrsCategory, confidence: 95 }],
-          needsReview: false
-        };
-      }
-    }
-  }
-  for (const entry of NEPALI_ROMANIZED_ENTRIES) {
-    for (const pattern of entry.patterns) {
-      if (pattern.test(trimmed)) {
-        let nfrsCategory = entry.nfrsCategory;
-        if ((nfrsCategory === "tds_payable" || nfrsCategory === "other_receivables_tds") && /\btds|tdas|tda\b/i.test(trimmed)) {
-          nfrsCategory = disambiguateTDS(parentGroup, closingBalance);
-        }
-        const catEntries = CHART_OF_ACCOUNTS.filter((e) => e.nfrsCategory === nfrsCategory);
-        const bestEntry = catEntries[0] ?? null;
-        return {
-          rowIndex,
-          rawLabel: trimmed,
-          matchedLabel: bestEntry?.label ?? null,
-          nfrsCategory,
-          confidence: entry.confidence,
-          method: "nepali_romanized",
-          candidates: catEntries.slice(0, 5).map((e) => ({
-            label: e.label,
-            nfrsCategory: e.nfrsCategory,
-            confidence: entry.confidence
-          })),
-          needsReview: entry.confidence < CONFIDENCE_THRESHOLD
-        };
-      }
-    }
-  }
-  for (const { pattern, nfrsCategory: rawCategory, confidence } of KEYWORD_BUCKETS) {
-    if (pattern.test(trimmed)) {
-      let nfrsCategory = rawCategory;
-      if (rawCategory === "tds_payable" && /\btds\b/i.test(trimmed)) {
-        nfrsCategory = disambiguateTDS(parentGroup, closingBalance);
-      }
-      const catEntries = CHART_OF_ACCOUNTS.filter((e) => e.nfrsCategory === nfrsCategory);
-      const bestEntry = catEntries[0] ?? null;
-      return {
-        rowIndex,
-        rawLabel: trimmed,
-        matchedLabel: bestEntry?.label ?? null,
-        nfrsCategory,
-        confidence,
-        method: "keyword",
-        candidates: catEntries.slice(0, 5).map((e) => ({
-          label: e.label,
-          nfrsCategory: e.nfrsCategory,
-          confidence
-        })),
-        needsReview: confidence < CONFIDENCE_THRESHOLD
-      };
-    }
-  }
-  const contextResult = getContextCategories(parentGroup);
-  if (contextResult) {
-    const allowedSet = new Set(contextResult.categories);
-    const scored2 = CHART_OF_ACCOUNTS.filter((entry) => allowedSet.has(entry.nfrsCategory)).flatMap((entry) => {
-      const labelScore = similarityScore(trimmed, entry.label);
-      const synScores = (entry.synonyms ?? []).map((s) => similarityScore(trimmed, s));
-      const best = Math.max(labelScore, ...synScores, 0);
-      return [{ label: entry.label, nfrsCategory: entry.nfrsCategory, confidence: best }];
-    }).sort((a, b) => b.confidence - a.confidence);
-    const top2 = scored2[0];
-    if (top2 && top2.confidence >= 65) {
-      const boostedConf = Math.min(100, Math.round(top2.confidence * 1.08));
-      return {
-        rowIndex,
-        rawLabel: trimmed,
-        matchedLabel: top2.label,
-        nfrsCategory: top2.nfrsCategory,
-        confidence: boostedConf,
-        method: "context",
-        candidates: scored2.slice(0, 5).map((s) => ({
-          ...s,
-          nfrsCategory: s.nfrsCategory
-        })),
-        needsReview: boostedConf < CONFIDENCE_THRESHOLD
-      };
-    }
-  }
-  const scored = CHART_OF_ACCOUNTS.flatMap((entry) => {
-    const labelScore = similarityScore(trimmed, entry.label);
-    const synScores = (entry.synonyms ?? []).map((s) => similarityScore(trimmed, s));
-    const best = Math.max(labelScore, ...synScores, 0);
-    return [{ label: entry.label, nfrsCategory: entry.nfrsCategory, confidence: best }];
-  }).sort((a, b) => b.confidence - a.confidence);
-  const top = scored[0];
-  const candidates = scored.slice(0, 5);
-  if (top && top.confidence >= 75) {
-    return {
-      rowIndex,
-      rawLabel: trimmed,
-      matchedLabel: top.label,
-      nfrsCategory: top.nfrsCategory,
-      confidence: top.confidence,
-      method: "fuzzy",
-      candidates: candidates.map((c) => ({ ...c, nfrsCategory: c.nfrsCategory })),
-      needsReview: top.confidence < CONFIDENCE_THRESHOLD
-    };
-  }
+  if (!best || best.score < KEYWORD_THRESHOLD) return null;
+  const confidence = Math.min(85, Math.max(60, 50 + best.score));
   return {
-    rowIndex,
-    rawLabel: trimmed,
-    matchedLabel: null,
-    nfrsCategory: "unclassified",
-    confidence: top?.confidence ?? 0,
-    method: "unmatched",
-    candidates: candidates.map((c) => ({ ...c, nfrsCategory: c.nfrsCategory })),
-    needsReview: true
+    nfrsCategory: best.entry.category,
+    matchMethod: "keyword",
+    confidence,
+    needsReview: confidence < REVIEW_THRESHOLD,
+    displayLabel: best.entry.displayLabel
   };
 }
-function matchAllAccounts(rows) {
-  return rows.map((row) => {
-    if (row.isGroupRow) {
-      return {
-        rowIndex: row.rowIndex,
-        rawLabel: row.rawLabel,
-        matchedLabel: null,
-        nfrsCategory: "unclassified",
-        confidence: 0,
-        method: "unmatched",
-        candidates: [],
-        needsReview: false,
-        // group rows don't need user review
-        userOverride: false
-      };
+function fuzzyMatch(normalizedLabel) {
+  let best = null;
+  for (const entry of CHART_OF_ACCOUNTS) {
+    if (entry.isGroup) continue;
+    const candidates = [entry.displayLabel, ...entry.synonyms, ...entry.nepaliRomanized];
+    for (const cand of candidates) {
+      const nc = normalize(cand);
+      const dist = levenshtein(normalizedLabel, nc);
+      const maxLen2 = Math.max(normalizedLabel.length, nc.length);
+      if (maxLen2 === 0) continue;
+      if (dist / maxLen2 < 0.3) {
+        if (!best || dist < best.distance) {
+          best = { entry, distance: dist, synonym: cand };
+        }
+      }
     }
-    const closingBalance = (row.closingDr ?? 0) - (row.closingCr ?? 0);
-    return matchSingleAccount(
-      row.rawLabel,
-      row.rowIndex,
-      row.parentGroup ?? "",
-      closingBalance
-    );
+  }
+  if (!best) return null;
+  const maxLen = Math.max(normalizedLabel.length, normalize(best.synonym).length);
+  const confidence = Math.round(100 * (1 - best.distance / maxLen));
+  const clamped = Math.min(60, Math.max(40, confidence));
+  return {
+    nfrsCategory: best.entry.category,
+    matchMethod: "fuzzy",
+    confidence: clamped,
+    needsReview: true,
+    displayLabel: best.entry.displayLabel
+  };
+}
+function classifyRow(row) {
+  buildExactMatchMap();
+  const label = row.rawLabel.trim();
+  const normalized = normalize(label);
+  if (row.isGroupRow) {
+    return {
+      nfrsCategory: "unclassified",
+      matchMethod: "unmatched",
+      confidence: 0,
+      needsReview: false,
+      displayLabel: label
+    };
+  }
+  const exact = EXACT_MATCH_MAP.get(normalized);
+  if (exact) {
+    const entry = CHART_OF_ACCOUNTS.find((e) => e.category === exact);
+    return {
+      nfrsCategory: exact,
+      matchMethod: "exact",
+      confidence: 100,
+      needsReview: false,
+      displayLabel: entry?.displayLabel ?? label
+    };
+  }
+  for (const entry of CHART_OF_ACCOUNTS) {
+    if (entry.isGroup) continue;
+    for (const syn of entry.synonyms) {
+      if (normalize(syn) === normalized) {
+        return {
+          nfrsCategory: entry.category,
+          matchMethod: "synonym",
+          confidence: 95,
+          needsReview: false,
+          displayLabel: entry.displayLabel
+        };
+      }
+    }
+  }
+  for (const entry of CHART_OF_ACCOUNTS) {
+    if (entry.isGroup) continue;
+    for (const nr of entry.nepaliRomanized) {
+      if (normalize(nr) === normalized) {
+        return {
+          nfrsCategory: entry.category,
+          matchMethod: "synonym",
+          confidence: 90,
+          needsReview: false,
+          displayLabel: entry.displayLabel
+        };
+      }
+    }
+  }
+  const kw = keywordMatch(normalized, row.parentGroup);
+  if (kw) return kw;
+  const ctx = matchParentContext(row.parentGroup, label);
+  if (ctx) {
+    const entry = CHART_OF_ACCOUNTS.find((e) => e.category === ctx.category);
+    return {
+      nfrsCategory: ctx.category,
+      matchMethod: "context",
+      confidence: ctx.confidence,
+      needsReview: ctx.confidence < REVIEW_THRESHOLD,
+      displayLabel: entry?.displayLabel ?? label
+    };
+  }
+  const fuzzy = fuzzyMatch(normalized);
+  if (fuzzy) return fuzzy;
+  return {
+    nfrsCategory: "unclassified",
+    matchMethod: "unmatched",
+    confidence: 0,
+    needsReview: true,
+    displayLabel: label
+  };
+}
+function classifyAll(rows) {
+  return rows.map((row) => {
+    const result = classifyRow(row);
+    return {
+      ...row,
+      nfrsCategory: result.nfrsCategory,
+      matchMethod: result.matchMethod,
+      confidence: result.confidence,
+      needsReview: result.needsReview || result.nfrsCategory === "unclassified",
+      userOverride: false,
+      displayLabel: result.displayLabel
+    };
   });
 }
 
-// src/data/nfrsCategories.ts
-var NFRS_CATEGORY_INFO = [
-  // ── Non-Current Assets — PPE ──────────────────────────────────────────────
-  {
-    value: "ppe_land",
-    label: "Land",
-    group: "Non-Current Assets \u2014 Property, Plant & Equipment",
-    normalBalance: "debit",
-    noteRef: "3.1",
-    description: "Freehold and leasehold land held for business operations."
-  },
-  {
-    value: "ppe_buildings",
-    label: "Buildings",
-    group: "Non-Current Assets \u2014 Property, Plant & Equipment",
-    normalBalance: "debit",
-    noteRef: "3.1",
-    description: "Factory, office and other buildings owned by the company."
-  },
-  {
-    value: "ppe_plant_machinery",
-    label: "Plant & Machinery",
-    group: "Non-Current Assets \u2014 Property, Plant & Equipment",
-    normalBalance: "debit",
-    noteRef: "3.1",
-    description: "Production plant, industrial machinery and equipment."
-  },
-  {
-    value: "ppe_furniture",
-    label: "Furniture & Fixtures",
-    group: "Non-Current Assets \u2014 Property, Plant & Equipment",
-    normalBalance: "debit",
-    noteRef: "3.1",
-    description: "Office furniture, fittings and built-in fixtures."
-  },
-  {
-    value: "ppe_vehicles",
-    label: "Vehicles",
-    group: "Non-Current Assets \u2014 Property, Plant & Equipment",
-    normalBalance: "debit",
-    noteRef: "3.1",
-    description: "Cars, vans, trucks and other motor vehicles."
-  },
-  {
-    value: "ppe_computers",
-    label: "Computers & IT Equipment",
-    group: "Non-Current Assets \u2014 Property, Plant & Equipment",
-    normalBalance: "debit",
-    noteRef: "3.1",
-    description: "Computers, servers, printers and IT peripherals."
-  },
-  {
-    value: "ppe_office_equipment",
-    label: "Other Equipment",
-    group: "Non-Current Assets \u2014 Property, Plant & Equipment",
-    normalBalance: "debit",
-    noteRef: "3.1",
-    description: "Other tangible fixed assets not classified elsewhere."
-  },
-  {
-    value: "ppe_cwip",
-    label: "Capital Work-in-Progress",
-    group: "Non-Current Assets \u2014 Property, Plant & Equipment",
-    normalBalance: "debit",
-    noteRef: "3.2",
-    description: "Assets under construction or not yet ready for use."
-  },
-  {
-    value: "accum_depreciation",
-    label: "Accumulated Depreciation",
-    group: "Non-Current Assets \u2014 Property, Plant & Equipment",
-    normalBalance: "credit",
-    noteRef: "3.1",
-    description: "Total depreciation charged on PPE to date (contra-asset)."
-  },
-  {
-    value: "ppe_intangibles",
-    label: "Intangible Assets",
-    group: "Non-Current Assets \u2014 Property, Plant & Equipment",
-    normalBalance: "debit",
-    noteRef: "3.3",
-    description: "Goodwill, software licences, trademarks and other intangibles."
-  },
-  // ── Non-Current Assets — Investments ─────────────────────────────────────
-  {
-    value: "investment_listed_trading",
-    label: "Investment in Listed Shares",
-    group: "Non-Current Assets \u2014 Investments",
-    normalBalance: "debit",
-    noteRef: "3.4",
-    description: "Investment in equity shares listed on NEPSE."
-  },
-  {
-    value: "investment_unlisted",
-    label: "Investment in Unlisted Shares",
-    group: "Non-Current Assets \u2014 Investments",
-    normalBalance: "debit",
-    noteRef: "3.4",
-    description: "Investment in private company equity shares not listed on NEPSE."
-  },
-  {
-    value: "investment_unlisted",
-    label: "Investment in Mutual Funds",
-    group: "Non-Current Assets \u2014 Investments",
-    normalBalance: "debit",
-    noteRef: "3.4",
-    description: "Units held in SEBON-registered mutual funds."
-  },
-  {
-    value: "investment_unlisted",
-    label: "Bonds & Debentures",
-    group: "Non-Current Assets \u2014 Investments",
-    normalBalance: "debit",
-    noteRef: "3.4",
-    description: "Government securities, corporate bonds and debentures."
-  },
-  {
-    value: "investment_fixed_deposit_noncurrent",
-    label: "Fixed Deposit Receipts (FDR)",
-    group: "Non-Current Assets \u2014 Investments",
-    normalBalance: "debit",
-    noteRef: "3.4",
-    description: "Long-term fixed deposits placed with banks and financial institutions."
-  },
-  {
-    value: "investment_unlisted",
-    label: "Other Investments",
-    group: "Non-Current Assets \u2014 Investments",
-    normalBalance: "debit",
-    noteRef: "3.4",
-    description: "Other long-term investments not classified elsewhere."
-  },
-  // ── Non-Current Assets — Other ────────────────────────────────────────────
-  {
-    value: "ppe_intangibles",
-    label: "Goodwill",
-    group: "Non-Current Assets \u2014 Other",
-    normalBalance: "debit",
-    noteRef: "3.3",
-    description: "Goodwill arising on acquisition of a business."
-  },
-  {
-    value: "nca_other",
-    label: "Deferred Tax Asset",
-    group: "Non-Current Assets \u2014 Other",
-    normalBalance: "debit",
-    noteRef: "3.23",
-    description: "Deferred tax asset arising from timing differences."
-  },
-  {
-    value: "nca_other",
-    label: "Other Non-Current Assets",
-    group: "Non-Current Assets \u2014 Other",
-    normalBalance: "debit",
-    noteRef: "3.6",
-    description: "Long-term deposits, security deposits and other NCA not classified above."
-  },
-  {
-    value: "nca_loans_advances",
-    label: "Long-term Loans & Advances",
-    group: "Non-Current Assets \u2014 Other",
-    normalBalance: "debit",
-    noteRef: "3.6",
-    description: "Loans and advances recoverable after twelve months."
-  },
-  // ── Current Assets — Trade Receivables ───────────────────────────────────
-  {
-    value: "trade_receivables",
-    label: "Trade Receivables (Debtors)",
-    group: "Current Assets \u2014 Trade Receivables",
-    normalBalance: "debit",
-    noteRef: "3.5",
-    description: "Amounts owed by customers for goods/services already delivered."
-  },
-  {
-    value: "provision_impairment_debtors",
-    label: "Less: Allowance for Doubtful Debts",
-    group: "Current Assets \u2014 Trade Receivables",
-    normalBalance: "credit",
-    noteRef: "3.5",
-    description: "Provision for estimated uncollectable trade receivables (contra-asset)."
-  },
-  {
-    value: "trade_receivables",
-    label: "Bills Receivable",
-    group: "Current Assets \u2014 Trade Receivables",
-    normalBalance: "debit",
-    noteRef: "3.5",
-    description: "Promissory notes and bills of exchange receivable."
-  },
-  // ── Current Assets — Cash & Bank ─────────────────────────────────────────
-  {
-    value: "cash_in_hand",
-    label: "Cash in Hand",
-    group: "Current Assets \u2014 Cash & Bank",
-    normalBalance: "debit",
-    noteRef: "3.8",
-    description: "Physical cash held at premises and petty cash."
-  },
-  {
-    value: "bank_current_account",
-    label: "Bank \u2014 Current Account",
-    group: "Current Assets \u2014 Cash & Bank",
-    normalBalance: "debit",
-    noteRef: "3.8",
-    description: "Balances in bank current / cheque accounts."
-  },
-  {
-    value: "bank_savings_account",
-    label: "Bank \u2014 Savings Account",
-    group: "Current Assets \u2014 Cash & Bank",
-    normalBalance: "debit",
-    noteRef: "3.8",
-    description: "Balances in bank savings accounts."
-  },
-  {
-    value: "bank_current_account",
-    label: "Bank Overdraft (Asset Balance)",
-    group: "Current Assets \u2014 Cash & Bank",
-    normalBalance: "debit",
-    noteRef: "3.8",
-    description: "Temporary debit balance on an overdraft facility (asset side)."
-  },
-  {
-    value: "bank_fixed_deposit_current",
-    label: "Short-term Fixed Deposits (\u22643 months)",
-    group: "Current Assets \u2014 Cash & Bank",
-    normalBalance: "debit",
-    noteRef: "3.8",
-    description: "Fixed deposits maturing within three months, treated as cash equivalents."
-  },
-  // ── Current Assets — Inventories ──────────────────────────────────────────
-  {
-    value: "inventory_raw_materials",
-    label: "Inventories \u2014 Raw Materials",
-    group: "Current Assets \u2014 Inventories",
-    normalBalance: "debit",
-    noteRef: "3.7",
-    description: "Raw materials and components held for production."
-  },
-  {
-    value: "inventory_wip",
-    label: "Inventories \u2014 Work-in-Progress",
-    group: "Current Assets \u2014 Inventories",
-    normalBalance: "debit",
-    noteRef: "3.7",
-    description: "Goods partially manufactured and awaiting completion."
-  },
-  {
-    value: "inventory_finished_goods",
-    label: "Inventories \u2014 Finished Goods",
-    group: "Current Assets \u2014 Inventories",
-    normalBalance: "debit",
-    noteRef: "3.7",
-    description: "Completed goods held for sale."
-  },
-  {
-    value: "inventory_finished_goods",
-    label: "Inventories \u2014 Trading / Stock-in-Trade",
-    group: "Current Assets \u2014 Inventories",
-    normalBalance: "debit",
-    noteRef: "3.7",
-    description: "Goods purchased for resale without further processing."
-  },
-  {
-    value: "inventory_raw_materials",
-    label: "Inventories \u2014 Consumables & Stores",
-    group: "Current Assets \u2014 Inventories",
-    normalBalance: "debit",
-    noteRef: "3.7",
-    description: "Office consumables, packing materials and factory stores."
-  },
-  // ── Current Assets — Other ────────────────────────────────────────────────
-  {
-    value: "other_receivables_tds",
-    label: "Advance Income Tax / TDS Receivable",
-    group: "Current Assets \u2014 Other",
-    normalBalance: "debit",
-    noteRef: "3.6",
-    description: "Tax paid in advance and TDS deducted at source on income."
-  },
-  {
-    value: "other_receivables_other",
-    label: "VAT Receivable (Input Tax)",
-    group: "Current Assets \u2014 Other",
-    normalBalance: "debit",
-    noteRef: "3.6",
-    description: "Input VAT credit available for set-off against output VAT."
-  },
-  {
-    value: "other_receivables_prepayments",
-    label: "Prepaid Expenses",
-    group: "Current Assets \u2014 Other",
-    normalBalance: "debit",
-    noteRef: "3.6",
-    description: "Expenses paid in advance for future periods."
-  },
-  {
-    value: "other_receivables_other",
-    label: "Accrued Income / Interest Receivable",
-    group: "Current Assets \u2014 Other",
-    normalBalance: "debit",
-    noteRef: "3.6",
-    description: "Income earned but not yet received or invoiced."
-  },
-  {
-    value: "other_receivables_staff_advance",
-    label: "Loans & Advances to Staff",
-    group: "Current Assets \u2014 Other",
-    normalBalance: "debit",
-    noteRef: "3.6",
-    description: "Short-term advances and salary advances to employees."
-  },
-  {
-    value: "other_receivables_loans",
-    label: "Loans & Advances to Others",
-    group: "Current Assets \u2014 Other",
-    normalBalance: "debit",
-    noteRef: "3.6",
-    description: "Other short-term advances and deposits recoverable."
-  },
-  {
-    value: "other_receivables_other",
-    label: "Other Current Assets",
-    group: "Current Assets \u2014 Other",
-    normalBalance: "debit",
-    noteRef: "3.6",
-    description: "Miscellaneous current assets not classified elsewhere."
-  },
-  // ── Equity ────────────────────────────────────────────────────────────────
-  {
-    value: "share_capital",
-    label: "Share Capital",
-    group: "Equity",
-    normalBalance: "credit",
-    noteRef: "3.9",
-    description: "Paid-up share capital \u2014 authorised and issued ordinary shares."
-  },
-  {
-    value: "share_premium",
-    label: "Share Premium / Securities Premium",
-    group: "Equity",
-    normalBalance: "credit",
-    noteRef: "3.9",
-    description: "Premium received on issue of shares above face value."
-  },
-  {
-    value: "general_reserve",
-    label: "General Reserve",
-    group: "Equity",
-    normalBalance: "credit",
-    noteRef: "3.10",
-    description: "Accumulated general reserve appropriated from retained earnings."
-  },
-  {
-    value: "retained_earnings",
-    label: "Retained Earnings / Accumulated Profit",
-    group: "Equity",
-    normalBalance: "credit",
-    noteRef: "3.10",
-    description: "Cumulative profit/(loss) retained in the business after dividends."
-  },
-  {
-    value: "other_reserves",
-    label: "Other Reserves",
-    group: "Equity",
-    normalBalance: "credit",
-    noteRef: "3.10",
-    description: "Capital reserve, revaluation reserve and other specific reserves."
-  },
-  {
-    value: "other_reserves",
-    label: "Proprietor's Capital (Sole Trade/Partnership)",
-    group: "Equity",
-    normalBalance: "credit",
-    noteRef: "3.9",
-    description: "Capital contributed by proprietor or partners in non-corporate entities."
-  },
-  // ── Non-Current Liabilities ───────────────────────────────────────────────
-  {
-    value: "borrowings_noncurrent_bank",
-    label: "Long-term Loan \u2014 Bank",
-    group: "Non-Current Liabilities",
-    normalBalance: "credit",
-    noteRef: "3.11",
-    description: "Term loans from banks repayable after twelve months."
-  },
-  {
-    value: "borrowings_noncurrent_other",
-    label: "Long-term Loan \u2014 Others",
-    group: "Non-Current Liabilities",
-    normalBalance: "credit",
-    noteRef: "3.11",
-    description: "Long-term loans from NBFIs, related parties or other sources."
-  },
-  {
-    value: "borrowings_noncurrent_other",
-    label: "Debentures / Bonds Issued",
-    group: "Non-Current Liabilities",
-    normalBalance: "credit",
-    noteRef: "3.11",
-    description: "Long-term debt instruments issued by the company."
-  },
-  {
-    value: "deferred_tax_liability",
-    label: "Deferred Tax Liability",
-    group: "Non-Current Liabilities",
-    normalBalance: "credit",
-    noteRef: "3.23",
-    description: "Deferred tax liability arising from timing differences."
-  },
-  {
-    value: "employee_benefit_gratuity",
-    label: "Provision for Gratuity (Non-current)",
-    group: "Non-Current Liabilities",
-    normalBalance: "credit",
-    noteRef: "3.12",
-    description: "Long-term portion of defined benefit gratuity obligation."
-  },
-  {
-    value: "provisions_noncurrent",
-    label: "Other Non-Current Liabilities",
-    group: "Non-Current Liabilities",
-    normalBalance: "credit",
-    noteRef: "3.11",
-    description: "Other long-term obligations not classified elsewhere."
-  },
-  // ── Current Liabilities — Borrowings ──────────────────────────────────────
-  {
-    value: "borrowings_current_od",
-    label: "Bank Overdraft",
-    group: "Current Liabilities \u2014 Borrowings",
-    normalBalance: "credit",
-    noteRef: "3.11",
-    description: "Bank overdraft balance (credit balance on OD/CC account)."
-  },
-  {
-    value: "borrowings_current_wc",
-    label: "Short-term Loans & Working Capital",
-    group: "Current Liabilities \u2014 Borrowings",
-    normalBalance: "credit",
-    noteRef: "3.11",
-    description: "Cash credit, working capital demand loans and other short-term bank facilities."
-  },
-  {
-    value: "borrowings_current_portion_lt",
-    label: "Current Portion of Long-term Loan",
-    group: "Current Liabilities \u2014 Borrowings",
-    normalBalance: "credit",
-    noteRef: "3.11",
-    description: "Instalments of long-term loans due within twelve months."
-  },
-  // ── Current Liabilities — Trade Payables ──────────────────────────────────
-  {
-    value: "trade_payables_creditors",
-    label: "Trade Payables (Creditors)",
-    group: "Current Liabilities \u2014 Trade Payables",
-    normalBalance: "credit",
-    noteRef: "3.13",
-    description: "Amounts owed to suppliers for goods and services received."
-  },
-  {
-    value: "trade_payables_creditors",
-    label: "Bills Payable",
-    group: "Current Liabilities \u2014 Trade Payables",
-    normalBalance: "credit",
-    noteRef: "3.13",
-    description: "Promissory notes and bills of exchange payable to creditors."
-  },
-  {
-    value: "trade_payables_advance_customers",
-    label: "Advance from Customers",
-    group: "Current Liabilities \u2014 Trade Payables",
-    normalBalance: "credit",
-    noteRef: "3.14",
-    description: "Deposits and advance payments received from customers before delivery."
-  },
-  // ── Current Liabilities — Employee & Statutory ────────────────────────────
-  {
-    value: "employee_payables_salary",
-    label: "Salary & Wages Payable",
-    group: "Current Liabilities \u2014 Employee & Statutory",
-    normalBalance: "credit",
-    noteRef: "3.12",
-    description: "Accrued salaries and wages payable to employees."
-  },
-  {
-    value: "employee_payables_bonus",
-    label: "Staff Bonus Payable",
-    group: "Current Liabilities \u2014 Employee & Statutory",
-    normalBalance: "credit",
-    noteRef: "3.12",
-    description: "Staff bonus accrued and payable (10% of net profit per Bonus Act 2030)."
-  },
-  {
-    value: "employee_payables_pf",
-    label: "PF / SSF Payable",
-    group: "Current Liabilities \u2014 Employee & Statutory",
-    normalBalance: "credit",
-    noteRef: "3.12",
-    description: "Provident fund and Social Security Fund contributions payable."
-  },
-  {
-    value: "tds_payable",
-    label: "TDS / Withholding Tax Payable",
-    group: "Current Liabilities \u2014 Employee & Statutory",
-    normalBalance: "credit",
-    noteRef: "3.15",
-    description: "Tax deducted at source pending deposit to IRD."
-  },
-  {
-    value: "other_payables",
-    label: "VAT Payable",
-    group: "Current Liabilities \u2014 Employee & Statutory",
-    normalBalance: "credit",
-    noteRef: "3.15",
-    description: "Net VAT liability (output tax less input tax) payable to IRD."
-  },
-  {
-    value: "income_tax_payable",
-    label: "Income Tax Payable",
-    group: "Current Liabilities \u2014 Employee & Statutory",
-    normalBalance: "credit",
-    noteRef: "3.15",
-    description: "Current-year income tax liability net of advance tax paid."
-  },
-  {
-    value: "audit_fee_payable",
-    label: "Audit Fee Payable",
-    group: "Current Liabilities \u2014 Employee & Statutory",
-    normalBalance: "credit",
-    noteRef: "3.16",
-    description: "Statutory audit fee accrued and payable to auditors."
-  },
-  {
-    value: "provisions_current",
-    label: "Other Provisions",
-    group: "Current Liabilities \u2014 Employee & Statutory",
-    normalBalance: "credit",
-    noteRef: "3.16",
-    description: "Other accruals and provisions for known obligations."
-  },
-  {
-    value: "other_payables",
-    label: "Other Current Liabilities",
-    group: "Current Liabilities \u2014 Employee & Statutory",
-    normalBalance: "credit",
-    noteRef: "3.14",
-    description: "Miscellaneous current liabilities not classified elsewhere."
-  },
-  // ── Income ────────────────────────────────────────────────────────────────
-  {
-    value: "revenue_sales",
-    label: "Revenue \u2014 Sales of Goods",
-    group: "Income",
-    normalBalance: "credit",
-    noteRef: "3.17",
-    description: "Revenue from sale of goods, net of returns and trade discounts."
-  },
-  {
-    value: "revenue_services",
-    label: "Revenue \u2014 Service Income",
-    group: "Income",
-    normalBalance: "credit",
-    noteRef: "3.17",
-    description: "Revenue from rendering of services."
-  },
-  {
-    value: "other_income_misc",
-    label: "Revenue \u2014 Other Operating Income",
-    group: "Income",
-    normalBalance: "credit",
-    noteRef: "3.17",
-    description: "Other income directly related to business operations."
-  },
-  {
-    value: "other_income_interest",
-    label: "Interest Income",
-    group: "Income",
-    normalBalance: "credit",
-    noteRef: "3.17",
-    description: "Interest earned on bank deposits, loans and investments."
-  },
-  {
-    value: "other_income_dividend",
-    label: "Dividend Income",
-    group: "Income",
-    normalBalance: "credit",
-    noteRef: "3.17",
-    description: "Dividends received from investments in shares."
-  },
-  {
-    value: "other_income_rental",
-    label: "Rental Income",
-    group: "Income",
-    normalBalance: "credit",
-    noteRef: "3.17",
-    description: "Income from renting out property or equipment."
-  },
-  {
-    value: "other_income_misc",
-    label: "Other Income",
-    group: "Income",
-    normalBalance: "credit",
-    noteRef: "3.17",
-    description: "Gains, miscellaneous income and receipts not from operations."
-  },
-  // ── Cost of Goods Sold ────────────────────────────────────────────────────
-  {
-    value: "cogs_purchases",
-    label: "Purchases",
-    group: "Cost of Goods Sold",
-    normalBalance: "debit",
-    noteRef: "3.18",
-    description: "Cost of goods purchased for trading or raw materials for production."
-  },
-  {
-    value: "direct_expenses_other",
-    label: "Direct Expenses",
-    group: "Cost of Goods Sold",
-    normalBalance: "debit",
-    noteRef: "3.19",
-    description: "Direct labour, freight, packing and other costs directly attributable to production."
-  },
-  {
-    value: "cogs_opening_stock",
-    label: "Opening Stock",
-    group: "Cost of Goods Sold",
-    normalBalance: "debit",
-    noteRef: "3.18",
-    description: "Inventory at the beginning of the reporting period."
-  },
-  {
-    value: "inventory_finished_goods",
-    label: "Closing Stock",
-    group: "Cost of Goods Sold",
-    normalBalance: "credit",
-    noteRef: "3.18",
-    description: "Inventory at the end of the reporting period."
-  },
-  // ── Employee Expenses ─────────────────────────────────────────────────────
-  {
-    value: "emp_expense_salaries",
-    label: "Salaries & Wages",
-    group: "Employee Expenses",
-    normalBalance: "debit",
-    noteRef: "3.20",
-    description: "Gross salaries, wages and allowances paid to employees."
-  },
-  {
-    value: "emp_expense_pf",
-    label: "PF / SSF Contribution (Employer)",
-    group: "Employee Expenses",
-    normalBalance: "debit",
-    noteRef: "3.20",
-    description: "Employer's contribution to Provident Fund and Social Security Fund."
-  },
-  {
-    value: "emp_expense_gratuity",
-    label: "Gratuity Expense",
-    group: "Employee Expenses",
-    normalBalance: "debit",
-    noteRef: "3.20",
-    description: "Gratuity expense accrued for the period per actuarial estimate."
-  },
-  {
-    value: "emp_expense_other",
-    label: "Leave Encashment Expense",
-    group: "Employee Expenses",
-    normalBalance: "debit",
-    noteRef: "3.20",
-    description: "Expense for accumulated leave liability of employees."
-  },
-  {
-    value: "emp_expense_bonus",
-    label: "Staff Bonus Expense",
-    group: "Employee Expenses",
-    normalBalance: "debit",
-    noteRef: "3.20",
-    description: "Staff bonus charged to income statement (10% of net profit before tax)."
-  },
-  {
-    value: "emp_expense_welfare",
-    label: "Staff Welfare Expenses",
-    group: "Employee Expenses",
-    normalBalance: "debit",
-    noteRef: "3.20",
-    description: "Medical, canteen, training, uniform and other staff welfare costs."
-  },
-  // ── Finance Costs ─────────────────────────────────────────────────────────
-  {
-    value: "finance_cost_interest",
-    label: "Bank Interest Expense",
-    group: "Finance Costs",
-    normalBalance: "debit",
-    noteRef: "3.21",
-    description: "Interest charged on bank loans, overdrafts and credit facilities."
-  },
-  {
-    value: "finance_cost_bank_charges",
-    label: "Bank Charges & Commission",
-    group: "Finance Costs",
-    normalBalance: "debit",
-    noteRef: "3.21",
-    description: "Bank service charges, LC commission and other financial charges."
-  },
-  {
-    value: "finance_cost_interest",
-    label: "Other Finance Costs",
-    group: "Finance Costs",
-    normalBalance: "debit",
-    noteRef: "3.21",
-    description: "Other borrowing costs not separately classified."
-  },
-  // ── Depreciation & Impairment ─────────────────────────────────────────────
-  {
-    value: "depreciation_expense",
-    label: "Depreciation Expense",
-    group: "Depreciation & Impairment",
-    normalBalance: "debit",
-    noteRef: "3.1",
-    description: "Systematic depreciation of PPE charged to income statement."
-  },
-  {
-    value: "impairment_expense",
-    label: "Impairment Loss",
-    group: "Depreciation & Impairment",
-    normalBalance: "debit",
-    noteRef: "3.21",
-    description: "Impairment write-down of assets below their carrying amount."
-  },
-  // ── Administrative Expenses ───────────────────────────────────────────────
-  {
-    value: "admin_rent",
-    label: "Rent Expense",
-    group: "Administrative Expenses",
-    normalBalance: "debit",
-    noteRef: "3.22",
-    description: "Rent paid for office, factory and business premises."
-  },
-  {
-    value: "admin_electricity",
-    label: "Electricity, Water & Utilities",
-    group: "Administrative Expenses",
-    normalBalance: "debit",
-    noteRef: "3.22",
-    description: "Utility costs for office and factory operations."
-  },
-  {
-    value: "admin_communication",
-    label: "Telephone, Internet & Communication",
-    group: "Administrative Expenses",
-    normalBalance: "debit",
-    noteRef: "3.22",
-    description: "Communication costs including internet, mobile and landline."
-  },
-  {
-    value: "admin_printing",
-    label: "Printing & Stationery",
-    group: "Administrative Expenses",
-    normalBalance: "debit",
-    noteRef: "3.22",
-    description: "Office stationery, printing and photocopying costs."
-  },
-  {
-    value: "admin_repairs",
-    label: "Repairs & Maintenance",
-    group: "Administrative Expenses",
-    normalBalance: "debit",
-    noteRef: "3.22",
-    description: "Expenditure on repair and maintenance of assets."
-  },
-  {
-    value: "admin_audit_fee",
-    label: "Audit Fee",
-    group: "Administrative Expenses",
-    normalBalance: "debit",
-    noteRef: "3.22",
-    description: "Statutory audit fee and other professional charges."
-  },
-  {
-    value: "admin_legal_professional",
-    label: "Legal & Professional Fees",
-    group: "Administrative Expenses",
-    normalBalance: "debit",
-    noteRef: "3.22",
-    description: "Legal fees, consultancy fees and professional charges."
-  },
-  {
-    value: "admin_other",
-    label: "Selling & Distribution Expenses",
-    group: "Administrative Expenses",
-    normalBalance: "debit",
-    noteRef: "3.22",
-    description: "Sales commission, advertisement, delivery and marketing expenses."
-  },
-  {
-    value: "admin_traveling",
-    label: "Travel & Conveyance",
-    group: "Administrative Expenses",
-    normalBalance: "debit",
-    noteRef: "3.22",
-    description: "Staff travel, vehicle running costs and conveyance allowances."
-  },
-  {
-    value: "admin_insurance",
-    label: "Insurance Premium",
-    group: "Administrative Expenses",
-    normalBalance: "debit",
-    noteRef: "3.22",
-    description: "Insurance premiums for assets, stock and business."
-  },
-  {
-    value: "admin_other",
-    label: "Miscellaneous Expenses",
-    group: "Administrative Expenses",
-    normalBalance: "debit",
-    noteRef: "3.22",
-    description: "Sundry and miscellaneous operational expenses."
-  },
-  {
-    value: "admin_other",
-    label: "Other Administrative Expenses",
-    group: "Administrative Expenses",
-    normalBalance: "debit",
-    noteRef: "3.22",
-    description: "Other general and administrative costs not separately listed."
-  },
-  // ── Tax ───────────────────────────────────────────────────────────────────
-  {
-    value: "income_tax_expense",
-    label: "Current Tax Expense",
-    group: "Tax",
-    normalBalance: "debit",
-    noteRef: "3.23",
-    description: "Current-year income tax expense based on taxable income."
-  },
-  {
-    value: "income_tax_expense",
-    label: "Deferred Tax Expense / (Income)",
-    group: "Tax",
-    normalBalance: "debit",
-    noteRef: "3.23",
-    description: "Movement in deferred tax asset or liability for the period."
-  },
-  // ── Unclassified ──────────────────────────────────────────────────────────
-  {
-    value: "unclassified",
-    label: "Unclassified / Not Mapped",
-    group: "Unclassified",
-    normalBalance: "debit",
-    noteRef: "\u2014",
-    description: "Account has not been mapped to an NFRS category \u2014 review required."
-  }
-];
-
 // server/services/aiAccountMatcher.ts
+import Anthropic from "@anthropic-ai/sdk";
 var aiCache = /* @__PURE__ */ new Map();
-function buildCacheKey(accounts) {
-  return accounts.map((a) => `${a.rawLabel}:${Math.sign(a.closingBalance)}`).join("|");
+var SYSTEM_PROMPT = "You are a Nepal chartered accountant expert in NAS for MEs and NFRS financial reporting. Given a list of trial balance account labels from Nepali accounting software, classify each into exactly one NFRS category from the provided list. Respond with a JSON array only. No explanation.";
+function cacheKey(label, parentGroup) {
+  return `${label.toLowerCase()}|${parentGroup.toLowerCase()}`;
 }
-function buildSystemPrompt() {
-  return `You are an expert Nepal Chartered Accountant with deep knowledge of:
-1. Nepal Accounting Standards for Micro Entities (NAS for MEs) issued by ICAN
-2. Nepal Income Tax Act 2058 and its amendments
-3. Common accounting software used in Nepal: Tally ERP9, Tally Prime, Busy Accounting, Marg ERP
-4. Nepal business terminology: NPR, BS calendar, PAN/VAT, TDS, PF/SSF/CIT, NEPSE, NRB, IRD
-5. Double-entry bookkeeping: Dr-balance accounts are typically assets/expenses; Cr-balance accounts are liabilities/equity/income
-
-Your task is to classify trial balance account names into NFRS financial statement categories.
-Respond ONLY with a valid JSON array \u2014 no markdown, no explanation, no preamble.`;
+function buildUserPrompt(batch) {
+  return `Classify these account labels into NFRS categories.
+Available categories: ${NFRS_CATEGORIES.join(", ")}
+Parent group context is provided for each account.
+Return ONLY a JSON array of objects: [{index, category, confidence, reasoning}]
+Accounts to classify:
+${JSON.stringify(batch)}`;
 }
-function buildUserPrompt(accounts, company) {
-  const accountLines = accounts.map((a, i) => {
-    const side = a.closingBalance >= 0 ? "Dr" : "Cr";
-    const amount = Math.abs(a.closingBalance).toLocaleString("en-IN");
-    return `${i + 1}. "${a.rawLabel}" [Closing: ${side} NPR ${amount}]`;
-  }).join("\n");
-  return `CONTEXT: Company type is ${company.companyType}, Fiscal Year ${company.fiscalYear.bsYear}
-
-These account names are from a Nepal business trial balance exported from accounting software.
-Each name may be in English or a mixture of English and Nepali transliteration.
-
-IMPORTANT Nepal-specific classification rules:
-\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
-PROVIDENT / RETIREMENT FUNDS:
-- "CIT" = Citizens Investment Trust (provident fund type) \u2192 employee_payables_pf
-- "SSF" = Social Security Fund \u2192 employee_payables_pf
-- "EPF" = Employees Provident Fund \u2192 employee_payables_pf
-- "PF" alone or "Provident Fund" \u2192 employee_payables_pf
-
-INVESTMENTS & CAPITAL MARKET:
-- "NEPSE" related accounts \u2192 investment_listed_trading
-- Share investment, listed shares, demat account \u2192 investment_listed_trading
-- Mutual fund, unit trust \u2192 investment_listed_trading
-- Fixed deposit (> 1 year) \u2192 investment_fixed_deposit_noncurrent
-- Fixed deposit (< 1 year / short term) \u2192 cash_equivalents_fixed_deposit
-
-REGULATORY / GOVERNMENT:
-- "NRB" = Nepal Rastra Bank \u2192 admin_rates_taxes (if expense) or bank_current_account (if balance)
-- "IRD" = Inland Revenue Department \u2192 income_tax_payable (if payable) or advance_tax (if receivable)
-- "OCR" = Office of Company Registrar \u2192 admin_rates_taxes
-- "DDR" = Department of Drug Registration \u2192 admin_rates_taxes
-- "Municipality fee/renewal" \u2192 admin_rates_taxes
-
-TAX ENTRIES:
-- "TDS payable" / "TDS on salary payable" \u2192 tds_payable
-- "TDS on rent payable" \u2192 tds_payable
-- "TDS on service payable" \u2192 tds_payable
-- "Input VAT" / "VAT receivable" \u2192 other_receivables_other (Dr balance)
-- "Output VAT payable" / "VAT payable" \u2192 other_payables (Cr balance)
-- "Advance income tax" / "Advance tax paid" \u2192 advance_tax_paid
-- "Tax payable" / "Income tax payable" \u2192 income_tax_payable
-
-BANK ACCOUNTS:
-- Any Nepal bank name (Nabil, NIC Asia, Himalayan, Everest, NIBL, HBL, EBL, Citizens, Kumari, 
-  Bank of Kathmandu, NMB, Siddhartha, Global IME, Sunrise, Prabhu, Sanima, Laxmi, Janata, 
-  Mega, Century, ADBN, RBB, NBL, Civil, Prime, Standard Chartered, Citibank) with "Current / CA / 
-  Savings / OD / CC / Account" \u2192 bank_current_account (Dr balance) or bank_overdraft (Cr balance)
-- IMPORTANT: If the account is a Nepal bank name with Cr balance and labeled "OD" or "Overdraft" or "CC" 
-  or "Cash Credit" \u2192 bank_overdraft (current liability)
-- If the account is a Nepal bank name with Cr balance and labeled "Loan" or "Term Loan" \u2192 
-  borrowings_bank_noncurrent (if long-term) else borrowings_bank_current
-
-INVENTORY:
-- "Closing Stock" / "Stock in Hand" \u2192 inventory_finished_goods (Dr balance asset)
-- "Opening Stock" / "Opening Inventory" \u2192 cogs_opening_stock (expense/COGS)
-- "Work in Progress" / "WIP" \u2192 inventory_wip
-- "Raw Material" stock \u2192 inventory_raw_material
-
-TRADE ACCOUNTS:
-- "Sundry Debtors" / "Trade Debtors" / "Accounts Receivable" \u2192 trade_receivables
-- "Sundry Creditors" / "Trade Creditors" / "Accounts Payable" \u2192 trade_payables
-- "Purchase" / "Purchases" by itself \u2192 cogs_purchases
-- "Sales" / "Revenue" / "Income from [anything]" \u2192 revenue_operations (unless clearly other income)
-- "Other Income" / "Miscellaneous Income" / "Sundry Income" \u2192 other_income
-
-EMPLOYEE-RELATED:
-- "Staff Bonus" / "Bonus expense" \u2192 emp_expense_bonus (if Dr / expense)
-- "Bonus payable" / "Staff bonus payable" \u2192 employee_payables_bonus (if Cr / liability)
-- "Dashain Allowance" / "Tihar Allowance" / "Festival bonus" \u2192 emp_expense_welfare
-- "Gratuity expense" / "Gratuity provision" \u2192 emp_expense_gratuity
-- "Gratuity payable" / "Gratuity fund" \u2192 employee_payables_gratuity
-- "Leave encashment" \u2192 emp_expense_leave
-- "Salary" / "Wages" / "Remuneration" \u2192 emp_expense_salary
-  (A fiscal year suffix like "Salary 2081" does NOT change the category)
-
-ADVANCES & LOANS:
-- "Advance to [party name]" / "Staff advance" \u2192 other_receivables_loans (Dr balance = asset)
-- "Advance from [party name]" \u2192 advance_from_customers (Cr balance = liability)
-- "Loan from director" / "Loan from [director name]" \u2192 related_party_payable
-- "Loan from [bank name]" \u2192 borrowings_bank_noncurrent or borrowings_bank_current (based on term)
-- "Loan to staff" / "Loan to employee" \u2192 other_receivables_loans
-
-BALANCE-SIDE HINTS (use the Dr/Cr balance as strong evidence):
-- Large Cr balance (>1M) on an account named like a person/party \u2192 likely related_party_payable or trade_payables
-- Large Cr balance on "Capital" or "Equity" related names \u2192 share_capital or retained_earnings
-- Dr balance on "Depreciation" \u2192 this is the accumulated depreciation contra account \u2192 ppe_accumulated_depreciation
-- Dr balance on "Prepaid" \u2192 prepaid_expenses
-- Cr balance on "Deferred" or "Advance receipt" \u2192 deferred_income
-
-ACCOUNTS TO CLASSIFY:
-${accountLines}
-
-Respond ONLY with a valid JSON array (no markdown, no \`\`\`, no text before or after):
-[{"rowIndex": 1, "nfrsCategory": "exact_category_value", "confidence": 85, "reasoning": "brief one-line reason"}]
-
-Available categories (use EXACTLY one of these strings):
-${NFRS_CATEGORY_INFO.map((i) => i.value).join(", ")}`;
+function parseAIResponse(text) {
+  const cleaned = text.replace(/```json\s*/gi, "").replace(/```\s*/gi, "").trim();
+  const start = cleaned.indexOf("[");
+  const end = cleaned.lastIndexOf("]");
+  if (start === -1 || end === -1) return [];
+  const parsed = JSON.parse(cleaned.slice(start, end + 1));
+  return Array.isArray(parsed) ? parsed : [];
 }
-async function aiMatchUnresolved(accounts, company, apiKey) {
-  if (!accounts.length) return [];
-  const cacheKey = buildCacheKey(accounts);
-  if (aiCache.has(cacheKey)) {
-    console.log("[AI Matcher] Cache hit \u2014 skipping API call");
-    return aiCache.get(cacheKey);
-  }
-  if (!apiKey) {
-    console.warn("[AI Matcher] No API key \u2014 returning empty results");
-    return [];
-  }
-  const BATCH_SIZE = 30;
-  const allResults = [];
-  for (let i = 0; i < accounts.length; i += BATCH_SIZE) {
-    const batch = accounts.slice(i, i + BATCH_SIZE);
-    const batchResults = await callClaudeAPI(batch, company, apiKey, i);
-    allResults.push(...batchResults);
-  }
-  aiCache.set(cacheKey, allResults);
-  return allResults;
-}
-async function callClaudeAPI(accounts, company, apiKey, indexOffset) {
-  const systemPrompt = buildSystemPrompt();
-  const userPrompt = buildUserPrompt(accounts, company);
-  let attempts = 0;
-  const MAX_RETRIES = 2;
-  while (attempts <= MAX_RETRIES) {
-    try {
-      const response = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": apiKey,
-          "anthropic-version": "2023-06-01"
-        },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-6",
+async function classifyWithAI(rows, apiKey) {
+  const needsAI = rows.map((row, index) => ({ row, index })).filter(({ row }) => row.needsReview || row.nfrsCategory === "unclassified");
+  if (needsAI.length === 0 || !apiKey) return rows;
+  const result = [...rows];
+  const BATCH_SIZE = 50;
+  const client = new Anthropic({ apiKey });
+  for (let i = 0; i < needsAI.length; i += BATCH_SIZE) {
+    const batch = needsAI.slice(i, i + BATCH_SIZE);
+    const uncached = [];
+    const cachedResults = /* @__PURE__ */ new Map();
+    for (const item of batch) {
+      const key = cacheKey(item.row.rawLabel, item.row.parentGroup);
+      const hit = aiCache.get(key);
+      if (hit?.[0]) {
+        cachedResults.set(item.index, { ...hit[0], index: item.index });
+      } else {
+        uncached.push(item);
+      }
+    }
+    let apiResults = [];
+    if (uncached.length > 0) {
+      const prompt = buildUserPrompt(
+        uncached.map((u) => ({
+          index: u.index,
+          label: u.row.rawLabel,
+          parentGroup: u.row.parentGroup
+        }))
+      );
+      try {
+        const response = await client.messages.create({
+          model: "claude-sonnet-4-20250514",
           max_tokens: 4096,
-          system: systemPrompt,
-          messages: [{ role: "user", content: userPrompt }]
-        })
-      });
-      if (!response.ok) {
-        const errBody = await response.text();
-        throw new Error(`Anthropic API error ${response.status}: ${errBody}`);
+          system: SYSTEM_PROMPT,
+          messages: [{ role: "user", content: prompt }]
+        });
+        const text = response.content.filter((c) => c.type === "text").map((c) => c.type === "text" ? c.text : "").join("");
+        apiResults = parseAIResponse(text);
+      } catch (err) {
+        console.error("[AI Matcher] API error:", err);
       }
-      const data = await response.json();
-      const rawText = data.content.filter((c) => c.type === "text").map((c) => c.text).join("");
-      const cleaned = rawText.replace(/```json\s*/gi, "").replace(/```\s*/gi, "").trim();
-      const arrayStart = cleaned.indexOf("[");
-      const arrayEnd = cleaned.lastIndexOf("]");
-      if (arrayStart === -1 || arrayEnd === -1) {
-        throw new Error("AI response did not contain a JSON array");
-      }
-      const jsonString = cleaned.slice(arrayStart, arrayEnd + 1);
-      const parsed = JSON.parse(jsonString);
-      return parsed.filter(
-        (r) => typeof r.rowIndex === "number" && typeof r.nfrsCategory === "string" && typeof r.confidence === "number"
-      ).map((r) => ({
-        ...r,
-        rowIndex: r.rowIndex + indexOffset - 1,
-        // convert 1-based → 0-based + offset
-        confidence: Math.min(100, Math.max(0, r.confidence)),
-        reasoning: r.reasoning?.slice(0, 200) ?? ""
-      }));
-    } catch (err) {
-      attempts++;
-      console.error(`[AI Matcher] Attempt ${attempts} failed:`, err.message);
-      if (attempts > MAX_RETRIES) {
-        console.error("[AI Matcher] All retries exhausted \u2014 returning empty for this batch");
-        return [];
-      }
-      await new Promise((r) => setTimeout(r, attempts * 1e3));
+    }
+    const allResults = [...apiResults, ...cachedResults.values()];
+    const validCategories = new Set(NFRS_CATEGORIES);
+    for (const ai of allResults) {
+      const idx = ai.index;
+      if (idx < 0 || idx >= result.length) continue;
+      const category = validCategories.has(ai.category) ? ai.category : "unclassified";
+      const entry = CHART_OF_ACCOUNTS.find((e) => e.category === category);
+      const confidence = Math.min(100, Math.max(0, ai.confidence ?? 70));
+      result[idx] = {
+        ...result[idx],
+        nfrsCategory: category,
+        matchMethod: "ai",
+        confidence,
+        needsReview: confidence < 75 || category === "unclassified",
+        displayLabel: entry?.displayLabel ?? result[idx].rawLabel
+      };
+      const key = cacheKey(result[idx].rawLabel, result[idx].parentGroup);
+      aiCache.set(key, [{ index: idx, category, confidence, reasoning: ai.reasoning }]);
     }
   }
-  return [];
+  return result;
 }
 
 // server/routes/trialBalance.ts
@@ -4341,45 +2474,30 @@ router2.post("/:companyId/upload", tbUploadMiddleware, async (req, res, next) =>
         error: "No data rows found in the uploaded file. Please check your export settings and ensure the file contains account entries."
       });
     }
-    let matchResults = matchAllAccounts(parsed.rows);
+    let rows = classifyAll(parsed.rows);
     if (req.query.useAI === "true" && process.env.ANTHROPIC_API_KEY) {
       try {
-        const aiRes = await aiMatchUnresolved(parsed.rows.map((r) => ({ rawLabel: r.rawLabel, closingBalance: r.closingDr - r.closingCr })), session.company, process.env.ANTHROPIC_API_KEY);
-        for (let i = 0; i < matchResults.length; i++) {
-          const ai = aiRes.find((a) => a.rowIndex === matchResults[i].rowIndex);
-          if (ai && ai.confidence > (matchResults[i].confidence ?? 0)) {
-            matchResults[i] = {
-              ...matchResults[i],
-              nfrsCategory: ai.nfrsCategory,
-              confidence: ai.confidence,
-              method: "ai",
-              needsReview: ai.confidence < 80
-            };
-          }
-        }
+        rows = await classifyWithAI(rows, process.env.ANTHROPIC_API_KEY);
       } catch (aiErr) {
-        console.warn("[trialBalance.upload] AI matching failed, proceeding with deterministic results:", aiErr);
+        console.warn("[trialBalance.upload] AI matching failed:", aiErr);
       }
     }
-    const rows = parsed.rows.map((raw, i) => {
-      const match = matchResults[i];
-      return {
-        ...raw,
-        nfrsCategory: match?.nfrsCategory ?? "unclassified",
-        matchedLabel: match?.matchedLabel ?? null,
-        confidence: match?.confidence ?? 0,
-        matchMethod: match?.method ?? "unmatched",
-        needsReview: match?.needsReview ?? true,
-        candidates: match?.candidates ?? [],
-        closingBalance: raw.closingDr - raw.closingCr
-      };
-    });
     const tb = {
-      ...parsed,
       rows,
+      companyName: session.company?.name ?? session.company?.companyName ?? "",
+      fiscalYear: session.company?.fiscalYearCurrent ?? session.company?.fiscalYear?.bsFY ?? "",
+      isBalanced: parsed.isBalanced,
+      totalAssets: 0,
+      totalLiabilities: 0,
+      totalEquity: 0,
+      warnings: parsed.warnings,
       companyId: req.params.companyId,
       uploadedAt: (/* @__PURE__ */ new Date()).toISOString(),
-      uploadedFileName: req.file.originalname
+      uploadedFileName: req.file.originalname,
+      totalClosingDr: parsed.totalClosingDr,
+      totalClosingCr: parsed.totalClosingCr,
+      difference: parsed.difference,
+      detectedFormat: parsed.detectedFormat
     };
     const validation = validateTrialBalanceTotals(rows);
     tb.validation = validation;
@@ -4600,8 +2718,24 @@ var subledgerStore = {
 };
 
 // server/services/depreciationEngine.ts
-function normMonthName(name) {
-  const map = {
+var DEFAULT_RATES = {
+  Land: { rate: 0, method: "SLM" },
+  Building: { rate: 0.04, method: "SLM" },
+  OfficeEquipment: { rate: 0.25, method: "WDV" },
+  Vehicle: { rate: 0.2, method: "WDV" },
+  PlantMachinery: { rate: 0.15, method: "WDV" },
+  Intangible: { rate: 0.2, method: "SLM" },
+  UnderConstruction: { rate: 0, method: "SLM" }
+};
+var TAX_POOLS = [
+  { poolName: "Pool A (Building 5%)", rate: 0.05, classes: ["Building"] },
+  { poolName: "Pool B (Computers & Software 25%)", rate: 0.25, classes: ["Intangible", "OfficeEquipment"] },
+  { poolName: "Pool C (Office Equipment & Furniture 25%)", rate: 0.25, classes: ["OfficeEquipment"] },
+  { poolName: "Pool D (Vehicles 20%)", rate: 0.2, classes: ["Vehicle"] },
+  { poolName: "Pool E (Plant & Machinery 15%)", rate: 0.15, classes: ["PlantMachinery"] }
+];
+function parseBSMonth(dateStr) {
+  const months = {
     shrawan: 1,
     bhadra: 2,
     aswin: 3,
@@ -4615,254 +2749,202 @@ function normMonthName(name) {
     jestha: 11,
     ashadh: 12
   };
-  return map[name.toLowerCase().trim()] ?? 0;
+  const parts = dateStr.trim().split(/\s+/);
+  return months[(parts[1] ?? "").toLowerCase()] ?? 1;
 }
-function parseBSLocal(dateStr) {
-  if (!dateStr) return null;
-  const parts = dateStr.trim().split(/[\s\-\/]+/);
-  if (parts.length < 3) return null;
-  const day = parseInt(parts[0], 10);
-  const month = normMonthName(parts[1]);
-  const year = parseInt(parts[2], 10);
-  if (isNaN(day) || isNaN(year) || month === 0) return null;
-  return { day, month, year };
+function monthsHeldInFY(purchaseDate) {
+  const month = parseBSMonth(purchaseDate);
+  if (month <= 6) return 12;
+  if (month <= 9) return 12 - (month - 6) * 2;
+  return Math.max(1, 12 - month + 1);
 }
-var BS_MONTH_DAYS = [0, 31, 32, 31, 30, 30, 30, 30, 30, 30, 31, 32, 31];
-function cumulativeDaysBefore(month, isLeap) {
-  let total = 0;
-  for (let m = 1; m < month; m++) {
-    let d = BS_MONTH_DAYS[m] ?? 30;
-    if (m === 9 && isLeap) d = 31;
-    if (m === 12 && isLeap) d = 32;
-    total += d;
-  }
-  return total;
-}
-function calculateSLMDepreciation(cost, residualValue, usefulLifeYears, depreciationFraction) {
-  if (cost <= 0 || usefulLifeYears <= 0) return 0;
-  const depreciableAmount = Math.max(0, cost - residualValue);
-  const annual = depreciableAmount / usefulLifeYears;
-  return Math.max(0, annual * depreciationFraction);
-}
-function calculateWDVDepreciation(writtenDownValue, wdvRatePercent, depreciationFraction) {
-  if (writtenDownValue <= 0 || wdvRatePercent <= 0) return 0;
-  const annual = writtenDownValue * (wdvRatePercent / 100);
-  return Math.max(0, annual * depreciationFraction);
-}
-function computeFraction(purchaseDateBS, fiscalYearBSStart, totalDaysInFY, isLeap) {
-  const parsed = parseBSLocal(purchaseDateBS);
-  if (!parsed) return 1;
-  const { month, year } = parsed;
-  const isInCurrentFY = year === fiscalYearBSStart && month >= 1 && month <= 12 || year === fiscalYearBSStart + 1 && month >= 10 && month <= 12;
-  if (!isInCurrentFY) {
-    return 1;
-  }
-  const offsetDays = cumulativeDaysBefore(month, isLeap) + (parsed.day - 1);
-  const daysRemaining = Math.max(0, totalDaysInFY - offsetDays);
-  return Math.min(1, daysRemaining / totalDaysInFY);
-}
-function taxPool(category) {
-  if (!category) return null;
-  const name = (category.name ?? category.id ?? "").toLowerCase();
-  if (name.includes("building") || name.includes("structure")) return "A";
-  if (name.includes("computer") || name.includes("software") || name.includes("intangible")) return "B";
-  if (name.includes("vehicle") || name.includes("furniture") || name.includes("fixture")) return "D";
-  return "C";
-}
-function calculateAssetDepreciation(asset, accumDepnOpening, depreciationFraction, wdvRatePercent) {
-  const openingCost = asset.originalCost;
-  const closingCost = asset.originalCost + asset.additionalCost - (asset.disposalValue ? asset.originalCost : 0);
-  const netBookValueOpening = asset.originalCost + asset.additionalCost - accumDepnOpening;
-  if (asset.isFullyDepreciated || netBookValueOpening <= asset.residualValue) {
+function getRateAndMethod(asset, policies) {
+  if (asset.depreciationMethodOverride) {
     return {
-      assetId: asset.id,
-      assetName: asset.assetName,
-      categoryId: asset.categoryId,
-      openingCost,
-      additions: asset.additionalCost,
-      disposals: asset.disposalValue ? openingCost : 0,
-      closingCost,
-      openingAccumDepn: accumDepnOpening,
-      depnForYear: 0,
-      depnOnDisposal: 0,
-      closingAccumDepn: accumDepnOpening,
-      netBookValueOpening,
-      netBookValueClosing: Math.max(0, netBookValueOpening),
-      gainLossOnDisposal: asset.disposalValue ? asset.disposalValue - Math.max(0, netBookValueOpening) : void 0,
-      disposalProceeds: asset.disposalValue
+      rate: asset.rateOverride ?? DEFAULT_RATES[asset.assetClass]?.rate ?? 0.1,
+      method: asset.depreciationMethodOverride
     };
   }
-  let depnOnDisposal = 0;
-  let gainLossOnDisposal;
-  let disposalProceeds;
-  const hasDisposal = !!asset.disposalDateBS && asset.disposalValue !== void 0;
-  let depnForYear = 0;
-  if (asset.depreciationMethod === "StraightLine" /* StraightLine */) {
-    depnForYear = calculateSLMDepreciation(
-      openingCost + asset.additionalCost,
-      asset.residualValue,
-      asset.usefulLifeYears,
-      depreciationFraction
-    );
-  } else {
-    depnForYear = calculateWDVDepreciation(
-      netBookValueOpening,
-      wdvRatePercent ?? asset.wdvRate ?? 25,
-      depreciationFraction
-    );
-  }
-  depnForYear = Math.min(depnForYear, Math.max(0, netBookValueOpening - asset.residualValue));
-  if (hasDisposal && asset.disposalValue !== void 0) {
-    const disposalFraction = 1 - depreciationFraction;
-    if (asset.depreciationMethod === "StraightLine" /* StraightLine */) {
-      depnOnDisposal = calculateSLMDepreciation(
-        openingCost + asset.additionalCost,
-        asset.residualValue,
-        asset.usefulLifeYears,
-        disposalFraction
-      );
-    } else {
-      depnOnDisposal = calculateWDVDepreciation(
-        netBookValueOpening,
-        wdvRatePercent ?? asset.wdvRate ?? 25,
-        disposalFraction
-      );
-    }
-    const nbvAtDisposal = netBookValueOpening - depnOnDisposal;
-    gainLossOnDisposal = asset.disposalValue - nbvAtDisposal;
-    disposalProceeds = asset.disposalValue;
-  }
-  const closingAccumDepn = accumDepnOpening + depnForYear - depnOnDisposal;
-  const netBookValueClosing = Math.max(0, closingCost - closingAccumDepn);
+  const policyRate = policies?.depreciationRates?.[asset.assetClass];
+  const defaults = DEFAULT_RATES[asset.assetClass] ?? { rate: 0.1, method: "SLM" };
   return {
-    assetId: asset.id,
-    assetName: asset.assetName,
-    categoryId: asset.categoryId,
-    openingCost,
-    netBookValueOpening,
-    additions: asset.additionalCost,
-    disposals: hasDisposal ? openingCost : 0,
-    closingCost,
-    openingAccumDepn: accumDepnOpening,
-    depnForYear,
-    depnOnDisposal,
-    closingAccumDepn,
-    netBookValueClosing,
-    gainLossOnDisposal,
-    disposalProceeds
+    rate: policyRate ?? defaults.rate,
+    method: policies?.depreciationMethod ?? defaults.method
   };
 }
-function calculateDepreciationSummary(assets, assetCategories, fiscalYear) {
-  const fyBSYear = parseInt(fiscalYear.split("/")[0], 10) || 2081;
-  const isLeap = [2073, 2076, 2082, 2085, 2088].includes(fyBSYear);
-  const totalDaysInFY = isLeap ? 366 : 365;
-  const results = [];
-  const summaryMap = /* @__PURE__ */ new Map();
+function computeAccountingDepreciation(asset, policies) {
+  const { rate, method } = getRateAndMethod(asset, policies);
+  const costBase = asset.originalCost + asset.additionsCY;
+  const months = monthsHeldInFY(asset.purchaseDate);
+  const fraction = asset.disposalDate ? months / 12 : months / 12;
+  let depreciationCY = 0;
+  if (asset.assetClass === "Land" || rate === 0) {
+    depreciationCY = 0;
+  } else if (method === "SLM") {
+    depreciationCY = costBase * rate * fraction;
+  } else {
+    const wdv = costBase - asset.accumulatedDepnPY;
+    depreciationCY = wdv * rate * fraction;
+  }
+  if (asset.disposalDate && asset.disposalValue !== void 0) {
+    const nbv = costBase - asset.accumulatedDepnPY - depreciationCY;
+    const gainLoss = asset.disposalValue - nbv;
+    void gainLoss;
+  }
+  const accumulatedDepnCY = asset.accumulatedDepnPY + depreciationCY;
+  const netBookValueCY = costBase - accumulatedDepnCY;
+  const netBookValuePY = asset.originalCost - asset.accumulatedDepnPY;
+  return {
+    ...asset,
+    depreciationCY: Math.round(depreciationCY * 100) / 100,
+    accumulatedDepnCY: Math.round(accumulatedDepnCY * 100) / 100,
+    netBookValueCY: Math.round(netBookValueCY * 100) / 100,
+    netBookValuePY: Math.round(netBookValuePY * 100) / 100
+  };
+}
+function buildPPENote(assets, policies) {
+  const classMap = /* @__PURE__ */ new Map();
   for (const asset of assets) {
-    const category = assetCategories.find((c) => c.id === asset.categoryId);
-    const fraction = computeFraction(
-      asset.purchaseDateBS,
-      fyBSYear,
-      totalDaysInFY,
-      isLeap
-    );
-    const result = calculateAssetDepreciation(
-      asset,
-      asset.accumDepreciationOpening,
-      fraction,
-      asset.wdvRate
-    );
-    results.push(result);
-    const catId = asset.categoryId;
-    const catName = category?.name ?? catId;
-    if (!summaryMap.has(catId)) {
-      summaryMap.set(catId, {
-        categoryId: catId,
-        categoryName: catName,
-        openingCost: 0,
+    const name = asset.assetClass;
+    if (!classMap.has(name)) {
+      classMap.set(name, {
+        name,
+        costOpeningDr: 0,
+        costOpeningCr: 0,
         additions: 0,
         disposals: 0,
-        closingCost: 0,
-        openingAccumDepn: 0,
-        depnForYear: 0,
-        depnOnDisposal: 0,
-        closingAccumDepn: 0,
-        netBookValueClosing: 0,
-        assets: []
+        costClosing: 0,
+        accumDepnOpening: 0,
+        depreciationCharged: 0,
+        impairmentLosses: 0,
+        disposalDepn: 0,
+        accumDepnClosing: 0,
+        carryingAmountOpening: 0,
+        carryingAmountClosing: 0
       });
     }
-    const cat = summaryMap.get(catId);
-    cat.openingCost += result.openingCost;
-    cat.additions += result.additions;
-    cat.disposals += result.disposals;
-    cat.closingCost += result.closingCost;
-    cat.openingAccumDepn += result.openingAccumDepn;
-    cat.depnForYear += result.depnForYear;
-    cat.depnOnDisposal += result.depnOnDisposal;
-    cat.closingAccumDepn += result.closingAccumDepn;
-    cat.netBookValueClosing += result.netBookValueClosing;
-    cat.assets.push(result);
+    const cls = classMap.get(name);
+    cls.costOpeningDr += asset.originalCost;
+    cls.additions += asset.additionsCY;
+    cls.disposals += asset.disposalValue ?? 0;
+    cls.accumDepnOpening += asset.accumulatedDepnPY;
+    cls.depreciationCharged += asset.depreciationCY ?? 0;
+    cls.accumDepnClosing += asset.accumulatedDepnCY ?? 0;
+    cls.carryingAmountOpening += asset.netBookValuePY ?? 0;
+    cls.carryingAmountClosing += asset.netBookValueCY ?? 0;
+    cls.costClosing = cls.costOpeningDr + cls.additions - cls.disposals;
   }
-  return { results, summary: Array.from(summaryMap.values()) };
-}
-var TAX_POOL_META = {
-  A: { name: "Buildings & Structures", rate: 0.05 },
-  B: { name: "Computers, Software & IT", rate: 0.25 },
-  C: { name: "Plant, Machinery & Equipment", rate: 0.2 },
-  D: { name: "Vehicles, Furniture & Fixtures", rate: 0.15 }
-};
-function taxProportion(purchaseDateBS) {
-  const parsed = parseBSLocal(purchaseDateBS);
-  if (!parsed) return 1;
-  const { month } = parsed;
-  if (month >= 1 && month <= 6) return 1;
-  if (month >= 7 && month <= 9) return 2 / 3;
-  return 1 / 3;
-}
-function calculateTaxDepreciation(assets, assetCategories, openingPoolBases) {
-  const pools = {
-    A: { addFull: 0, addTwoThirds: 0, addOneThird: 0, disposals: 0 },
-    B: { addFull: 0, addTwoThirds: 0, addOneThird: 0, disposals: 0 },
-    C: { addFull: 0, addTwoThirds: 0, addOneThird: 0, disposals: 0 },
-    D: { addFull: 0, addTwoThirds: 0, addOneThird: 0, disposals: 0 }
+  const classes = Array.from(classMap.values());
+  const totals = classes.reduce(
+    (acc, c) => ({
+      name: "Total",
+      costOpeningDr: acc.costOpeningDr + c.costOpeningDr,
+      costOpeningCr: 0,
+      additions: acc.additions + c.additions,
+      disposals: acc.disposals + c.disposals,
+      costClosing: acc.costClosing + c.costClosing,
+      accumDepnOpening: acc.accumDepnOpening + c.accumDepnOpening,
+      depreciationCharged: acc.depreciationCharged + c.depreciationCharged,
+      impairmentLosses: acc.impairmentLosses + c.impairmentLosses,
+      disposalDepn: acc.disposalDepn + c.disposalDepn,
+      accumDepnClosing: acc.accumDepnClosing + c.accumDepnClosing,
+      carryingAmountOpening: acc.carryingAmountOpening + c.carryingAmountOpening,
+      carryingAmountClosing: acc.carryingAmountClosing + c.carryingAmountClosing
+    }),
+    {
+      name: "Total",
+      costOpeningDr: 0,
+      costOpeningCr: 0,
+      additions: 0,
+      disposals: 0,
+      costClosing: 0,
+      accumDepnOpening: 0,
+      depreciationCharged: 0,
+      impairmentLosses: 0,
+      disposalDepn: 0,
+      accumDepnClosing: 0,
+      carryingAmountOpening: 0,
+      carryingAmountClosing: 0
+    }
+  );
+  const depreciationRates = {};
+  for (const [cls, def] of Object.entries(DEFAULT_RATES)) {
+    depreciationRates[cls] = policies?.depreciationRates?.[cls] ?? def.rate;
+  }
+  return {
+    classes,
+    totals,
+    depreciationRates,
+    depreciationMethod: policies?.depreciationMethod ?? "SLM",
+    securityNote: "",
+    WIPNote: ""
   };
-  for (const asset of assets) {
-    const cat = assetCategories.find((c) => c.id === asset.categoryId);
-    const pool = taxPool(cat);
-    if (!pool) continue;
-    if (asset.additionalCost > 0 || asset.originalCost > 0) {
-      const prop = taxProportion(asset.purchaseDateBS);
-      const addAmt = asset.additionalCost;
-      if (prop >= 0.99) pools[pool].addFull += addAmt;
-      else if (prop >= 0.66) pools[pool].addTwoThirds += addAmt;
-      else pools[pool].addOneThird += addAmt;
+}
+function computeTaxDepPool(assets, openingBases, taxableIncome, repairExpenses = {}) {
+  return TAX_POOLS.map((pool) => {
+    const poolAssets = assets.filter((a) => pool.classes.includes(a.assetClass));
+    let additions = 0;
+    let disposals = 0;
+    for (const a of poolAssets) {
+      additions += a.additionsCY + a.originalCost;
+      disposals += a.disposalValue ?? 0;
     }
-    if (asset.disposalValue !== void 0) {
-      pools[pool].disposals += Math.min(asset.originalCost, asset.disposalValue);
-    }
-  }
-  return ["A", "B", "C", "D"].map((p) => {
-    const meta = TAX_POOL_META[p];
-    const opening = openingPoolBases[p] ?? 0;
-    const { addFull, addTwoThirds, addOneThird, disposals } = pools[p];
-    const depreciationBasis = opening + addFull + 2 / 3 * addTwoThirds + 1 / 3 * addOneThird - disposals;
-    const effectiveBasis = Math.max(0, depreciationBasis);
-    const taxDepreciation = effectiveBasis * meta.rate;
-    const closingBasis = Math.max(0, effectiveBasis - taxDepreciation);
+    const openingBasis = openingBases[pool.poolName] ?? 0;
+    let repairExpense = repairExpenses[pool.poolName] ?? 0;
+    const repairThreshold = openingBasis * 0.07;
+    const capitalizedRepairs = Math.max(0, repairExpense - repairThreshold);
+    additions += capitalizedRepairs;
+    const depreciationBasis = openingBasis + additions - disposals;
+    const absorbed = additions;
+    const depreciation = depreciationBasis * pool.rate;
+    const netDepreciation = depreciation;
+    const unabsorbed = Math.max(0, netDepreciation - taxableIncome * (2 / 3));
+    const taxableDepreciation = netDepreciation - unabsorbed;
+    const nextYearBasis = depreciationBasis - taxableDepreciation;
     return {
-      pool: p,
-      poolName: meta.name,
-      rate: meta.rate,
-      openingBasis: opening,
-      additionsFullYear: addFull,
-      additionsTwoThirds: addTwoThirds,
-      additionsOneThird: addOneThird,
+      poolName: pool.poolName,
+      rate: pool.rate,
+      openingBasis,
+      additions,
       disposals,
-      depreciationBasis: effectiveBasis,
-      taxDepreciation,
-      closingBasis
+      absorbed,
+      unabsorbed: Math.round(unabsorbed * 100) / 100,
+      nextYearBasis: Math.round(Math.max(0, nextYearBasis) * 100) / 100,
+      repairExpense
     };
   });
+}
+function computeDepreciation(assetRegister, policies, options) {
+  const assetRegisterComputed = assetRegister.map(
+    (a) => computeAccountingDepreciation(a, policies)
+  );
+  const totalDepreciationExpense = assetRegisterComputed.reduce(
+    (s, a) => s + (a.depreciationCY ?? 0),
+    0
+  );
+  const ppeTotals = buildPPENote(assetRegisterComputed, policies);
+  const taxDepSchedule = computeTaxDepPool(
+    assetRegisterComputed,
+    options?.taxOpeningBases ?? {},
+    options?.taxableIncome ?? 0,
+    options?.repairExpenses
+  );
+  return {
+    assetRegisterComputed,
+    ppeTotals,
+    taxDepSchedule,
+    totalDepreciationExpense: Math.round(totalDepreciationExpense * 100) / 100
+  };
+}
+function calculateDepreciationSummary(assets, _categories, _fiscalYear) {
+  const result = computeDepreciation(assets);
+  return {
+    results: result.assetRegisterComputed,
+    summary: result.ppeTotals.classes
+  };
+}
+function calculateTaxDepreciation(assets, _categories, openingPoolBases) {
+  return computeDepreciation(assets, void 0, { taxOpeningBases: openingPoolBases }).taxDepSchedule;
 }
 
 // server/routes/adjustments.ts
@@ -5891,7 +3973,7 @@ function writeWorkings(ws, company, wb) {
   FISCAL_YEARS.forEach((fy, idx) => {
     const row = ws.getRow(2 + idx);
     [
-      fy.bsYear,
+      fy.bsFY,
       fy.startDateBS,
       fy.endDateBS,
       fy.startDateAD,
@@ -5918,7 +4000,7 @@ function writeWorkings(ws, company, wb) {
   const paramStart = 30;
   const params = [
     { label: "Company Name", value: company.companyName ?? "", name: "CompanyName" },
-    { label: "Fiscal Year", value: company.fiscalYear?.bsYear ?? "", name: "FiscalYear" },
+    { label: "Fiscal Year", value: company.fiscalYear?.bsFY ?? "", name: "FiscalYear" },
     { label: "End Date BS", value: company.fiscalYear?.endDateBS ?? "", name: "YearEndDateBS" },
     { label: "End Date AD", value: company.fiscalYear?.endDateAD ?? "", name: "YearEndDateAD" },
     { label: "Start Date BS", value: company.fiscalYear?.startDateBS ?? "", name: "YearStartDateBS" },
@@ -6038,7 +4120,7 @@ function writeEnterDetails(ws, company) {
     ["PAN / VAT Number", company.panVatNumber ?? ""],
     ["Registration No.", company.registrationNumber ?? ""],
     ["Company Type", company.companyType ?? ""],
-    ["Fiscal Year", company.fiscalYear?.bsYear ?? ""],
+    ["Fiscal Year", company.fiscalYear?.bsFY ?? ""],
     ["Chairperson", company.chairperson ?? ""],
     ["Director", company.director ?? ""],
     ["Accounts Head", company.accountsHead ?? ""],
@@ -6062,7 +4144,7 @@ function writeBalanceSheet(ws, bs, company) {
     { key: "C", width: 18 },
     { key: "D", width: 18 }
   ];
-  const fy = company.fiscalYear?.bsYear ?? "";
+  const fy = company.fiscalYear?.bsFY ?? "";
   const [startBS, endBS] = fy.split("/").map((y) => y.trim());
   let row = writeStatementHeader(
     ws,
@@ -6119,7 +4201,7 @@ function writeBalanceSheet(ws, bs, company) {
   writeSignatureLine(ws, row + 1, company);
   appendComplianceStatement(ws, {
     companyName: company.companyName ?? "",
-    fiscalYear: company.fiscalYear?.bsYear ?? "",
+    fiscalYear: company.fiscalYear?.bsFY ?? "",
     roundingLevel: 100
   }, row + 2);
   ws.pageSetup = { paperSize: 9, orientation: "portrait", fitToPage: true, fitToWidth: 1 };
@@ -6130,7 +4212,7 @@ function writeBalanceSheet(ws, bs, company) {
 }
 function writeIncomeStatement(ws, is, company) {
   ws.columns = [{ width: 42 }, { width: 8 }, { width: 18 }, { width: 18 }];
-  const fy = company.fiscalYear?.bsYear ?? "";
+  const fy = company.fiscalYear?.bsFY ?? "";
   const [startBS, endBS] = fy.split("/").map((y) => y.trim());
   let row = writeStatementHeader(
     ws,
@@ -6168,7 +4250,7 @@ function writeIncomeStatement(ws, is, company) {
   writeSignatureLine(ws, row + 1, company);
   appendComplianceStatement(ws, {
     companyName: company.companyName ?? "",
-    fiscalYear: company.fiscalYear?.bsYear ?? "",
+    fiscalYear: company.fiscalYear?.bsFY ?? "",
     roundingLevel: 100
   }, row + 2);
   ws.pageSetup = { paperSize: 9, orientation: "portrait", fitToPage: true, fitToWidth: 1 };
@@ -6176,7 +4258,7 @@ function writeIncomeStatement(ws, is, company) {
 }
 function writeCashFlowStatement(ws, cf, company) {
   ws.columns = [{ width: 50 }, { width: 8 }, { width: 18 }, { width: 18 }];
-  const fy = company.fiscalYear?.bsYear ?? "";
+  const fy = company.fiscalYear?.bsFY ?? "";
   const [, endBS] = fy.split("/").map((y) => y.trim());
   let row = writeStatementHeader(ws, company.companyName ?? "", "STATEMENT OF CASH FLOWS (Indirect Method)", `For the Year Ended 31 Ashadh ${endBS ?? ""}`, fy, "");
   const rows = [
@@ -6230,7 +4312,7 @@ function writeCashFlowStatement(ws, cf, company) {
 }
 function writeChangesInEquity(ws, ce, company) {
   ws.columns = [{ width: 36 }, { width: 18 }, { width: 16 }, { width: 16 }, { width: 20 }, { width: 18 }];
-  const fy = company.fiscalYear?.bsYear ?? "";
+  const fy = company.fiscalYear?.bsFY ?? "";
   const [, endBS] = fy.split("/").map((y) => y.trim());
   ws.mergeCells("A1:F1");
   const r1 = ws.getCell("A1");
@@ -6725,11 +4807,11 @@ async function generateNFRSWorkbook(params) {
     writeNote1_AccountingPolicies(wb, {
       ...company.accountingPolicies ?? {},
       companyName: company.companyName ?? "",
-      fiscalYear: company.fiscalYear?.bsYear ?? ""
+      fiscalYear: company.fiscalYear?.bsFY ?? ""
     });
     writeNote2_CriticalJudgments(wb, {
       companyName: company.companyName ?? "",
-      fiscalYear: company.fiscalYear?.bsYear ?? ""
+      fiscalYear: company.fiscalYear?.bsFY ?? ""
     });
     writeNote31_PPE(addSheet("Note 3.1 - PPE", "16A34A"), notes.note31_ppe);
     writeGenericNoteRecord(addSheet("Note 3.2 - Investments", "16A34A"), "3.2  Investments", {});

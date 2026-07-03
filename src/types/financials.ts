@@ -1,81 +1,52 @@
-// src/types/financials.ts
-
 export interface BalanceSheet {
   // Non-Current Assets
-  nca_ppe: number;
-  nca_investments: number;
-  nca_receivables: number;
-  nca_other: number;
-  totalNonCurrentAssets: number;
+  ppe: number; ppeNote: string;
+  investments: number;
+  receivablesNCA: number;
+  otherNCA: number;
+  totalNCA: number;
   // Current Assets
-  ca_investments: number;
-  ca_inventories: number;
-  ca_tradeReceivables: number;
-  ca_cashAndEquivalents: number;
-  ca_other: number;
-  totalCurrentAssets: number;
+  investmentsCA: number;
+  inventories: number;
+  tradeReceivables: number;
+  cashAndEquivalents: number;
+  otherCA: number;
+  totalCA: number;
   totalAssets: number;
   // Equity
-  eq_shareCapital: number;
-  eq_reserves: number;
-  eq_retainedEarnings: number;
+  shareCapital: number;
+  reserves: number;
+  retainedEarnings: number;
   totalEquity: number;
   // Non-Current Liabilities
-  ncl_borrowings: number;
-  ncl_employeeBenefits: number;
-  ncl_provisions: number;
-  ncl_deferredTax: number;
-  totalNonCurrentLiabilities: number;
+  borrowingsNCL: number;
+  employeeBenefitsNCL: number;
+  provisionsNCL: number;
+  totalNCL: number;
   // Current Liabilities
-  cl_borrowings: number;
-  cl_tradePayables: number;
-  cl_incomeTaxPayable: number;
-  cl_provisions: number;
-  cl_other: number;
-  totalCurrentLiabilities: number;
+  borrowingsCL: number;
+  tradePayables: number;
+  incomeTaxLiability: number;
+  employeeBenefitsCL: number;
+  provisionsCL: number;
+  otherCL: number;
+  totalCL: number;
+  totalLiabilities: number;
   totalEquityAndLiabilities: number;
-  checkDifference: number;
-  // Previous Year (all fields suffixed _py)
-  nca_ppe_py?: number;
-  nca_investments_py?: number;
-  nca_receivables_py?: number;
-  nca_other_py?: number;
-  totalNonCurrentAssets_py?: number;
-  ca_investments_py?: number;
-  ca_inventories_py?: number;
-  ca_tradeReceivables_py?: number;
-  ca_cashAndEquivalents_py?: number;
-  ca_other_py?: number;
-  totalCurrentAssets_py?: number;
-  totalAssets_py?: number;
-  eq_shareCapital_py?: number;
-  eq_reserves_py?: number;
-  eq_retainedEarnings_py?: number;
-  totalEquity_py?: number;
-  ncl_borrowings_py?: number;
-  ncl_employeeBenefits_py?: number;
-  ncl_provisions_py?: number;
-  ncl_deferredTax_py?: number;
-  totalNonCurrentLiabilities_py?: number;
-  cl_borrowings_py?: number;
-  cl_tradePayables_py?: number;
-  cl_incomeTaxPayable_py?: number;
-  cl_provisions_py?: number;
-  cl_other_py?: number;
-  totalCurrentLiabilities_py?: number;
-  totalEquityAndLiabilities_py?: number;
-  checkDifference_py?: number;
+  // Previous Year
+  previous: Partial<BalanceSheet>;
+  isBalanced: boolean;
 }
 
 export interface IncomeStatement {
-  revenue: number;
+  revenueFromOperations: number;
   interestIncome: number;
   otherIncome: number;
   totalIncome: number;
   materialConsumed: number;
   directExpenses: number;
-  employeeBenefitExpense: number;
-  financeCharges: number;
+  employeeBenefitExpenses: number;
+  interestExpenses: number;
   depreciation: number;
   impairment: number;
   adminAndOtherExpenses: number;
@@ -85,126 +56,282 @@ export interface IncomeStatement {
   profitBeforeTax: number;
   incomeTaxExpense: number;
   netProfit: number;
-  // Previous Year
-  revenue_py?: number;
-  interestIncome_py?: number;
-  otherIncome_py?: number;
-  totalIncome_py?: number;
-  materialConsumed_py?: number;
-  directExpenses_py?: number;
-  employeeBenefitExpense_py?: number;
-  financeCharges_py?: number;
-  depreciation_py?: number;
-  impairment_py?: number;
-  adminAndOtherExpenses_py?: number;
-  totalExpenses_py?: number;
-  profitBeforeStaffBonus_py?: number;
-  staffBonus_py?: number;
-  profitBeforeTax_py?: number;
-  incomeTaxExpense_py?: number;
-  netProfit_py?: number;
+  previous: Partial<IncomeStatement>;
 }
 
 export interface ChangesInEquity {
-  cyOpeningShareCapital?: number;
-  cyOpeningSharePremium?: number;
-  cyOpeningGeneralReserve?: number;
-  cyOpeningRetainedEarnings?: number;
-  cyOpeningTotal?: number;
-  cyNetProfit?: number;
-  cyShareCapitalIssued?: number;
-  cySharePremiumReceived?: number;
-  cyTransferToReserve?: number;
-  cyDividends?: number;
-  cyClosingShareCapital?: number;
-  cyClosingSharePremium?: number;
-  cyClosingGeneralReserve?: number;
-  cyClosingRetainedEarnings?: number;
-  cyClosingTotal?: number;
+  rows: Array<{
+    label: string;
+    shareCapital: number;
+    sharePremium: number;
+    retainedEarnings: number;
+    otherReserves: number;
+    total: number;
+  }>;
+  previousRows: ChangesInEquity['rows'];
 }
 
 export interface CashFlowStatement {
+  // Operating
   profitBeforeTax: number;
   addDepreciation: number;
   addImpairment: number;
   lessInterestIncome: number;
   lessDividendIncome: number;
   addInterestExpense: number;
-  addLossOnDisposal: number;
-  lessGainOnDisposal: number;
-  addFVLossOnInvestment: number;
-  lessFVGainOnInvestment: number;
-  decreaseIncreaseReceivables: number;
-  decreaseIncreaseInventory: number;
-  decreaseIncreaseOtherCurrentAssets: number;
-  increaseDecreasePayables: number;
-  increaseDecreaseIncomeTaxPayable: number;
-  increaseDecreaseEmployeeLiability: number;
-  increaseDecreaseProvisions: number;
-  cashGeneratedFromOperations: number;
+  gainLossOnDisposal: number;
+  workingCapitalChanges: Record<string, number>;
+  cashFromOperationsBeforeTax: number;
   interestPaid: number;
-  incomeTaxPaid: number;
-  netCashFromOperating: number;
-  proceedsFromPPEDisposal: number;
-  proceedsFromInvestmentDisposal?: number;
+  taxPaid: number;
+  netOperatingCF: number;
+  // Investing
+  proceedsFromSalePPE: number;
+  proceedsFromSaleInvestments: number;
+  acquisitionOfPPE: number;
+  acquisitionOfInvestments: number;
   interestReceived: number;
   dividendReceived: number;
-  purchaseOfPPE: number;
-  purchaseOfInvestments: number;
-  netCashFromInvesting: number;
+  netInvestingCF: number;
+  // Financing
   proceedsFromShareIssue: number;
-  proceedsFromBorrowingsNonCurrent: number;
-  proceedsFromBorrowingsCurrent: number;
-  repaymentOfBorrowingsNonCurrent: number;
-  repaymentOfBorrowingsCurrent: number;
+  proceedsFromBorrowingsNCL: number;
+  repaymentOfBorrowingsNCL: number;
+  proceedsFromBorrowingsCL: number;
   dividendPaid: number;
-  netCashFromFinancing: number;
-  netIncreaseDecrease: number;
+  netFinancingCF: number;
+  // Summary
+  netChangeInCash: number;
   openingCash: number;
   closingCash: number;
-  reconciliationDifference: number;
+  previous: Partial<CashFlowStatement>;
 }
 
-// NotesData is a large aggregate type — define sub-types for each note
+export interface PPENote {
+  classes: Array<{
+    name: string;
+    costOpeningDr: number; costOpeningCr: number;
+    additions: number;
+    disposals: number;
+    costClosing: number;
+    accumDepnOpening: number;
+    depreciationCharged: number;
+    impairmentLosses: number;
+    disposalDepn: number;
+    accumDepnClosing: number;
+    carryingAmountOpening: number;
+    carryingAmountClosing: number;
+  }>;
+  totals: PPENote['classes'][0];
+  depreciationRates: Record<string, number>;
+  depreciationMethod: string;
+  securityNote: string;
+  WIPNote: string;
+}
+
+export interface InvestmentsNote {
+  listedShares: {
+    openingBalance: number; additions: number; disposals: number;
+    closingBalance: number; fairValueGainLoss: number;
+    netCarryingAmount: number; nonCurrentPortion: number; currentPortion: number;
+  };
+  otherInvestments: {
+    costOpening: number; additions: number; disposals: number; costClosing: number;
+    provisionOpening: number; provisionMovement: number; provisionClosing: number;
+    netCarryingAmount: number; nonCurrentPortion: number; currentPortion: number;
+  };
+}
+
+export interface TradeReceivablesNote {
+  tradeDebtors: { balanceCY: number; balancePY: number };
+  relatedPartyReceivables: { balanceCY: number; balancePY: number };
+  provisionForImpairment: { opening: number; charge: number; utilisation: number; closing: number };
+  netReceivables: { balanceCY: number; balancePY: number };
+  ageing: Array<{ category: string; amountCY: number; amountPY: number }>;
+}
+
+export interface OtherReceivablesNote {
+  items: Array<{ description: string; balanceCY: number; balancePY: number }>;
+  total: { balanceCY: number; balancePY: number };
+}
+
+export interface OtherNCANote {
+  items: Array<{ description: string; balanceCY: number; balancePY: number }>;
+  total: { balanceCY: number; balancePY: number };
+}
+
+export interface OtherCANote {
+  items: Array<{ description: string; balanceCY: number; balancePY: number }>;
+  total: { balanceCY: number; balancePY: number };
+}
+
+export interface InventoriesNote {
+  rawMaterials: { balanceCY: number; balancePY: number };
+  workInProgress: { balanceCY: number; balancePY: number };
+  finishedGoods: { balanceCY: number; balancePY: number };
+  total: { balanceCY: number; balancePY: number };
+  impairment: { amountCY: number; amountPY: number };
+}
+
+export interface CashNote {
+  cashInHand: { balanceCY: number; balancePY: number };
+  bankAccounts: Array<{ bankName: string; accountNumber: string; balanceCY: number; balancePY: number }>;
+  fixedDeposits: { balanceCY: number; balancePY: number };
+  total: { balanceCY: number; balancePY: number };
+}
+
+export interface ShareCapitalNote {
+  authorizedShares: number;
+  authorizedAmount: number;
+  issuedSharesPY: number;
+  issuedSharesCY: number;
+  issuedAmountPY: number;
+  issuedAmountCY: number;
+  parValue: number;
+  sharesIssuedDuringYear: number;
+}
+
+export interface ReservesNote {
+  generalReserve: { balanceCY: number; balancePY: number };
+  capitalReserve: { balanceCY: number; balancePY: number };
+  revaluationReserve: { balanceCY: number; balancePY: number };
+  otherReserves: { balanceCY: number; balancePY: number };
+  total: { balanceCY: number; balancePY: number };
+}
+
+export interface BorrowingsNote {
+  nonCurrent: Array<{ lender: string; balanceCY: number; balancePY: number; maturityDate: string; rate: number }>;
+  current: Array<{ lender: string; balanceCY: number; balancePY: number; type: string }>;
+  totalNonCurrent: { balanceCY: number; balancePY: number };
+  totalCurrent: { balanceCY: number; balancePY: number };
+}
+
+export interface EmpBenefitLiabilityNote {
+  gratuity: { balanceCY: number; balancePY: number };
+  leaveEncashment: { balanceCY: number; balancePY: number };
+  pfPayable: { balanceCY: number; balancePY: number };
+  bonusPayable: { balanceCY: number; balancePY: number };
+  total: { balanceCY: number; balancePY: number };
+}
+
+export interface TradePayablesNote {
+  tradeCreditors: { balanceCY: number; balancePY: number };
+  advanceFromCustomers: { balanceCY: number; balancePY: number };
+  relatedPartyPayables: { balanceCY: number; balancePY: number };
+  total: { balanceCY: number; balancePY: number };
+}
+
+export interface TaxLiabilityNote {
+  incomeTaxPayable: { balanceCY: number; balancePY: number };
+  tdsPayable: { balanceCY: number; balancePY: number };
+  vatPayable: { balanceCY: number; balancePY: number };
+  advanceTax: { balanceCY: number; balancePY: number };
+  total: { balanceCY: number; balancePY: number };
+}
+
+export interface ProvisionsNote {
+  items: Array<{ description: string; opening: number; addition: number; utilisation: number; closing: number }>;
+  total: { opening: number; addition: number; utilisation: number; closing: number };
+}
+
+export interface OtherCLNote {
+  items: Array<{ description: string; balanceCY: number; balancePY: number }>;
+  total: { balanceCY: number; balancePY: number };
+}
+
+export interface RevenueNote {
+  salesRevenue: { amountCY: number; amountPY: number };
+  serviceRevenue: { amountCY: number; amountPY: number };
+  total: { amountCY: number; amountPY: number };
+}
+
+export interface MaterialConsumedNote {
+  openingStock: number;
+  purchases: number;
+  closingStock: number;
+  materialConsumed: number;
+  previous: { openingStock: number; purchases: number; closingStock: number; materialConsumed: number };
+}
+
+export interface DirectExpensesNote {
+  items: Array<{ description: string; amountCY: number; amountPY: number }>;
+  total: { amountCY: number; amountPY: number };
+}
+
+export interface EmpBenefitExpensesNote {
+  salaries: { amountCY: number; amountPY: number };
+  allowances: { amountCY: number; amountPY: number };
+  pfSsf: { amountCY: number; amountPY: number };
+  bonus: { amountCY: number; amountPY: number };
+  leaveEncashment: { amountCY: number; amountPY: number };
+  other: { amountCY: number; amountPY: number };
+  total: { amountCY: number; amountPY: number };
+}
+
+export interface ImpairmentNote {
+  onDebtors: { amountCY: number; amountPY: number };
+  onInvestments: { amountCY: number; amountPY: number };
+  onPPE: { amountCY: number; amountPY: number };
+  total: { amountCY: number; amountPY: number };
+}
+
+export interface AdminExpensesNote {
+  items: Array<{ description: string; amountCY: number; amountPY: number }>;
+  total: { amountCY: number; amountPY: number };
+}
+
+export interface TaxExpenseNote {
+  currentTax: { amountCY: number; amountPY: number };
+  deferredTax: { amountCY: number; amountPY: number };
+  total: { amountCY: number; amountPY: number };
+  reconciliation: Array<{ description: string; amount: number }>;
+}
+
+export interface RelatedPartyNote {
+  parties: Array<{
+    name: string;
+    relationship: string;
+    receivableCY: number; receivablePY: number;
+    payableCY: number; payablePY: number;
+    purchases: number; sales: number;
+    terms: string;
+  }>;
+}
+
+export interface ContingenciesNote {
+  items: Array<{ description: string; nature: string; amount: number }>;
+}
+
+export interface SubsequentEventsNote {
+  items: Array<{ description: string; date: string; impact: string }>;
+}
+
 export interface NotesData {
-  note31_ppe: DepreciationSummaryForNote[];
-  note32_investments: any;
-  note33_tradeReceivables: any;
-  note34_otherReceivables?: any;
-  note34_otherCurrentAssets?: any;
-  note35_otherNonCurrentAssets?: any;
-  note35_biologicalAssets?: any;
-  note36_otherCurrentAssets?: any;
-  note36_heldForSale?: any;
-  note37_inventories: any;
-  note38_cashAndEquivalents?: any;
-  note38_cashEquivalents?: any;
-  note39_shareCapital: any;
-  note310_reserves: any;
-  note311_borrowings: any;
-  note312_employeeBenefits: any;
-  note313_tradePayables: any;
-  note314_provisions?: any;
-  note314_taxComputation?: any;
-  note315_revenue?: any;
-  note316_dividendPayable?: any;
-  note317_revenue?: any;
-  note317_revenueDetailed?: any;
-  note318_materialConsumed: any;
-  note319_directExpenses?: any;
-  note319_otherIncome?: any;
-  note320_employeeBenefitExpenses?: any;
-  note320_employeeExpenses?: any;
-  note321_impairment?: any;
-  note321_depreciation?: any;
-  note322_adminExpenses: any;
-  note323_incomeTax?: any;
-  note323_taxExpense?: any;
-  note324_relatedParty?: any;
-  note325_contingencies?: any;
-  note326_subsequentEvents?: any;
-  [key: string]: any;
+  note31_ppe: PPENote;
+  note32_investments: InvestmentsNote;
+  note33_tradeReceivables: TradeReceivablesNote;
+  note34_otherReceivables: OtherReceivablesNote;
+  note35_otherNCA: OtherNCANote;
+  note36_otherCA: OtherCANote;
+  note37_inventories: InventoriesNote;
+  note38_cashEquivalents: CashNote;
+  note39_shareCapital: ShareCapitalNote;
+  note310_reserves: ReservesNote;
+  note311_borrowings: BorrowingsNote;
+  note312_employeeBenefitLiability: EmpBenefitLiabilityNote;
+  note313_tradePayables: TradePayablesNote;
+  note314_incomeTaxLiability: TaxLiabilityNote;
+  note315_provisions: ProvisionsNote;
+  note316_otherCL: OtherCLNote;
+  note317_revenue: RevenueNote;
+  note318_materialConsumed: MaterialConsumedNote;
+  note319_directExpenses: DirectExpensesNote;
+  note320_employeeBenefitExpenses: EmpBenefitExpensesNote;
+  note321_impairment: ImpairmentNote;
+  note322_adminExpenses: AdminExpensesNote;
+  note323_taxExpense: TaxExpenseNote;
+  note324_relatedParty: RelatedPartyNote;
+  note325_contingencies: ContingenciesNote;
+  note326_subsequentEvents: SubsequentEventsNote;
+  accountingPoliciesText: string;
 }
-
-import type { DepreciationSummary } from './adjustments';
-type DepreciationSummaryForNote = DepreciationSummary;

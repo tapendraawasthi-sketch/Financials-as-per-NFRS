@@ -91,7 +91,7 @@ function BalanceSheetView({ data, company, previousYear }: BalanceSheetViewProps
             <th className="text-center">Note</th>
             <th className="text-right">{cy?.endDateBS ?? 'FY 2081/82'}</th>
             <th className="text-right">
-              {cy?.bsYear?.replace(/(\d+)\/(\d+)/, (_, a, b) => `${+a-1}/${+b-1}`) ?? 'Prior Year'}
+              {cy?.bsFY?.replace(/(\d+)\/(\d+)/, (_, a, b) => `${+a-1}/${+b-1}`) ?? 'Prior Year'}
             </th>
           </tr>
         </thead>

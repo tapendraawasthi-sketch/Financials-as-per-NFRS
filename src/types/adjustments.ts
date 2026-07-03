@@ -1,156 +1,130 @@
-// src/types/adjustments.ts
-
-export enum DepreciationMethod {
-  StraightLine = 'StraightLine',
-  WrittenDownValue = 'WrittenDownValue',
-}
-
-export interface AssetItem {
+export interface AssetRegisterEntry {
   id: string;
+  assetClass: string;     // 'Land'|'Building'|'OfficeEquipment'|'Vehicle'|
+                          // 'PlantMachinery'|'Intangible'|'UnderConstruction'
   assetName: string;
-  categoryId: string;
-  purchaseDateBS: string;
+  purchaseDate: string;   // BS date
   originalCost: number;
-  additionalCost: number;
-  usefulLifeYears: number;
-  residualValue: number;
-  depreciationMethod: DepreciationMethod;
-  wdvRate: number;
-  accumDepreciationOpening: number;
-  isFullyDepreciated: boolean;
-  isMortgaged: boolean;
-  disposed: boolean;
-  disposalDateBS?: string;
+  additionsCY: number;
+  disposalDate?: string;
   disposalValue?: number;
-}
-
-export interface AssetCategory {
-  id: string;
-  name: string;
-  defaultMethod: string;
-  defaultUsefulLife: number;
-  defaultWDVRate: number;
-  defaultResidualPct: number;
-}
-
-export interface DepreciationResult {
-  assetId: string;
-  assetName: string;
-  categoryId: string;
-  openingCost: number;
-  additions: number;
-  disposals: number;
-  closingCost: number;
-  openingAccumDepn: number;
-  depnForYear: number;
-  depnOnDisposal: number;
-  closingAccumDepn: number;
-  netBookValueOpening: number;
-  netBookValueClosing: number;
-  gainLossOnDisposal?: number;
-  disposalProceeds?: number;
-}
-
-export interface DepreciationSummary {
-  categoryId: string;
-  categoryName: string;
-  openingCost: number;
-  additions: number;
-  disposals: number;
-  closingCost: number;
-  openingAccumDepn: number;
-  depnForYear: number;
-  depnOnDisposal: number;
-  closingAccumDepn: number;
-  netBookValueClosing: number;
-  assets: DepreciationResult[];
-}
-
-export interface TaxDepreciationPool {
-  pool: string;
-  poolName: string;
-  rate: number;
-  openingBasis: number;
-  additionsFullYear: number;
-  additionsTwoThirds: number;
-  additionsOneThird: number;
-  disposals: number;
-  depreciationBasis: number;
-  taxDepreciation: number;
-  closingBasis: number;
-}
-
-export interface ProvisionEntry {
-  id?: string;
-  provisionType: string;
-  description?: string;
-  openingBalance: number;
-  additionForYear: number;
-  utilisedDuringYear: number;
-  reversedDuringYear?: number;
-  closingBalance: number;
-  classification?: 'Current' | 'Non-current';
-}
-
-export interface InventoryAdjustment {
-  category: string;
-  description?: string;
-  costAmount: number;
-  nrvAmount: number;
-  impairmentAmount: number;
-  writtenDownTo?: number;
+  depreciationMethodOverride?: 'SLM' | 'WDV';
+  rateOverride?: number;
+  accumulatedDepnPY: number;
+  // Computed
+  depreciationCY?: number;
+  accumulatedDepnCY?: number;
+  netBookValueCY?: number;
+  netBookValuePY?: number;
 }
 
 export interface InvestmentAdjustment {
-  investmentName: string;
-  investmentType: 'listed_trading' | 'listed_ats' | 'unlisted';
-  totalCost: number;
+  id: string;
+  type: 'listed' | 'unlisted';
+  name: string;
   units?: number;
-  ltp?: number;
-  marketValue?: number;
-  fairValueGainLoss?: number;
+  costPerUnit?: number;
+  totalCost: number;
+  fairValuePerUnit?: number;
+  totalFairValue?: number;
   impairmentAmount?: number;
-  carryingAmount?: number;
+  gainLossOnFV?: number;
 }
 
-export interface JournalEntry {
-  id?: string;
-  description: string;
-  debitAccount: string;
-  creditAccount: string;
-  amount: number;
-  linkedNoteRef?: string;
-  isSystemGenerated?: boolean;
+export interface BankAccountDetail {
+  id: string;
+  bankName: string;
+  accountNumber: string;
+  type: 'Current'|'Savings'|'Call'|'FixedDeposit'|'Loan'|'Overdraft'|'CashCredit'|'WorkingCapital';
+  balanceCY: number;
+  balancePY: number;
+  isNonCurrent: boolean;    // if loan maturity > 12 months
+  loanDetails?: {
+    sanctionedAmount: number;
+    interestRate: number;
+    emiAmount: number;
+    maturityDate: string;
+    security: string;
+  };
+}
+
+export interface DebtorEntry {
+  id: string;
+  name: string;
+  isRelatedParty: boolean;
+  balanceCY: number;
+  balancePY: number;
+  ageCategory: '<30days'|'31-60days'|'61-90days'|'>90days';
+  isAdvanceFromCustomer: boolean;
+}
+
+export interface CreditorEntry {
+  id: string;
+  name: string;
+  isRelatedParty: boolean;
+  balanceCY: number;
+  balancePY: number;
+}
+
+export interface RelatedPartyEntry {
+  id: string;
+  name: string;
+  relationship: string;    // Director, Shareholder, Subsidiary, Associate, etc.
+  transactionType: 'Receivable'|'Payable'|'Purchase'|'Sale'|'Loan'|'Other';
+  balanceCY: number;
+  balancePY: number;
+  transactionAmount: number;
+  interestRate?: number;
+  terms: string;
 }
 
 export interface YearEndAdjustments {
-  companyId: string;
-  fiscalYear: string;
-  assets: AssetItem[];
-  depreciationResults: DepreciationResult[];
-  depreciationSummary: DepreciationSummary[];
-  taxDepreciationPools: TaxDepreciationPool[];
-  inventoryAdjustments: InventoryAdjustment[];
-  investmentAdjustments: InvestmentAdjustment[];
-  provisions: ProvisionEntry[];
-  journalEntries: JournalEntry[];
+  // Depreciation
+  assetRegister: AssetRegisterEntry[];
   totalDepreciationExpense: number;
+  // Investments
+  investmentAdjustments: InvestmentAdjustment[];
+  // Provisions
+  staffBonusProvision: number;     // auto-computed from PBT × bonus rate
+  staffBonusPayablePY: number;
+  incomeTaxProvision: number;      // auto-computed after bonus
+  incomeTaxPaidPY: number;
+  // Subledgers
+  bankAccounts: BankAccountDetail[];
+  debtors: DebtorEntry[];
+  creditors: CreditorEntry[];
+  relatedParties: RelatedPartyEntry[];
+  // Inventory
+  inventoryDetails: {
+    rawMaterialsCY: number; rawMaterialsPY: number;
+    wipCY: number; wipPY: number;
+    finishedGoodsCY: number; finishedGoodsPY: number;
+  };
   totalInventoryImpairment: number;
-  totalInvestmentFVAdjustment: number;
-  totalProvisions: number;
-  gainOnDisposals: number;
-  lossOnDisposals: number;
-  profitBeforeTax?: number;
-  priorYearTax?: number;
-  deferredTaxExpense?: number;
-  taxDepreciation?: number;
-  advanceTax1?: number;
-  advanceTax2?: number;
-  advanceTax3?: number;
-  tdsCredit?: number;
-  taxPools?: TaxDepreciationPool[];
-  otherAdjustments?: any[];
-  company?: any;
-  taxableProfit?: number;
-  currentTaxExpense?: number;
+  // Tax depreciation (Nepal Income Tax Act pool method)
+  taxDepPool: Array<{
+    poolName: string;   // 'Pool A (Building 5%)' etc.
+    rate: number;
+    openingBasis: number;
+    additions: number;
+    disposals: number;
+    absorbed: number;
+    unabsorbed: number;
+    nextYearBasis: number;
+    repairExpense: number;
+  }>;
+  // Manual journals
+  manualJournals: Array<{
+    id: string;
+    description: string;
+    debitAccount: string;
+    creditAccount: string;
+    amount: number;
+  }>;
+  // Disallowed expenses for tax
+  disallowedForTax: Array<{
+    description: string;
+    amount: number;
+    section: string;    // e.g. 'Section 21 ITA'
+  }>;
 }

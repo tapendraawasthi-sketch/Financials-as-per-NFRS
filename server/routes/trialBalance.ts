@@ -4,8 +4,8 @@ import { tbUploadMiddleware } from '../middleware/upload';
 import { asyncHandler } from '../middleware/errorHandler';
 import { sessionStore } from '../store/sessionStore';
 import { parseTrialBalance } from '../services/tbParser';
-import { matchAllAccounts } from '../services/accountMatcher';
-import { aiMatchUnresolved } from '../services/aiAccountMatcher';
+import { classifyAll } from '../services/accountMatcher';
+import { classifyWithAI } from '../services/aiAccountMatcher';
 import { validateTrialBalanceTotals } from '../../src/utils/validation';
 import type { ParsedTrialBalance, NFRSCategory } from '../../src/types';
 
@@ -54,48 +54,32 @@ router.post('/:companyId/upload', tbUploadMiddleware, async (req: Request, res: 
       });
     }
 
-    let matchResults = matchAllAccounts(parsed.rows);
+    let rows = classifyAll(parsed.rows);
 
     if (req.query.useAI === 'true' && process.env.ANTHROPIC_API_KEY) {
       try {
-        const aiRes = await aiMatchUnresolved(parsed.rows.map(r => ({ rawLabel: r.rawLabel, closingBalance: r.closingDr - r.closingCr })), session.company!, process.env.ANTHROPIC_API_KEY!);
-        for (let i = 0; i < matchResults.length; i++) {
-          const ai = aiRes.find(a => a.rowIndex === matchResults[i].rowIndex);
-          if (ai && ai.confidence > (matchResults[i].confidence ?? 0)) {
-            matchResults[i] = {
-              ...matchResults[i],
-              nfrsCategory: ai.nfrsCategory as NFRSCategory,
-              confidence: ai.confidence,
-              method: 'ai',
-              needsReview: ai.confidence < 80,
-            };
-          }
-        }
+        rows = await classifyWithAI(rows, process.env.ANTHROPIC_API_KEY);
       } catch (aiErr) {
-        console.warn('[trialBalance.upload] AI matching failed, proceeding with deterministic results:', aiErr);
+        console.warn('[trialBalance.upload] AI matching failed:', aiErr);
       }
     }
 
-    const rows: ParsedTrialBalance['rows'] = parsed.rows.map((raw, i) => {
-      const match = matchResults[i];
-      return {
-        ...raw,
-        nfrsCategory: (match?.nfrsCategory ?? 'unclassified') as NFRSCategory,
-        matchedLabel: match?.matchedLabel ?? null,
-        confidence: match?.confidence ?? 0,
-        matchMethod: match?.method ?? 'unmatched',
-        needsReview: match?.needsReview ?? true,
-        candidates: match?.candidates ?? [],
-        closingBalance: raw.closingDr - raw.closingCr,
-      };
-    });
-
-    const tb = {
-      ...parsed,
+    const tb: ParsedTrialBalance & Record<string, unknown> = {
       rows,
+      companyName: session.company?.name ?? session.company?.companyName ?? '',
+      fiscalYear: session.company?.fiscalYearCurrent ?? session.company?.fiscalYear?.bsFY ?? '',
+      isBalanced: parsed.isBalanced,
+      totalAssets: 0,
+      totalLiabilities: 0,
+      totalEquity: 0,
+      warnings: parsed.warnings,
       companyId: req.params.companyId,
       uploadedAt: new Date().toISOString(),
       uploadedFileName: req.file.originalname,
+      totalClosingDr: parsed.totalClosingDr,
+      totalClosingCr: parsed.totalClosingCr,
+      difference: parsed.difference,
+      detectedFormat: parsed.detectedFormat,
     };
 
     const validation = validateTrialBalanceTotals(rows);

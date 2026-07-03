@@ -166,7 +166,7 @@ async function runTest() {
   const { results: assetResults, summary: depnSummary } = calculateDepreciationSummary(
     SAMPLE_ASSETS,
     SAMPLE_ASSET_CATEGORIES,
-    SAMPLE_COMPANY.fiscalYear.bsYear
+    SAMPLE_COMPANY.fiscalYear.bsFY
   );
 
   const totalDepreciation = depnSummary.reduce((s, c) => s + c.depnForYear, 0);
@@ -182,7 +182,7 @@ async function runTest() {
   console.log(bold(`\n[${step}] Building year-end adjustments object...`));
   const adj = {
     companyId:            SAMPLE_COMPANY.id,
-    fiscalYear:           SAMPLE_COMPANY.fiscalYear.bsYear,
+    fiscalYear:           SAMPLE_COMPANY.fiscalYear.bsFY,
     assets:               SAMPLE_ASSETS as any,
     depreciationResults:  assetResults,
     depreciationSummary:  depnSummary,
@@ -306,7 +306,7 @@ async function runTest() {
   fs.writeFileSync(summaryFile, JSON.stringify({
     generatedAt:       new Date().toISOString(),
     company:           SAMPLE_COMPANY.companyName,
-    fiscalYear:        SAMPLE_COMPANY.fiscalYear.bsYear,
+    fiscalYear:        SAMPLE_COMPANY.fiscalYear.bsFY,
     tbRows:            parsed.rows.length,
     autoMatchedRows:   autoMatched,
     unmatchedRows:     unmatched,

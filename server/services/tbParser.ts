@@ -11,43 +11,9 @@
 //   - Enhanced validation and balance checks
 
 import ExcelJS from 'exceljs';
+import type { RawTBRow, RawTBParseResult } from '../../src/types/trialBalance.js';
 
-// ---------------------------------------------------------------------------
-// Public types
-// ---------------------------------------------------------------------------
-export interface RawTBRow {
-  rowIndex: number;
-  rawLabel: string;
-  openingDr: number;
-  openingCr: number;
-  duringDr: number;
-  duringCr: number;
-  adjustmentDr: number;
-  adjustmentCr: number;
-  closingDr: number;
-  closingCr: number;
-  // ── Hierarchy fields ──────────────────────────────────────────────────────
-  rowLevel: number;           // 0 = group/parent, 1 = subgroup, 2 = ledger/leaf
-  isGroupRow: boolean;        // true if this is a group/parent row (no amounts)
-  parentGroup: string;        // nearest parent group row label above this row
-  rawIndentSpaces: number;    // number of leading whitespace chars in the label
-}
-
-export interface RawTBParseResult {
-  rows: RawTBRow[];
-  totalOpeningDr: number;
-  totalOpeningCr: number;
-  totalDuringDr: number;
-  totalDuringCr: number;
-  totalClosingDr: number;
-  totalClosingCr: number;
-  isBalanced: boolean;
-  difference: number;
-  warnings: string[];
-  detectedColumns: Record<string, number>;
-  headerRowIndex: number;
-  detectedFormat: 'full' | '3col' | '2col' | '1col' | 'tally_prime';
-}
+export type { RawTBRow, RawTBParseResult };
 
 // ---------------------------------------------------------------------------
 // Column-header keyword dictionaries
@@ -151,36 +117,18 @@ function countLeadingSpaces(label: string): number {
 function detectRowLevel(
   label: string,
   amounts: number[],
+  isBold = false,
 ): { rowLevel: number; isGroupRow: boolean; rawIndentSpaces: number } {
   const rawIndentSpaces = countLeadingSpaces(label);
+  const trimmed = label.trim();
   const hasAnyAmount = amounts.some((a) => a !== 0);
 
-  // If indentation > 0, it's more likely to be a subgroup or leaf
-  // If all amounts are zero AND the row is not indented, it's likely a group header
-  let rowLevel: number;
-  let isGroupRow: boolean;
+  const isGroupRow =
+  (rawIndentSpaces === 0 && !hasAnyAmount) ||
+  KNOWN_GROUP_NAMES.test(trimmed) ||
+  (isBold && !hasAnyAmount);
 
-  if (!hasAnyAmount) {
-    // No amounts at all — this is a group/parent row
-    if (rawIndentSpaces === 0) {
-      rowLevel = 0;   // top-level group
-    } else if (rawIndentSpaces <= 4) {
-      rowLevel = 1;   // sub-group
-    } else {
-      rowLevel = 1;   // still treat as subgroup (could be deeply indented group)
-    }
-    isGroupRow = true;
-  } else {
-    // Has amounts — this is a leaf ledger row
-    if (rawIndentSpaces >= 8) {
-      rowLevel = 2;   // deeply indented leaf
-    } else if (rawIndentSpaces >= 4) {
-      rowLevel = 2;   // indented leaf
-    } else {
-      rowLevel = 2;   // even unindented leaf (e.g. simple format)
-    }
-    isGroupRow = false;
-  }
+  const rowLevel = isGroupRow ? 0 : rawIndentSpaces > 0 ? 1 : 2;
 
   return { rowLevel, isGroupRow, rawIndentSpaces };
 }
@@ -188,7 +136,9 @@ function detectRowLevel(
 // ---------------------------------------------------------------------------
 // Header detection — scans first MAX_HEADER_SCAN rows for keyword matches
 // ---------------------------------------------------------------------------
-const MAX_HEADER_SCAN = 15;
+const MAX_HEADER_SCAN = 25;
+
+const KNOWN_GROUP_NAMES = /^(capital account|non.?current liabilities?|current liabilities?|property.? plant|direct income|indirect income|employee benefit|administrative expenses?|sundry debtors?|sundry creditors?|fixed assets?|current assets?|equity|expenses?|income|loans?|investments?|provisions?)/i;
 
 function detectColumns(
   matrix: unknown[][],
@@ -336,8 +286,9 @@ function extractRow(
     return idx !== undefined ? toNumber(matRow[idx]) : 0;
   };
 
-  const rawLabel = String(matRow[colMap['label'] ?? 0] ?? '').trim();
-  const trimmedLabel = rawLabel.trim();
+  const rawLabelCell = String(matRow[colMap['label'] ?? 0] ?? '');
+  const rawLabel = rawLabelCell.trim();
+  const rawIndentSpaces = countLeadingSpaces(rawLabelCell);
 
   // ── Handle different formats ────────────────────────────────────────────
   let openingDr = 0, openingCr = 0, duringDr = 0, duringCr = 0;
@@ -351,8 +302,16 @@ function extractRow(
       duringCr = g('duringCr');
       adjustmentDr = 0;
       adjustmentCr = 0;
-      closingDr = g('closingDr');
-      closingCr = g('closingCr');
+      const balanceAmt = g('closingDr') || g('closingCr') || g('duringDr');
+      const drCrIdx = colMap['drCr'];
+      const drCrVal = drCrIdx !== undefined ? normCell(matRow[drCrIdx]) : '';
+      if (drCrVal.includes('cr') || drCrVal === 'c') {
+        closingCr = Math.abs(balanceAmt);
+        closingDr = 0;
+      } else {
+        closingDr = Math.abs(balanceAmt);
+        closingCr = 0;
+      }
       break;
     }
     case '3col': {
@@ -405,12 +364,12 @@ function extractRow(
   }
 
   // ── Detect row level from indentation and amount presence ────────────────
-  const amounts = [openingDr, openingCr, duringDr, duringCr, closingDr, closingCr];
-  const { rowLevel, isGroupRow, rawIndentSpaces } = detectRowLevel(rawLabel, amounts);
+  const amounts = [openingDr, openingCr, duringDr, duringCr, adjustmentDr, adjustmentCr, closingDr, closingCr];
+  const { rowLevel, isGroupRow } = detectRowLevel(rawLabelCell, amounts);
 
   return {
     rowIndex,
-    rawLabel: trimmedLabel,   // store trimmed label for matching
+    rawLabel,
     openingDr,
     openingCr,
     duringDr,
@@ -429,7 +388,7 @@ function extractRow(
 // ---------------------------------------------------------------------------
 // CSV parser — respects quoted fields
 // ---------------------------------------------------------------------------
-function parseCSV(text: string): unknown[][] {
+function parseCSVText(text: string): unknown[][] {
   const lines = text.split(/\r?\n/);
   return lines.map((line) => {
     const cells: string[] = [];
@@ -492,6 +451,105 @@ function assignParentGroups(rows: RawTBRow[]): RawTBRow[] {
   });
 }
 
+function parseMatrix(matrix: unknown[][]): RawTBParseResult {
+  const warnings: string[] = [];
+  const headerDetection = detectColumns(matrix);
+  const { format, colMap, headerRowIndex } = detectFormat(matrix, headerDetection);
+  const mode = format;
+
+  if (mode === '3col') {
+    warnings.push('Treating file as 3-column (label, debit, credit) layout.');
+  } else if (mode === '2col') {
+    warnings.push('Treating file as 2-column net balance layout (positive=Dr, negative=Cr).');
+  }
+
+  if (mode === 'full' && colMap['label'] === undefined) {
+    throw Object.assign(
+      new Error('Could not detect column headers.'),
+      { status: 400, code: 'NO_HEADERS' },
+    );
+  }
+
+  const rows: RawTBRow[] = [];
+  const skippedSubtotals: string[] = [];
+
+  for (let r = headerRowIndex + 1; r < matrix.length; r++) {
+    const matRow = matrix[r] ?? [];
+    const labelVal = matRow[colMap['label'] ?? 0];
+    const label = String(labelVal ?? '').trim();
+    if (!label) continue;
+    if (SUBTOTAL_PATTERNS.test(label)) {
+      skippedSubtotals.push(label);
+      continue;
+    }
+    const row = extractRow(matRow, r, colMap, mode);
+    if (!row.rawLabel) continue;
+    if (!row.isGroupRow && row.closingDr === 0 && row.closingCr === 0 &&
+        row.openingDr === 0 && row.openingCr === 0) {
+      warnings.push(`Zero-amount leaf row skipped or flagged: "${row.rawLabel}"`);
+    }
+    rows.push(row);
+  }
+
+  if (skippedSubtotals.length > 0) {
+    warnings.push(`${skippedSubtotals.length} subtotal row(s) skipped.`);
+  }
+
+  const rowsWithParents = assignParentGroups(rows);
+  const leafRows = rowsWithParents.filter((r) => !r.isGroupRow);
+
+  if (leafRows.length === 0) {
+    throw Object.assign(new Error('No data rows found.'), { status: 400, code: 'NO_DATA_ROWS' });
+  }
+
+  let totalOpeningDr = 0, totalOpeningCr = 0, totalDuringDr = 0, totalDuringCr = 0;
+  let totalClosingDr = 0, totalClosingCr = 0;
+  for (const row of rowsWithParents) {
+    if (row.isGroupRow) continue;
+    totalOpeningDr += row.openingDr;
+    totalOpeningCr += row.openingCr;
+    totalDuringDr += row.duringDr;
+    totalDuringCr += row.duringCr;
+    totalClosingDr += row.closingDr;
+    totalClosingCr += row.closingCr;
+  }
+
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+  totalClosingDr = round2(totalClosingDr);
+  totalClosingCr = round2(totalClosingCr);
+  const difference = round2(totalClosingDr - totalClosingCr);
+  const isBalanced = Math.abs(difference) < 1.0;
+
+  if (!isBalanced) {
+    warnings.push(`Trial Balance not balanced. Difference: ${Math.abs(difference).toLocaleString('en-IN')}.`);
+  }
+
+  return {
+    rows: rowsWithParents,
+    totalOpeningDr: round2(totalOpeningDr),
+    totalOpeningCr: round2(totalOpeningCr),
+    totalDuringDr: round2(totalDuringDr),
+    totalDuringCr: round2(totalDuringCr),
+    totalClosingDr,
+    totalClosingCr,
+    isBalanced,
+    difference,
+    warnings,
+    detectedColumns: colMap,
+    headerRowIndex,
+    detectedFormat: mode,
+  };
+}
+
+/** Parse CSV buffer using the same logic as Excel uploads. */
+export function parseCsv(buffer: Buffer): RawTBParseResult {
+  let text = buffer.toString('utf-8');
+  if (text.includes('\ufffd')) {
+    text = buffer.toString('latin1');
+  }
+  return parseMatrix(parseCSVText(text));
+}
+
 // ---------------------------------------------------------------------------
 // Main export: parseTrialBalance
 // ---------------------------------------------------------------------------
@@ -507,14 +565,12 @@ export async function parseTrialBalance(
     );
   }
 
-  const warnings: string[] = [];
   const ext = filename.toLowerCase().slice(filename.lastIndexOf('.'));
   let matrix: unknown[][] = [];
 
   // ── Read file into matrix ────────────────────────────────────────────────
   if (ext === '.csv') {
-    const text = buffer.toString('utf-8');
-    matrix = parseCSV(text);
+    return parseCsv(buffer);
   } else {
     // XLSX or XLS
     const workbook = new ExcelJS.Workbook();
@@ -527,7 +583,10 @@ export async function parseTrialBalance(
       );
     }
 
-    const ws = workbook.worksheets[0];
+    const ws =
+      workbook.getWorksheet('Trial Balance') ??
+      workbook.getWorksheet('TB') ??
+      workbook.worksheets[0];
     if (!ws) {
       throw new Error('The uploaded workbook has no worksheets.');
     }
@@ -555,166 +614,5 @@ export async function parseTrialBalance(
     throw new Error('The uploaded file appears to be empty.');
   }
 
-  // ── Detect columns ───────────────────────────────────────────────────────
-  const headerDetection = detectColumns(matrix);
-  const { format, colMap, headerRowIndex } = detectFormat(matrix, headerDetection);
-
-  let mode: FileFormat = format;
-
-  // Warn about simplified formats
-  if (mode === '3col') {
-    warnings.push(
-      'Could not detect a standard TB header row. ' +
-      'Treating file as a 3-column (label, debit balance, credit balance) layout. ' +
-      'Please verify the imported data carefully.'
-    );
-  } else if (mode === '2col') {
-    warnings.push(
-      'Could not detect a standard TB header row. ' +
-      'Treating file as a 2-column (label, net amount) layout where positive = Dr, negative = Cr. ' +
-      'Please verify the imported data carefully.'
-    );
-  } else if (mode === 'tally_prime') {
-    // No warning — this is a recognized format
-  }
-
-  if (mode === 'full' && colMap['label'] === undefined) {
-    throw Object.assign(
-      new Error(
-        'Could not detect column headers. Please ensure your file has clear column headers for account name and amounts.'
-      ),
-      { status: 400, code: 'NO_HEADERS' }
-    );
-  }
-
-  // ── Extract rows ─────────────────────────────────────────────────────────
-  const rows: RawTBRow[] = [];
-  const skippedSubtotals: string[] = [];
-
-  for (let r = headerRowIndex + 1; r < matrix.length; r++) {
-    const matRow = matrix[r] ?? [];
-
-    // Skip empty rows
-    const labelVal = matRow[colMap['label'] ?? 0];
-    const label = String(labelVal ?? '').trim();
-    if (!label) continue;
-
-    // Skip obvious subtotal rows — warn
-    if (SUBTOTAL_PATTERNS.test(label)) {
-      skippedSubtotals.push(label);
-      continue;
-    }
-
-    const row = extractRow(matRow, r, colMap, mode);
-    if (row.rawLabel === '') continue;
-
-    // Validate: if closing is provided, check it matches derived (full format only)
-    if (
-      mode === 'full' &&
-      colMap['closingDr'] !== undefined &&
-      colMap['openingDr'] !== undefined
-    ) {
-      const derivedDr = row.openingDr + row.duringDr + row.adjustmentDr;
-      const derivedCr = row.openingCr + row.duringCr + row.adjustmentCr;
-      if (
-        !row.isGroupRow &&
-        (Math.abs(derivedDr - row.closingDr) > 1.5 || Math.abs(derivedCr - row.closingCr) > 1.5)
-      ) {
-        warnings.push(
-          `"${label}" (row ${r + 1}): opening + during + adjustment does not reconcile to closing ` +
-          `(Dr: ${derivedDr.toFixed(0)} vs ${row.closingDr.toFixed(0)}, ` +
-          `Cr: ${derivedCr.toFixed(0)} vs ${row.closingCr.toFixed(0)}).`,
-        );
-      }
-    }
-
-    rows.push(row);
-  }
-
-  if (skippedSubtotals.length > 0) {
-    warnings.push(
-      `${skippedSubtotals.length} subtotal row(s) were automatically skipped to avoid double-counting: ` +
-      `"${skippedSubtotals.slice(0, 3).join('", "')}". ` +
-      (skippedSubtotals.length > 3 ? `…and ${skippedSubtotals.length - 3} more.` : ''),
-    );
-  }
-
-  if (rows.filter((r) => !r.isGroupRow).length === 0) {
-    throw Object.assign(
-      new Error(
-        'No data rows found in the uploaded file. Please check your export and ensure it contains account entries.'
-      ),
-      { status: 400, code: 'NO_DATA_ROWS' }
-    );
-  }
-
-  // ── Assign parent groups ─────────────────────────────────────────────────
-  const rowsWithParents = assignParentGroups(rows);
-
-  // Row limit warning (do NOT throw — add to warnings)
-  const leafRows = rowsWithParents.filter((r) => !r.isGroupRow);
-  if (leafRows.length > 2000) {
-    warnings.push(
-      `File contains ${leafRows.length} ledger rows which exceeds the recommended limit of 2000. ` +
-      `Processing may be slow. Consider filtering inactive accounts before uploading.`
-    );
-  }
-
-  // ── Compute totals (leaf rows only) ─────────────────────────────────────
-  let totalOpeningDr = 0, totalOpeningCr = 0;
-  let totalDuringDr = 0, totalDuringCr = 0;
-  let totalClosingDr = 0, totalClosingCr = 0;
-
-  for (const row of rowsWithParents) {
-    if (row.isGroupRow) continue;   // skip group rows in totals
-    totalOpeningDr += row.openingDr;
-    totalOpeningCr += row.openingCr;
-    totalDuringDr  += row.duringDr;
-    totalDuringCr  += row.duringCr;
-    totalClosingDr += row.closingDr;
-    totalClosingCr += row.closingCr;
-  }
-
-  const round2 = (n: number) => Math.round(n * 100) / 100;
-  totalClosingDr = round2(totalClosingDr);
-  totalClosingCr = round2(totalClosingCr);
-  const difference = round2(totalClosingDr - totalClosingCr);
-  const isBalanced = Math.abs(difference) < 1.0;
-
-  if (!isBalanced) {
-    warnings.push(
-      `Trial Balance is not balanced. ` +
-      `Total Debit Closing: ${totalClosingDr.toLocaleString('en-IN')} vs ` +
-      `Total Credit Closing: ${totalClosingCr.toLocaleString('en-IN')}. ` +
-      `Difference: ${Math.abs(difference).toLocaleString('en-IN')}. ` +
-      `Please verify your exported trial balance from the accounting software before uploading.`
-    );
-  }
-
-  // ── Check for all-zero opening balances ─────────────────────────────────
-  const allOpeningZero =
-    totalOpeningDr === 0 && totalOpeningCr === 0 &&
-    (mode === 'full' || mode === 'tally_prime');
-  if (allOpeningZero) {
-    warnings.push(
-      `All opening balances are zero. If this is not the first year of accounting, ` +
-      `please ensure your export includes opening balances.`
-    );
-  }
-
-  return {
-    rows: rowsWithParents,
-    totalOpeningDr: round2(totalOpeningDr),
-    totalOpeningCr: round2(totalOpeningCr),
-    totalDuringDr:  round2(totalDuringDr),
-    totalDuringCr:  round2(totalDuringCr),
-    totalClosingDr,
-    totalClosingCr,
-    isBalanced,
-    difference,
-    warnings,
-    detectedColumns: colMap,
-    headerRowIndex,
-    detectedFormat: mode,
-  };
+  return parseMatrix(matrix);
 }

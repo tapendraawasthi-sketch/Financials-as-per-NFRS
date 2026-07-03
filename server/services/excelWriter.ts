@@ -210,7 +210,7 @@ export function writeWorkings(
   FISCAL_YEARS.forEach((fy, idx) => {
     const row = ws.getRow(2 + idx);
     [
-      fy.bsYear,
+      fy.bsFY,
       fy.startDateBS,
       fy.endDateBS,
       fy.startDateAD,
@@ -242,7 +242,7 @@ export function writeWorkings(
   const paramStart = 30;
   const params: Array<{ label: string; value: string | number; name?: string }> = [
     { label: 'Company Name', value: company.companyName ?? '', name: 'CompanyName' },
-    { label: 'Fiscal Year', value: company.fiscalYear?.bsYear ?? '', name: 'FiscalYear' },
+    { label: 'Fiscal Year', value: company.fiscalYear?.bsFY ?? '', name: 'FiscalYear' },
     { label: 'End Date BS', value: company.fiscalYear?.endDateBS ?? '', name: 'YearEndDateBS' },
     { label: 'End Date AD', value: company.fiscalYear?.endDateAD ?? '', name: 'YearEndDateAD' },
     { label: 'Start Date BS', value: company.fiscalYear?.startDateBS ?? '', name: 'YearStartDateBS' },
@@ -380,7 +380,7 @@ function writeEnterDetails(ws: ExcelJS.Worksheet, company: CompanyProfile): void
     ['PAN / VAT Number',   company.panVatNumber ?? ''],
     ['Registration No.',   company.registrationNumber ?? ''],
     ['Company Type',       company.companyType ?? ''],
-    ['Fiscal Year',        company.fiscalYear?.bsYear ?? ''],
+    ['Fiscal Year',        company.fiscalYear?.bsFY ?? ''],
     ['Chairperson',        company.chairperson ?? ''],
     ['Director',           company.director ?? ''],
     ['Accounts Head',      company.accountsHead ?? ''],
@@ -407,7 +407,7 @@ export function writeBalanceSheet(ws: ExcelJS.Worksheet, bs: BalanceSheet, compa
     { key: 'D', width: 18 },
   ];
 
-  const fy = company.fiscalYear?.bsYear ?? '';
+  const fy = company.fiscalYear?.bsFY ?? '';
   const [startBS, endBS] = fy.split('/').map((y: string) => y.trim());
 
   let row = writeStatementHeader(
@@ -467,7 +467,7 @@ export function writeBalanceSheet(ws: ExcelJS.Worksheet, bs: BalanceSheet, compa
   writeSignatureLine(ws, row + 1, company);
   appendComplianceStatement(ws, {
     companyName: company.companyName ?? '',
-    fiscalYear: company.fiscalYear?.bsYear ?? '',
+    fiscalYear: company.fiscalYear?.bsFY ?? '',
     roundingLevel: 100,
   }, row + 2);
   ws.pageSetup = { paperSize: 9, orientation: 'portrait', fitToPage: true, fitToWidth: 1 };
@@ -479,7 +479,7 @@ export function writeBalanceSheet(ws: ExcelJS.Worksheet, bs: BalanceSheet, compa
 
 export function writeIncomeStatement(ws: ExcelJS.Worksheet, is: IncomeStatement, company: CompanyProfile): void {
   ws.columns = [{ width: 42 }, { width: 8 }, { width: 18 }, { width: 18 }];
-  const fy = company.fiscalYear?.bsYear ?? '';
+  const fy = company.fiscalYear?.bsFY ?? '';
   const [startBS, endBS] = fy.split('/').map((y: string) => y.trim());
 
   let row = writeStatementHeader(
@@ -516,7 +516,7 @@ export function writeIncomeStatement(ws: ExcelJS.Worksheet, is: IncomeStatement,
   writeSignatureLine(ws, row + 1, company);
   appendComplianceStatement(ws, {
     companyName: company.companyName ?? '',
-    fiscalYear: company.fiscalYear?.bsYear ?? '',
+    fiscalYear: company.fiscalYear?.bsFY ?? '',
     roundingLevel: 100,
   }, row + 2);
   ws.pageSetup = { paperSize: 9, orientation: 'portrait', fitToPage: true, fitToWidth: 1 };
@@ -525,7 +525,7 @@ export function writeIncomeStatement(ws: ExcelJS.Worksheet, is: IncomeStatement,
 
 export function writeCashFlowStatement(ws: ExcelJS.Worksheet, cf: CashFlowStatement, company: CompanyProfile): void {
   ws.columns = [{ width: 50 }, { width: 8 }, { width: 18 }, { width: 18 }];
-  const fy = company.fiscalYear?.bsYear ?? '';
+  const fy = company.fiscalYear?.bsFY ?? '';
   const [, endBS] = fy.split('/').map((y: string) => y.trim());
   let row = writeStatementHeader(ws, company.companyName ?? '', 'STATEMENT OF CASH FLOWS (Indirect Method)', `For the Year Ended 31 Ashadh ${endBS ?? ''}`, fy, '');
 
@@ -579,7 +579,7 @@ export function writeCashFlowStatement(ws: ExcelJS.Worksheet, cf: CashFlowStatem
 
 export function writeChangesInEquity(ws: ExcelJS.Worksheet, ce: ChangesInEquity, company: CompanyProfile): void {
   ws.columns = [{ width: 36 }, { width: 18 }, { width: 16 }, { width: 16 }, { width: 20 }, { width: 18 }];
-  const fy = company.fiscalYear?.bsYear ?? '';
+  const fy = company.fiscalYear?.bsFY ?? '';
   const [, endBS] = fy.split('/').map((y: string) => y.trim());
 
   ws.mergeCells('A1:F1');
@@ -954,11 +954,11 @@ export async function generateNFRSWorkbook(params: {
   writeNote1_AccountingPolicies(wb, {
     ...(company.accountingPolicies ?? {}),
     companyName: company.companyName ?? '',
-    fiscalYear: company.fiscalYear?.bsYear ?? ''
+    fiscalYear: company.fiscalYear?.bsFY ?? ''
   });
   writeNote2_CriticalJudgments(wb, {
     companyName: company.companyName ?? '',
-    fiscalYear: company.fiscalYear?.bsYear ?? ''
+    fiscalYear: company.fiscalYear?.bsFY ?? ''
   });
   writeNote31_PPE(addSheet('Note 3.1 - PPE', '16A34A'), notes.note31_ppe);
   writeGenericNoteRecord(addSheet('Note 3.2 - Investments', '16A34A'), '3.2  Investments', {});

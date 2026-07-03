@@ -24,10 +24,10 @@ export default function OutputPage() {
       const blob = await outputApi.generateExcel(
         company.id,
         company.companyName,
-        company.fiscalYear?.bsYear ?? 'FY',
+        company.fiscalYear?.bsFY ?? 'FY',
       );
       const safeName = (company.companyName ?? 'Company').replace(/[^a-zA-Z0-9]/g, '_');
-      const fy = (company.fiscalYear?.bsYear ?? 'FY').replace(/\//g, '-');
+      const fy = (company.fiscalYear?.bsFY ?? 'FY').replace(/\//g, '-');
       const filename = `NFRS_Financials_${safeName}_${fy}.xlsx`;
       outputApi.triggerDownload(blob, filename);
       setDownloadComplete(true);

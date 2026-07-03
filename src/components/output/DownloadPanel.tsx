@@ -100,7 +100,7 @@ export default function DownloadPanel() {
       const a = document.createElement('a');
       a.href = url;
       const safeName = (company?.companyName ?? 'Company').replace(/[^a-zA-Z0-9]/g, '_');
-      const fy = fiscalYear?.bsYear ?? 'FY';
+      const fy = fiscalYear?.bsFY ?? 'FY';
       a.download = `NFRS_Financials_${safeName}_${fy.replace(/\//g, '-')}.xlsx`;
       document.body.appendChild(a);
       a.click();
@@ -114,7 +114,7 @@ export default function DownloadPanel() {
     }
   };
 
-  const fileName = `NFRS_Financials_${(company?.companyName ?? 'Company').replace(/[^a-zA-Z0-9]/g, '_')}_${(fiscalYear?.bsYear ?? 'FY').replace(/\//g, '-')}.xlsx`;
+  const fileName = `NFRS_Financials_${(company?.companyName ?? 'Company').replace(/[^a-zA-Z0-9]/g, '_')}_${(fiscalYear?.bsFY ?? 'FY').replace(/\//g, '-')}.xlsx`;
 
   return (
     <div className="max-w-2xl mx-auto">

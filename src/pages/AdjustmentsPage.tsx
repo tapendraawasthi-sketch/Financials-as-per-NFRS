@@ -54,7 +54,7 @@ export default function AdjustmentsPage() {
       <div className="page-enter">
         {activeTab === 'assets' && (
           <AssetRegisterTable
-            fiscalYear={state.company?.fiscalYear?.bsYear ?? '2081/82'}
+            fiscalYear={state.company?.fiscalYear?.bsFY ?? '2081/82'}
             onCalculate={handleCalculateDepreciation}
           />
         )}

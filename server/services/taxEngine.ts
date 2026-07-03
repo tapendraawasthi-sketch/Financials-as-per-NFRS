@@ -1,24 +1,125 @@
-// ===== server/services/taxEngine.ts =====
-import type { IncomeStatement } from '../../src/types';
+// Nepal Income Tax Act 2058 tax computation engine.
 
-// ---------------------------------------------------------------------------
-// 1. TAX_RATES
-// ---------------------------------------------------------------------------
+import type { IncomeStatement } from '../../src/types/financials.js';
+import type { YearEndAdjustments } from '../../src/types/adjustments.js';
+
 export const TAX_RATES = {
-  STANDARD_COMPANY: 25,
-  LISTED_COMPANY: 20,
-  MANUFACTURING: 20,
-  HYDROPOWER: 0,
-  SPECIAL_ECONOMIC_ZONE: 10,
-  EXPORT_INCOME: 20,
-  AGRICULTURAL: 0,
-  COOPERATIVE: 10,
-  PARTNERSHIP_INDIVIDUAL_TAX: true,
+  CORPORATE_STANDARD: 0.25,
+  MANUFACTURING: 0.20,
+  TOURISM_IT: 0.20,
+  HYDROPOWER: 0.20,
+  PRIVATE_FIRM_SLAB: true,
 } as const;
 
-// ---------------------------------------------------------------------------
-// 2. computeIncomeTax
-// ---------------------------------------------------------------------------
+export interface TaxComputationInput {
+  accountingProfit: number;       // PBT from income statement
+  accountingDepreciation: number;
+  taxDepreciation: number;          // sum of tax pool depreciation
+  disallowedForTax: YearEndAdjustments['disallowedForTax'];
+  staffBonus: number;
+  profitBeforeBonus: number;
+  donations?: number;
+  researchDevelopment?: number;
+  advanceTaxPaid: number;
+  incomeTaxRate: number;          // 0.25, 0.20, or 0.15
+  entityType: 'Company' | 'Partnership' | 'Sole Proprietorship' | 'Cooperative' | 'Other';
+}
+
+export interface TaxComputationResult {
+  taxableIncome: number;
+  currentTaxExpense: number;
+  netTaxPayable: number;
+  staffBonusAllowed: number;
+  bookTaxReconciliation: Array<{ label: string; amount: number }>;
+}
+
+/** Staff Bonus per Labor Act 2074 Section 53: 10% of PBT before bonus. */
+export function computeStaffBonus(profitBeforeBonus: number, rate = 0.10): number {
+  return Math.max(0, Math.round(profitBeforeBonus * rate * 100) / 100);
+}
+
+/** TDS on dividend: 5% of declared dividend. */
+export function computeDividendTDS(dividendAmount: number): number {
+  return Math.round(dividendAmount * 0.05 * 100) / 100;
+}
+
+function computePrivateFirmTax(taxableIncome: number): number {
+  if (taxableIncome <= 500_000) return 0;
+  if (taxableIncome <= 700_000) return (taxableIncome - 500_000) * 0.15;
+  return 50_000 * 0.15 + (taxableIncome - 700_000) * 0.25;
+}
+
+export function computeTax(input: TaxComputationInput): TaxComputationResult {
+  const {
+    accountingProfit,
+    accountingDepreciation,
+    taxDepreciation,
+    disallowedForTax,
+    staffBonus,
+    profitBeforeBonus,
+    donations = 0,
+    researchDevelopment = 0,
+    advanceTaxPaid,
+    incomeTaxRate,
+    entityType,
+  } = input;
+
+  const reconciliation: Array<{ label: string; amount: number }> = [];
+  reconciliation.push({ label: 'Accounting profit before tax', amount: accountingProfit });
+
+  reconciliation.push({ label: 'Add: Accounting depreciation', amount: accountingDepreciation });
+  reconciliation.push({ label: 'Less: Tax depreciation (ITA pools)', amount: -taxDepreciation });
+
+  const totalDisallowed = disallowedForTax.reduce((s, d) => s + d.amount, 0);
+  if (totalDisallowed > 0) {
+    reconciliation.push({ label: 'Add: Disallowed expenses', amount: totalDisallowed });
+  }
+
+  // Staff bonus allowed if ≤ 10% of PBT
+  const maxBonusAllowed = profitBeforeBonus * 0.10;
+  const staffBonusAllowed = Math.min(staffBonus, maxBonusAllowed);
+
+  let adjustedProfit =
+    accountingProfit +
+    accountingDepreciation -
+    taxDepreciation +
+    totalDisallowed;
+
+  // Donations limited to 5% of adjusted profit
+  const donationAllowed = Math.min(donations, adjustedProfit * 0.05);
+  adjustedProfit -= donationAllowed;
+
+  // R&D 150% allowable
+  const rdAllowance = researchDevelopment * 0.5;
+  adjustedProfit -= rdAllowance;
+
+  const taxableIncome = Math.max(0, Math.round(adjustedProfit * 100) / 100);
+  reconciliation.push({ label: 'Taxable income', amount: taxableIncome });
+
+  let currentTaxExpense: number;
+  if (entityType === 'Sole Proprietorship' || entityType === 'Partnership') {
+    currentTaxExpense = computePrivateFirmTax(taxableIncome);
+  } else {
+    currentTaxExpense = Math.round(taxableIncome * incomeTaxRate * 100) / 100;
+  }
+
+  const netTaxPayable = Math.max(0, Math.round((currentTaxExpense - advanceTaxPaid) * 100) / 100);
+
+  reconciliation.push({
+    label: `Income tax at ${(incomeTaxRate * 100).toFixed(0)}%`,
+    amount: currentTaxExpense,
+  });
+
+  return {
+    taxableIncome,
+    currentTaxExpense,
+    netTaxPayable,
+    staffBonusAllowed,
+    bookTaxReconciliation: reconciliation,
+  };
+}
+
+// Legacy exports
 export interface IncomeTaxParams {
   bookProfit: number;
   taxRate: number;
@@ -38,49 +139,60 @@ export interface IncomeTaxResult {
 }
 
 export function computeIncomeTax(params: IncomeTaxParams): IncomeTaxResult {
-  const {
-    bookProfit,
-    taxRate,
-    disallowableExpenses,
-    allowableExpenses,
-    advanceTaxPaid,
-    tdsCredit,
-    previousYearLoss,
-  } = params;
+  const result = computeTax({
+    accountingProfit: params.bookProfit,
+    accountingDepreciation: 0,
+    taxDepreciation: 0,
+    disallowedForTax: Object.entries(params.disallowableExpenses).map(([description, amount]) => ({
+      description, amount, section: 'Section 21 ITA',
+    })),
+    staffBonus: 0,
+    profitBeforeBonus: params.bookProfit,
+    advanceTaxPaid: params.advanceTaxPaid + params.tdsCredit,
+    incomeTaxRate: params.taxRate / 100,
+    entityType: 'Company',
+  });
 
-  const totalDisallowable = Object.values(disallowableExpenses).reduce((s, v) => s + (v || 0), 0);
-  const totalAllowable = Object.values(allowableExpenses).reduce((s, v) => s + (v || 0), 0);
-
-  // Provisional taxable income before loss setoff
-  const provisionalTaxable = bookProfit + totalDisallowable - totalAllowable;
-
-  // Nepal ITA s.20: loss setoff capped at 50% of current taxable income
-  const maxLossSetoff = Math.max(0, provisionalTaxable * 0.5);
-  const actualLossSetoff = Math.min(previousYearLoss, maxLossSetoff);
-  const taxableIncome = Math.max(0, provisionalTaxable - actualLossSetoff);
-
-  const currentTaxExpense = Math.max(0, taxableIncome) * (taxRate / 100);
-  const totalPaid = advanceTaxPaid + tdsCredit;
-  const netAfterCredits = currentTaxExpense - totalPaid;
-
-  const taxPayable = netAfterCredits > 0 ? Math.round(netAfterCredits * 100) / 100 : 0;
-  const taxRecoverable = netAfterCredits < 0 ? Math.round(-netAfterCredits * 100) / 100 : 0;
-  const effectiveTaxRate =
-    bookProfit > 0 ? Math.round((currentTaxExpense / bookProfit) * 10000) / 100 : 0;
-
+  const netAfterCredits = result.currentTaxExpense - params.advanceTaxPaid - params.tdsCredit;
   return {
-    taxableIncome: Math.round(taxableIncome * 100) / 100,
-    currentTaxExpense: Math.round(currentTaxExpense * 100) / 100,
-    taxPayable,
-    taxRecoverable,
-    effectiveTaxRate,
+    taxableIncome: result.taxableIncome,
+    currentTaxExpense: result.currentTaxExpense,
+    taxPayable: netAfterCredits > 0 ? netAfterCredits : 0,
+    taxRecoverable: netAfterCredits < 0 ? -netAfterCredits : 0,
+    effectiveTaxRate: params.bookProfit > 0
+      ? Math.round((result.currentTaxExpense / params.bookProfit) * 10000) / 100
+      : 0,
   };
 }
 
-// ---------------------------------------------------------------------------
-// 3. computeDisallowableExpenses
-// ---------------------------------------------------------------------------
-export interface DisallowableParams {
+export function buildTaxReconciliation(
+  incomeStatement: IncomeStatement,
+  disallowable: Record<string, number>,
+  bookDepreciation: number,
+  taxDepreciation: number,
+  taxRate: number,
+) {
+  const result = computeTax({
+    accountingProfit: incomeStatement.profitBeforeTax,
+    accountingDepreciation: bookDepreciation,
+    taxDepreciation,
+    disallowedForTax: Object.entries(disallowable).map(([description, amount]) => ({
+      description, amount, section: 'Section 21 ITA',
+    })),
+    staffBonus: incomeStatement.staffBonus,
+    profitBeforeBonus: incomeStatement.profitBeforeStaffBonus,
+    advanceTaxPaid: 0,
+    incomeTaxRate: taxRate / 100,
+    entityType: 'Company',
+  });
+
+  return {
+    rows: result.bookTaxReconciliation,
+    taxableIncome: result.taxableIncome,
+  };
+}
+
+export function computeDisallowableExpenses(params: {
   entertainmentExpense: number;
   donations: number;
   finesAndPenalties: number;
@@ -88,117 +200,13 @@ export interface DisallowableParams {
   adjustedTaxableIncome: number;
   personalExpenses: number;
   cashPaymentsOverLimit: number;
-}
-
-export interface DisallowableResult {
-  items: Record<string, number>;
-  total: number;
-}
-
-export function computeDisallowableExpenses(params: DisallowableParams): DisallowableResult {
-  const {
-    entertainmentExpense,
-    donations,
-    finesAndPenalties,
-    interestOnLateTax,
-    adjustedTaxableIncome,
-    personalExpenses,
-    cashPaymentsOverLimit,
-  } = params;
-
+}) {
   const items: Record<string, number> = {};
-
-  // Entertainment: allowable = max(100,000, revenue × 0.5%)
-  // Here we use adjustedTaxableIncome as revenue proxy
-  const entertainmentAllowable = Math.max(100_000, adjustedTaxableIncome * 0.005);
-  const entertainmentDisallowable = Math.max(0, entertainmentExpense - entertainmentAllowable);
-  if (entertainmentDisallowable > 0) {
-    items['Entertainment Expense (excess over allowable limit)'] = entertainmentDisallowable;
-  }
-
-  // Donations: allowable = min(actual, 5% of adjusted taxable income)
-  const donationAllowable = Math.min(donations, adjustedTaxableIncome * 0.05);
-  const donationDisallowable = Math.max(0, donations - donationAllowable);
-  if (donationDisallowable > 0) {
-    items['Donations (excess over 5% of adjusted taxable income)'] = donationDisallowable;
-  }
-
-  if (finesAndPenalties > 0) {
-    items['Fines and Penalties (100% disallowable)'] = finesAndPenalties;
-  }
-  if (interestOnLateTax > 0) {
-    items['Interest on Late Tax Payments (100% disallowable)'] = interestOnLateTax;
-  }
-  if (personalExpenses > 0) {
-    items['Personal Expenses (100% disallowable)'] = personalExpenses;
-  }
-  if (cashPaymentsOverLimit > 0) {
-    items['Cash Payments Exceeding NPR 50,000 Limit (100% disallowable)'] = cashPaymentsOverLimit;
-  }
-
+  const entertainmentAllowable = Math.max(100_000, params.adjustedTaxableIncome * 0.005);
+  const entertainmentDisallowable = Math.max(0, params.entertainmentExpense - entertainmentAllowable);
+  if (entertainmentDisallowable > 0) items['Entertainment (excess)'] = entertainmentDisallowable;
+  if (params.finesAndPenalties > 0) items['Fines and penalties'] = params.finesAndPenalties;
+  if (params.personalExpenses > 0) items['Personal expenses'] = params.personalExpenses;
   const total = Object.values(items).reduce((s, v) => s + v, 0);
-  return { items, total: Math.round(total * 100) / 100 };
-}
-
-// ---------------------------------------------------------------------------
-// 4. buildTaxReconciliation
-// ---------------------------------------------------------------------------
-export interface ReconciliationRow {
-  label: string;
-  amount: number;
-}
-
-export interface TaxReconciliationResult {
-  rows: ReconciliationRow[];
-  taxableIncome: number;
-}
-
-export function buildTaxReconciliation(
-  incomeStatement: IncomeStatement,
-  disallowable: Record<string, number>,
-  bookTaxDepreciation: number,
-  taxDepreciation: number,
-  taxRate: number,
-): TaxReconciliationResult {
-  const rows: ReconciliationRow[] = [];
-
-  rows.push({
-    label: 'Profit before tax per financial statements',
-    amount: incomeStatement.profitBeforeTax,
-  });
-
-  // Add back disallowable items
-  for (const [label, amount] of Object.entries(disallowable)) {
-    if (amount > 0) {
-      rows.push({ label: `Add: ${label}`, amount });
-    }
-  }
-
-  // Reverse book depreciation (it was already deducted from profit)
-  rows.push({
-    label: 'Add: Book depreciation (reversed)',
-    amount: bookTaxDepreciation,
-  });
-
-  // Deduct tax depreciation per ITA
-  rows.push({
-    label: 'Less: Tax depreciation as per Income Tax Act (Schedule 2)',
-    amount: -taxDepreciation,
-  });
-
-  // Running total = taxable income
-  const taxableIncome = rows.reduce((s, r) => s + r.amount, 0);
-
-  rows.push({ label: 'Taxable Income', amount: taxableIncome });
-
-  const taxAmount = Math.max(0, taxableIncome) * (taxRate / 100);
-  rows.push({
-    label: `Income Tax at ${taxRate}%`,
-    amount: Math.round(taxAmount * 100) / 100,
-  });
-
-  return {
-    rows,
-    taxableIncome: Math.round(taxableIncome * 100) / 100,
-  };
+  return { items, total };
 }

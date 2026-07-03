@@ -197,7 +197,7 @@ const AppInner: React.FC = () => {
       completedSteps={state.completedSteps}
       onNavigate={handleNavigate}
       companyName={state.company?.companyName}
-      fiscalYear={state.company?.fiscalYear.bsYear}
+      fiscalYear={state.company?.fiscalYear.bsFY}
       headerTitle={stepInfo.title}
       headerSubtitle={stepInfo.subtitle}
       breadcrumb={['Home', stepInfo.title]}

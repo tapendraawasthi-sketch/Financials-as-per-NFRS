@@ -40,11 +40,11 @@ export function useFinancials() {
       const blob = await outputApi.generateExcel(
         companyId,
         state.company.companyName,
-        state.company.fiscalYear.bsYear,
+        state.company.fiscalYear.bsFY,
       );
       outputApi.triggerDownload(
         blob,
-        `NFRS_${state.company.companyName}_${state.company.fiscalYear.bsYear}.xlsx`,
+        `NFRS_${state.company.companyName}_${state.company.fiscalYear.bsFY}.xlsx`,
       );
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Excel generation failed.';

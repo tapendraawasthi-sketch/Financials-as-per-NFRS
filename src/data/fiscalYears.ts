@@ -1,319 +1,174 @@
-// ===== src/data/fiscalYears.ts =====
-// Lookup table mapping Nepal Bikram Sambat (BS) fiscal years to their
-// Gregorian (AD) calendar equivalents, plus utility functions for
-// date display and selection UIs.
-//
-// Nepal's fiscal year runs from 1 Shrawan to 31/32 Ashadh of the
-// following BS year (roughly mid-July to mid-July AD).
-//
-// Source: Official Nepal Rastra Bank and GoN gazette notifications.
+// Complete Bikram Sambat ↔ Gregorian calendar conversion table for FY 2078/79
+// through 2089/90, matching the "Workings" sheet in MEs_Financials_Format.xlsx.
+// Each fiscal year runs 1 Shrawan → 31/32 Ashadh (mid-July to mid-July).
 
-// ---------------------------------------------------------------------------
-// FiscalYear — shape of one entry in the lookup table
-// ---------------------------------------------------------------------------
-export interface FiscalYear {
-  /** Fiscal year in BS format, e.g. "2081/82" */
-  bsYear: string;
-  /** BS start date, always "1 Shrawan YYYY" */
-  startDateBS: string;
-  /** BS end date, "31 Ashadh YYYY" or "32 Ashadh YYYY" for leap years */
-  endDateBS: string;
-  /** AD start date in long format, e.g. "July 16, 2024" */
-  startDateAD: string;
-  /** AD end date in long format, e.g. "July 15, 2025" */
-  endDateAD: string;
-  /** AD calendar year in which 1 Shrawan falls */
-  startYear: number;
-  /** AD calendar year in which 31/32 Ashadh falls */
-  endYear: number;
-  /**
-   * True if Chaitra has 31 days in this BS year (leap year) — affects
-   * Ashadh end date and certain pro-rata depreciation calculations.
-   */
-  isLeapYear: boolean;
+export interface FiscalYearEntry {
+  bsFY: string;           // '2081/82'
+  bsYear: number;         // 2082 (end year)
+  startBS: string;        // '1 Shrawan 2081'
+  endBS: string;          // '31 Ashadh 2082'
+  startAD: Date;          // JS Date for 16 July 2024
+  endAD: Date;            // JS Date for 15 July 2025
+  startExcelSerial: number; // Excel date serial (days since 1 Jan 1900)
+  endExcelSerial: number;
+  reportingDateBS: string;  // '31 Ashadh 2082'
+  reportingDateAD: string;  // '15 July 2025'
+  previousReportingDateBS: string;
+  previousReportingDateAD: string;
+  // Legacy aliases used by existing UI/excelWriter
+  startDateBS?: string;
+  endDateBS?: string;
+  startDateAD?: string;
+  endDateAD?: string;
+  startYear?: number;
+  endYear?: number;
+  isLeapYear?: boolean;
 }
 
-// ---------------------------------------------------------------------------
-// FISCAL_YEARS — the complete lookup table (2072/73 to 2090/91)
-// ---------------------------------------------------------------------------
-export const FISCAL_YEARS: FiscalYear[] = [
-  {
-    bsYear: '2072/73',
-    startDateBS: '1 Shrawan 2072',
-    endDateBS: '31 Ashadh 2073',
-    startDateAD: 'July 17, 2015',
-    endDateAD: 'July 15, 2016',
-    startYear: 2015,
-    endYear: 2016,
-    isLeapYear: false,
-  },
-  {
-    bsYear: '2073/74',
-    startDateBS: '1 Shrawan 2073',
-    endDateBS: '32 Ashadh 2074',
-    startDateAD: 'July 16, 2016',
-    endDateAD: 'July 16, 2017',
-    startYear: 2016,
-    endYear: 2017,
-    isLeapYear: true,
-  },
-  {
-    bsYear: '2074/75',
-    startDateBS: '1 Shrawan 2074',
-    endDateBS: '31 Ashadh 2075',
-    startDateAD: 'July 17, 2017',
-    endDateAD: 'July 15, 2018',
-    startYear: 2017,
-    endYear: 2018,
-    isLeapYear: false,
-  },
-  {
-    bsYear: '2075/76',
-    startDateBS: '1 Shrawan 2075',
-    endDateBS: '31 Ashadh 2076',
-    startDateAD: 'July 16, 2018',
-    endDateAD: 'July 15, 2019',
-    startYear: 2018,
-    endYear: 2019,
-    isLeapYear: false,
-  },
-  {
-    bsYear: '2076/77',
-    startDateBS: '1 Shrawan 2076',
-    endDateBS: '32 Ashadh 2077',
-    startDateAD: 'July 16, 2019',
-    endDateAD: 'July 15, 2020',
-    startYear: 2019,
-    endYear: 2020,
-    isLeapYear: true,
-  },
-  {
-    bsYear: '2077/78',
-    startDateBS: '1 Shrawan 2077',
-    endDateBS: '31 Ashadh 2078',
-    startDateAD: 'July 16, 2020',
-    endDateAD: 'July 15, 2021',
-    startYear: 2020,
-    endYear: 2021,
-    isLeapYear: false,
-  },
-  {
-    bsYear: '2078/79',
-    startDateBS: '1 Shrawan 2078',
-    endDateBS: '31 Ashadh 2079',
-    startDateAD: 'July 16, 2021',
-    endDateAD: 'July 15, 2022',
-    startYear: 2021,
-    endYear: 2022,
-    isLeapYear: false,
-  },
-  {
-    bsYear: '2079/80',
-    startDateBS: '1 Shrawan 2079',
-    endDateBS: '31 Ashadh 2080',
-    startDateAD: 'July 17, 2022',
-    endDateAD: 'July 15, 2023',
-    startYear: 2022,
-    endYear: 2023,
-    isLeapYear: false,
-  },
-  {
-    bsYear: '2080/81',
-    startDateBS: '1 Shrawan 2080',
-    endDateBS: '31 Ashadh 2081',
-    startDateAD: 'July 16, 2023',
-    endDateAD: 'July 15, 2024',
-    startYear: 2023,
-    endYear: 2024,
-    isLeapYear: false,
-  },
-  {
-    bsYear: '2081/82',
-    startDateBS: '1 Shrawan 2081',
-    endDateBS: '31 Ashadh 2082',
-    startDateAD: 'July 16, 2024',
-    endDateAD: 'July 15, 2025',
-    startYear: 2024,
-    endYear: 2025,
-    isLeapYear: false,
-  },
-  {
-    bsYear: '2082/83',
-    startDateBS: '1 Shrawan 2082',
-    endDateBS: '32 Ashadh 2083',
-    startDateAD: 'July 16, 2025',
-    endDateAD: 'July 16, 2026',
-    startYear: 2025,
-    endYear: 2026,
-    isLeapYear: true,
-  },
-  {
-    bsYear: '2083/84',
-    startDateBS: '1 Shrawan 2083',
-    endDateBS: '31 Ashadh 2084',
-    startDateAD: 'July 17, 2026',
-    endDateAD: 'July 15, 2027',
-    startYear: 2026,
-    endYear: 2027,
-    isLeapYear: false,
-  },
-  {
-    bsYear: '2084/85',
-    startDateBS: '1 Shrawan 2084',
-    endDateBS: '31 Ashadh 2085',
-    startDateAD: 'July 16, 2027',
-    endDateAD: 'July 15, 2028',
-    startYear: 2027,
-    endYear: 2028,
-    isLeapYear: false,
-  },
-  {
-    bsYear: '2085/86',
-    startDateBS: '1 Shrawan 2085',
-    endDateBS: '32 Ashadh 2086',
-    startDateAD: 'July 15, 2028',
-    endDateAD: 'July 15, 2029',
-    startYear: 2028,
-    endYear: 2029,
-    isLeapYear: true,
-  },
-  {
-    bsYear: '2086/87',
-    startDateBS: '1 Shrawan 2086',
-    endDateBS: '31 Ashadh 2087',
-    startDateAD: 'July 16, 2029',
-    endDateAD: 'July 15, 2030',
-    startYear: 2029,
-    endYear: 2030,
-    isLeapYear: false,
-  },
-  {
-    bsYear: '2087/88',
-    startDateBS: '1 Shrawan 2087',
-    endDateBS: '31 Ashadh 2088',
-    startDateAD: 'July 16, 2030',
-    endDateAD: 'July 15, 2031',
-    startYear: 2030,
-    endYear: 2031,
-    isLeapYear: false,
-  },
-  {
-    bsYear: '2088/89',
-    startDateBS: '1 Shrawan 2088',
-    endDateBS: '32 Ashadh 2089',
-    startDateAD: 'July 17, 2031',
-    endDateAD: 'July 16, 2032',
-    startYear: 2031,
-    endYear: 2032,
-    isLeapYear: true,
-  },
-  {
-    bsYear: '2089/90',
-    startDateBS: '1 Shrawan 2089',
-    endDateBS: '31 Ashadh 2090',
-    startDateAD: 'July 16, 2032',
-    endDateAD: 'July 15, 2033',
-    startYear: 2032,
-    endYear: 2033,
-    isLeapYear: false,
-  },
-  {
-    bsYear: '2090/91',
-    startDateBS: '1 Shrawan 2090',
-    endDateBS: '31 Ashadh 2091',
-    startDateAD: 'July 16, 2033',
-    endDateAD: 'July 15, 2034',
-    startYear: 2033,
-    endYear: 2034,
-    isLeapYear: false,
-  },
+const AD_MONTHS = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
 ];
 
-// ---------------------------------------------------------------------------
-// Utility functions
-// ---------------------------------------------------------------------------
-
-/**
- * Look up a fiscal year entry by its BS year string.
- * Returns undefined if the year is not in the table.
- *
- * @example getFiscalYear('2081/82')  // → { bsYear: '2081/82', … }
- */
-export function getFiscalYear(bsYear: string): FiscalYear | undefined {
-  return FISCAL_YEARS.find((fy) => fy.bsYear === bsYear);
+/** Convert Excel serial (1900 date system) to JavaScript Date (UTC midnight). */
+export function excelSerialToAD(serial: number): Date {
+  const utcDays = Math.floor(serial) - 25569;
+  return new Date(utcDays * 86400000);
 }
 
-/**
- * Returns an array of { value, label } objects suitable for use in a
- * React <select> dropdown. The label shows both BS and AD date ranges.
- *
- * @example
- * getFiscalYearOptions()
- * // → [
- * //     { value: '2072/73', label: '2072/73  (July 17, 2015 – July 15, 2016)' },
- * //     …
- * //   ]
- */
-export function getFiscalYearOptions(): { value: string; label: string }[] {
-  return FISCAL_YEARS.map((fy) => ({
-    value: fy.bsYear,
-    label: `${fy.bsYear}  (${fy.startDateAD} – ${fy.endDateAD})`,
-  }));
+function formatADDate(d: Date): string {
+  return `${d.getUTCDate()} ${AD_MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
 }
 
-/**
- * Returns the most recent COMPLETED fiscal year.
- *
- * "Completed" means the AD end date is before today's date.
- * Falls back to the last entry in the table when no system clock is
- * available (e.g. in a test environment with a mocked date).
- */
-export function getCurrentFiscalYear(): FiscalYear | undefined {
+function endYearFromFY(bsFY: string): number {
+  const parts = bsFY.split('/');
+  return parseInt(parts[1] ?? '0', 10) + 2000;
+}
+
+function startYearFromFY(bsFY: string): number {
+  const parts = bsFY.split('/');
+  return parseInt(parts[0] ?? '0', 10);
+}
+
+function buildEntry(
+  bsFY: string,
+  startSerial: number,
+  endSerial: number,
+  endBS: string,
+  prevEndBS: string,
+): FiscalYearEntry {
+  const startAD = excelSerialToAD(startSerial);
+  const endAD = excelSerialToAD(endSerial);
+  const prevEndAD = excelSerialToAD(endSerial - 365); // approximate; overridden below for chain
+
+  return {
+    bsFY,
+    bsYear: endYearFromFY(bsFY),
+    startBS: `1 Shrawan ${startYearFromFY(bsFY)}`,
+    endBS,
+    startAD,
+    endAD,
+    startExcelSerial: startSerial,
+    endExcelSerial: endSerial,
+    reportingDateBS: endBS,
+    reportingDateAD: formatADDate(endAD),
+    previousReportingDateBS: prevEndBS,
+    previousReportingDateAD: formatADDate(prevEndAD),
+    // Legacy aliases
+    startDateBS: `1 Shrawan ${startYearFromFY(bsFY)}`,
+    endDateBS: endBS,
+    startDateAD: formatADDate(startAD),
+    endDateAD: formatADDate(endAD),
+    startYear: startAD.getUTCFullYear(),
+    endYear: endAD.getUTCFullYear(),
+    isLeapYear: endBS.startsWith('32'),
+  };
+}
+
+// Hardcoded serials from MEs_Financials_Format.xlsx Workings sheet
+const FY_SERIALS: Array<{ bsFY: string; start: number; end: number; endBS: string }> = [
+  { bsFY: '2078/79', start: 44393, end: 44758, endBS: '31 Ashadh 2079' },
+  { bsFY: '2079/80', start: 44759, end: 45123, endBS: '31 Ashadh 2080' },
+  { bsFY: '2080/81', start: 45124, end: 45488, endBS: '31 Ashadh 2081' },
+  { bsFY: '2081/82', start: 45489, end: 45853, endBS: '31 Ashadh 2082' },
+  { bsFY: '2082/83', start: 45854, end: 46219, endBS: '32 Ashadh 2083' },
+  { bsFY: '2083/84', start: 46220, end: 46584, endBS: '31 Ashadh 2084' },
+  { bsFY: '2084/85', start: 46585, end: 46980, endBS: '31 Ashadh 2085' },
+  { bsFY: '2085/86', start: 46981, end: 47314, endBS: '32 Ashadh 2086' },
+  { bsFY: '2086/87', start: 47315, end: 47680, endBS: '31 Ashadh 2087' },
+  { bsFY: '2087/88', start: 47681, end: 48046, endBS: '31 Ashadh 2088' },
+  { bsFY: '2088/89', start: 48047, end: 48411, endBS: '32 Ashadh 2089' },
+  { bsFY: '2089/90', start: 48412, end: 48776, endBS: '31 Ashadh 2090' },
+];
+
+export const FISCAL_YEARS: FiscalYearEntry[] = FY_SERIALS.map((fy, i) => {
+  const prevEndBS = i > 0 ? FY_SERIALS[i - 1].endBS : '31 Ashadh 2078';
+  const entry = buildEntry(fy.bsFY, fy.start, fy.end, fy.endBS, prevEndBS);
+  if (i > 0) {
+    const prevEndAD = excelSerialToAD(FY_SERIALS[i - 1].end);
+    entry.previousReportingDateAD = formatADDate(prevEndAD);
+  }
+  return entry;
+});
+
+export function getFiscalYear(bsFY: string): FiscalYearEntry | undefined {
+  return FISCAL_YEARS.find((fy) => fy.bsFY === bsFY);
+}
+
+export function getCurrentFiscalYear(): FiscalYearEntry {
   const today = new Date();
-
-  // Walk the list in reverse; find the last year whose AD end date has passed.
   for (let i = FISCAL_YEARS.length - 1; i >= 0; i--) {
-    const fy = FISCAL_YEARS[i];
-    // Parse the AD end date. Format: "Month DD, YYYY"
-    const endDate = new Date(fy.endDateAD);
-    if (!isNaN(endDate.getTime()) && endDate < today) {
-      return fy;
+    if (FISCAL_YEARS[i].endAD < today) {
+      return FISCAL_YEARS[i];
     }
   }
-
-  // Fallback: return the last entry (future-proofing for deployment in Nepal)
   return FISCAL_YEARS[FISCAL_YEARS.length - 1];
 }
 
-/**
- * Returns the Nepali month name in English for a given month number (1–12).
- * Month 1 is Shrawan (start of the Nepal fiscal year).
- *
- * @throws RangeError if monthNumber is outside 1–12
- *
- * @example bsMonthName(1)  // → "Shrawan"
- * @example bsMonthName(12) // → "Ashadh"
- */
+/** Approximate AD → BS string using fiscal year lookup (e.g. '15 July 2025' → '31 Ashadh 2082'). */
+export function adDateToBS(adDate: Date | string): string {
+  const d = typeof adDate === 'string' ? new Date(adDate) : adDate;
+  const time = d.getTime();
+
+  for (const fy of FISCAL_YEARS) {
+    if (time >= fy.startAD.getTime() && time <= fy.endAD.getTime()) {
+      // Within this fiscal year — map proximity to end date
+      const daysToEnd = (fy.endAD.getTime() - time) / 86400000;
+      if (daysToEnd <= 45) {
+        return fy.reportingDateBS;
+      }
+      // Mid-year: approximate BS month from position in FY
+      const totalDays = (fy.endAD.getTime() - fy.startAD.getTime()) / 86400000;
+      const elapsed = totalDays - daysToEnd;
+      const bsMonths = ['Shrawan', 'Bhadra', 'Aswin', 'Kartik', 'Mangsir', 'Poush',
+        'Magh', 'Falgun', 'Chaitra', 'Baisakh', 'Jestha', 'Ashadh'];
+      const monthIdx = Math.min(11, Math.floor((elapsed / totalDays) * 12));
+      const startYear = startYearFromFY(fy.bsFY);
+      const bsYear = monthIdx < 9 ? startYear : startYear + 1;
+      const day = Math.max(1, Math.min(32, Math.round((elapsed % (totalDays / 12)) / (totalDays / 12) * 30) + 1));
+      return `${day} ${bsMonths[monthIdx]} ${bsYear}`;
+    }
+  }
+
+  const last = FISCAL_YEARS[FISCAL_YEARS.length - 1];
+  return last.reportingDateBS;
+}
+
+// Legacy aliases for existing UI code
+export type FiscalYear = FiscalYearEntry;
+export function getFiscalYearOptions(): { value: string; label: string }[] {
+  return FISCAL_YEARS.map((fy) => ({
+    value: fy.bsFY,
+    label: `${fy.bsFY}  (${formatADDate(fy.startAD)} – ${formatADDate(fy.endAD)})`,
+  }));
+}
+
 export function bsMonthName(monthNumber: number): string {
   const months: Record<number, string> = {
-    1: 'Shrawan',
-    2: 'Bhadra',
-    3: 'Aswin',
-    4: 'Kartik',
-    5: 'Mangsir',
-    6: 'Poush',
-    7: 'Magh',
-    8: 'Falgun',
-    9: 'Chaitra',
-    10: 'Baisakh',
-    11: 'Jestha',
-    12: 'Ashadh',
+    1: 'Shrawan', 2: 'Bhadra', 3: 'Aswin', 4: 'Kartik', 5: 'Mangsir', 6: 'Poush',
+    7: 'Magh', 8: 'Falgun', 9: 'Chaitra', 10: 'Baisakh', 11: 'Jestha', 12: 'Ashadh',
   };
   const name = months[monthNumber];
-  if (name === undefined) {
-    throw new RangeError(
-      `bsMonthName: monthNumber must be between 1 and 12, got ${monthNumber}`
-    );
-  }
+  if (!name) throw new RangeError(`bsMonthName: monthNumber must be 1–12, got ${monthNumber}`);
   return name;
 }
