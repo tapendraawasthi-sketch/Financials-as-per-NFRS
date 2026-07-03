@@ -23,7 +23,7 @@ const CATEGORY_GROUPS: { label: string; categories: NFRSCategory[] }[] = [
     label: 'Current Assets',
     categories: [
       'trade_receivables','provision_impairment_debtors',
-      'cash_in_hand','bank_current_account','bank_savings_account','bank_fixed_deposit_current',
+      'cash_in_hand','bank_current_account','bank_fixed_deposit_current',
       'inventory_raw_materials','inventory_wip','inventory_finished_goods',
       'other_receivables_tds','other_receivables_advance_supplier','other_receivables_prepayments',
       'other_receivables_staff_advance','other_receivables_loans','other_receivables_other',
@@ -58,6 +58,7 @@ const CATEGORY_GROUPS: { label: string; categories: NFRSCategory[] }[] = [
     categories: [
       'revenue_sales','revenue_services','other_income_interest',
       'other_income_dividend','other_income_rental','other_income_disposal_gain','other_income_misc',
+      'commission_income','insurance_claim_income',
     ],
   },
   {
@@ -70,7 +71,7 @@ const CATEGORY_GROUPS: { label: string; categories: NFRSCategory[] }[] = [
     label: 'Employee Expenses',
     categories: [
       'emp_expense_salaries','emp_expense_pf','emp_expense_gratuity',
-      'emp_expense_welfare','emp_expense_bonus','emp_expense_other',
+      'emp_expense_welfare','emp_expense_bonus','emp_expense_other','allowances_expense',
     ],
   },
   {
