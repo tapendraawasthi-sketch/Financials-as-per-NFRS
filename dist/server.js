@@ -549,15 +549,133 @@ var tbUploadMiddleware = uploadMiddleware.single("trialbalance");
 // server/services/tbParser.ts
 import ExcelJS from "exceljs";
 var COL_HINTS = {
-  label: ["particular", "account", "ledger", "description", "head", "name", "title", "narration"],
-  openingDr: ["opening dr", "op dr", "opening debit", "op debit", "opening balance dr", "opn dr"],
-  openingCr: ["opening cr", "op cr", "opening credit", "op credit", "opening balance cr", "opn cr"],
-  duringDr: ["during dr", "transaction dr", "dur dr", "movement dr", "debit", "dr", "during year dr", "receipt"],
-  duringCr: ["during cr", "transaction cr", "dur cr", "movement cr", "credit", "cr", "during year cr", "payment"],
-  adjustmentDr: ["adj dr", "adjustment dr", "year end adj dr", "adjustment debit", "jv dr"],
-  adjustmentCr: ["adj cr", "adjustment cr", "year end adj cr", "adjustment credit", "jv cr"],
-  closingDr: ["closing dr", "balance dr", "closing debit", "net dr", "closing balance dr"],
-  closingCr: ["closing cr", "balance cr", "closing credit", "net cr", "closing balance cr"]
+  label: [
+    "particular",
+    "account",
+    "ledger",
+    "description",
+    "head",
+    "name",
+    "title",
+    "narration",
+    "particulars",
+    "ledger name",
+    "account name",
+    "account head"
+  ],
+  openingDr: [
+    "opening dr",
+    "op dr",
+    "opening debit",
+    "op debit",
+    "opening balance dr",
+    "opn dr",
+    "opening balance dr",
+    "op balance dr",
+    "opening bal dr",
+    "ob dr",
+    "opening",
+    "open dr",
+    "open debit",
+    "opening dr balance"
+  ],
+  openingCr: [
+    "opening cr",
+    "op cr",
+    "opening credit",
+    "op credit",
+    "opening balance cr",
+    "opn cr",
+    "opening balance cr",
+    "op balance cr",
+    "opening bal cr",
+    "ob cr",
+    "open cr",
+    "open credit",
+    "opening cr balance"
+  ],
+  duringDr: [
+    "during dr",
+    "transaction dr",
+    "dur dr",
+    "movement dr",
+    "debit",
+    "dr",
+    "during year dr",
+    "receipt",
+    "dr total",
+    "transaction debit",
+    "total debit",
+    "transactions dr",
+    "during period dr",
+    "period dr"
+  ],
+  duringCr: [
+    "during cr",
+    "transaction cr",
+    "dur cr",
+    "movement cr",
+    "credit",
+    "cr",
+    "during year cr",
+    "payment",
+    "cr total",
+    "transaction credit",
+    "total credit",
+    "transactions cr",
+    "during period cr",
+    "period cr"
+  ],
+  adjustmentDr: [
+    "adj dr",
+    "adjustment dr",
+    "year end adj dr",
+    "adjustment debit",
+    "jv dr",
+    "adjustments dr",
+    "year-end dr"
+  ],
+  adjustmentCr: [
+    "adj cr",
+    "adjustment cr",
+    "year end adj cr",
+    "adjustment credit",
+    "jv cr",
+    "adjustments cr",
+    "year-end cr"
+  ],
+  closingDr: [
+    "closing dr",
+    "balance dr",
+    "closing debit",
+    "net dr",
+    "closing balance dr",
+    "closing balance dr",
+    "cl balance dr",
+    "closing bal dr",
+    "cb dr",
+    "balance dr",
+    "close dr",
+    "closing debit balance",
+    "cl dr",
+    "debit balance"
+  ],
+  closingCr: [
+    "closing cr",
+    "balance cr",
+    "closing credit",
+    "net cr",
+    "closing balance cr",
+    "closing balance cr",
+    "cl balance cr",
+    "closing bal cr",
+    "cb cr",
+    "balance cr",
+    "close cr",
+    "closing credit balance",
+    "cl cr",
+    "credit balance"
+  ]
 };
 var SUBTOTAL_PATTERNS = /^(total|grand total|sum|sub.?total|net total|account total)/i;
 function toNumber(val) {
@@ -573,6 +691,37 @@ function toNumber(val) {
 function normCell(val) {
   if (val === null || val === void 0) return "";
   return String(val).toLowerCase().trim().replace(/\s+/g, " ");
+}
+function countLeadingSpaces(label) {
+  const match = label.match(/^(\s+)/);
+  if (!match) return 0;
+  return match[1].replace(/\t/g, "    ").length;
+}
+function detectRowLevel(label, amounts) {
+  const rawIndentSpaces = countLeadingSpaces(label);
+  const hasAnyAmount = amounts.some((a) => a !== 0);
+  let rowLevel;
+  let isGroupRow;
+  if (!hasAnyAmount) {
+    if (rawIndentSpaces === 0) {
+      rowLevel = 0;
+    } else if (rawIndentSpaces <= 4) {
+      rowLevel = 1;
+    } else {
+      rowLevel = 1;
+    }
+    isGroupRow = true;
+  } else {
+    if (rawIndentSpaces >= 8) {
+      rowLevel = 2;
+    } else if (rawIndentSpaces >= 4) {
+      rowLevel = 2;
+    } else {
+      rowLevel = 2;
+    }
+    isGroupRow = false;
+  }
+  return { rowLevel, isGroupRow, rawIndentSpaces };
 }
 var MAX_HEADER_SCAN = 15;
 function detectColumns(matrix) {
@@ -600,64 +749,148 @@ function detectColumns(matrix) {
   }
   return null;
 }
-function detectSimplifiedLayout(matrix, startRow) {
-  for (let r = startRow; r < matrix.length; r++) {
+function detectTallyPrimeFormat(matrix) {
+  for (let r = 0; r < Math.min(matrix.length, MAX_HEADER_SCAN); r++) {
+    const row = matrix[r] ?? [];
+    const cells = row.map((c) => normCell(c));
+    const hasParticulars = cells.some((c) => c === "particulars" || c === "ledger" || c === "account");
+    const hasDebit = cells.some((c) => c === "debit");
+    const hasCredit = cells.some((c) => c === "credit");
+    const hasClosingDr = cells.some(
+      (c) => c.includes("closing") && (c.includes("dr") || c.includes("debit"))
+    );
+    const hasClosingCr = cells.some(
+      (c) => c.includes("closing") && (c.includes("cr") || c.includes("credit"))
+    );
+    if (hasParticulars && hasDebit && hasCredit && (hasClosingDr || hasClosingCr)) {
+      const colMap = {};
+      cells.forEach((cell, i) => {
+        if (cell === "particulars" || cell === "ledger" || cell === "account") colMap["label"] = i;
+        else if (cell === "opening" || cell.includes("opening") && cell.includes("dr")) colMap["openingDr"] = i;
+        else if (cell.includes("opening") && cell.includes("cr")) colMap["openingCr"] = i;
+        else if (cell === "debit" && colMap["duringDr"] === void 0) colMap["duringDr"] = i;
+        else if (cell === "credit" && colMap["duringCr"] === void 0) colMap["duringCr"] = i;
+        else if (cell.includes("closing") && (cell.includes("dr") || cell.includes("debit"))) colMap["closingDr"] = i;
+        else if (cell.includes("closing") && (cell.includes("cr") || cell.includes("credit"))) colMap["closingCr"] = i;
+      });
+      if (colMap["label"] !== void 0) {
+        return { isTallyPrime: true, headerRowIndex: r, colMap };
+      }
+    }
+  }
+  return { isTallyPrime: false, headerRowIndex: -1, colMap: {} };
+}
+function detectFormat(matrix, detection) {
+  const tallyCheck = detectTallyPrimeFormat(matrix);
+  if (tallyCheck.isTallyPrime) {
+    return {
+      format: "tally_prime",
+      colMap: tallyCheck.colMap,
+      headerRowIndex: tallyCheck.headerRowIndex
+    };
+  }
+  if (detection) {
+    return { format: "full", colMap: detection.colMap, headerRowIndex: detection.headerRowIndex };
+  }
+  for (let r = 0; r < Math.min(matrix.length, MAX_HEADER_SCAN + 5); r++) {
     const row = (matrix[r] ?? []).filter(
       (c) => c !== null && c !== void 0 && c !== ""
     );
-    if (row.length === 3) return { colMap: { label: 0, closingDr: 1, closingCr: 2 }, mode: "3col" };
-    if (row.length === 2) return { colMap: { label: 0, closingDr: 1 }, mode: "2col" };
+    if (row.length === 3) {
+      const secondIsNum = typeof row[1] === "number" || !isNaN(parseFloat(String(row[1] ?? "")));
+      const thirdIsNum = typeof row[2] === "number" || !isNaN(parseFloat(String(row[2] ?? "")));
+      if (secondIsNum && thirdIsNum) {
+        return {
+          format: "3col",
+          colMap: { label: 0, closingDr: 1, closingCr: 2 },
+          headerRowIndex: 0
+        };
+      }
+    }
+    if (row.length === 2) {
+      const secondIsNum = typeof row[1] === "number" || !isNaN(parseFloat(String(row[1] ?? "")));
+      if (secondIsNum) {
+        return {
+          format: "2col",
+          colMap: { label: 0, closingDr: 1 },
+          headerRowIndex: 0
+        };
+      }
+    }
   }
-  return null;
+  return {
+    format: "3col",
+    colMap: { label: 0, closingDr: 1, closingCr: 2 },
+    headerRowIndex: 0
+  };
 }
-function extractRow(matRow, rowIndex, colMap, mode) {
+function extractRow(matRow, rowIndex, colMap, format) {
   const g = (key) => {
     const idx = colMap[key];
     return idx !== void 0 ? toNumber(matRow[idx]) : 0;
   };
   const rawLabel = String(matRow[colMap["label"] ?? 0] ?? "").trim();
-  if (mode === "3col") {
-    return {
-      rowIndex,
-      rawLabel,
-      openingDr: 0,
-      openingCr: 0,
-      duringDr: 0,
-      duringCr: 0,
-      adjustmentDr: 0,
-      adjustmentCr: 0,
-      closingDr: g("closingDr"),
-      closingCr: g("closingCr")
-    };
+  const trimmedLabel = rawLabel.trim();
+  let openingDr = 0, openingCr = 0, duringDr = 0, duringCr = 0;
+  let adjustmentDr = 0, adjustmentCr = 0, closingDr = 0, closingCr = 0;
+  switch (format) {
+    case "tally_prime": {
+      openingDr = g("openingDr");
+      openingCr = g("openingCr");
+      duringDr = g("duringDr");
+      duringCr = g("duringCr");
+      adjustmentDr = 0;
+      adjustmentCr = 0;
+      closingDr = g("closingDr");
+      closingCr = g("closingCr");
+      break;
+    }
+    case "3col": {
+      closingDr = g("closingDr");
+      closingCr = g("closingCr");
+      break;
+    }
+    case "2col": {
+      const amt = g("closingDr");
+      if (amt >= 0) {
+        closingDr = amt;
+        closingCr = 0;
+      } else {
+        closingDr = 0;
+        closingCr = Math.abs(amt);
+      }
+      break;
+    }
+    case "1col": {
+      const amt = g("closingDr");
+      if (amt >= 0) {
+        closingDr = amt;
+      } else {
+        closingCr = Math.abs(amt);
+      }
+      break;
+    }
+    case "full":
+    default: {
+      openingDr = g("openingDr");
+      openingCr = g("openingCr");
+      duringDr = g("duringDr");
+      duringCr = g("duringCr");
+      adjustmentDr = g("adjustmentDr");
+      adjustmentCr = g("adjustmentCr");
+      const hasClosingDr = colMap["closingDr"] !== void 0;
+      const hasClosingCr = colMap["closingCr"] !== void 0;
+      closingDr = hasClosingDr ? g("closingDr") : openingDr + duringDr + adjustmentDr;
+      closingCr = hasClosingCr ? g("closingCr") : openingCr + duringCr + adjustmentCr;
+      break;
+    }
   }
-  if (mode === "2col") {
-    const amt = g("closingDr");
-    return {
-      rowIndex,
-      rawLabel,
-      openingDr: 0,
-      openingCr: 0,
-      duringDr: 0,
-      duringCr: 0,
-      adjustmentDr: 0,
-      adjustmentCr: 0,
-      closingDr: amt >= 0 ? amt : 0,
-      closingCr: amt < 0 ? -amt : 0
-    };
-  }
-  const openingDr = g("openingDr");
-  const openingCr = g("openingCr");
-  const duringDr = g("duringDr");
-  const duringCr = g("duringCr");
-  const adjustmentDr = g("adjustmentDr");
-  const adjustmentCr = g("adjustmentCr");
-  const hasClosingDr = colMap["closingDr"] !== void 0;
-  const hasClosingCr = colMap["closingCr"] !== void 0;
-  const closingDr = hasClosingDr ? g("closingDr") : openingDr + duringDr + adjustmentDr;
-  const closingCr = hasClosingCr ? g("closingCr") : openingCr + duringCr + adjustmentCr;
+  const amounts = [openingDr, openingCr, duringDr, duringCr, closingDr, closingCr];
+  const { rowLevel, isGroupRow, rawIndentSpaces } = detectRowLevel(rawLabel, amounts);
   return {
     rowIndex,
-    rawLabel,
+    rawLabel: trimmedLabel,
+    // store trimmed label for matching
     openingDr,
     openingCr,
     duringDr,
@@ -665,7 +898,12 @@ function extractRow(matRow, rowIndex, colMap, mode) {
     adjustmentDr,
     adjustmentCr,
     closingDr,
-    closingCr
+    closingCr,
+    rowLevel,
+    isGroupRow,
+    parentGroup: "",
+    // filled in during the parent-tracking pass
+    rawIndentSpaces
   };
 }
 function parseCSV(text) {
@@ -691,6 +929,25 @@ function parseCSV(text) {
     cells.push(current.trim());
     return cells;
   }).filter((row) => row.some((c) => c !== ""));
+}
+function assignParentGroups(rows) {
+  const groupStack = [];
+  return rows.map((row) => {
+    if (row.isGroupRow) {
+      while (groupStack.length > 0 && groupStack[groupStack.length - 1].indentSpaces >= row.rawIndentSpaces) {
+        groupStack.pop();
+      }
+      groupStack.push({
+        label: row.rawLabel,
+        indentSpaces: row.rawIndentSpaces,
+        level: row.rowLevel
+      });
+      return { ...row, parentGroup: groupStack.length > 1 ? groupStack[groupStack.length - 2].label : "" };
+    } else {
+      const parentGroup = groupStack.length > 0 ? groupStack[groupStack.length - 1].label : "";
+      return { ...row, parentGroup };
+    }
+  });
 }
 async function parseTrialBalance(buffer, filename) {
   if (!buffer || buffer.length === 0) {
@@ -739,30 +996,20 @@ async function parseTrialBalance(buffer, filename) {
   if (matrix.length === 0) {
     throw new Error("The uploaded file appears to be empty.");
   }
-  const detection = detectColumns(matrix);
-  let headerRowIndex = 0;
-  let colMap = {};
-  let mode = "full";
-  if (detection) {
-    headerRowIndex = detection.headerRowIndex;
-    colMap = detection.colMap;
-  } else {
-    const simplified = detectSimplifiedLayout(matrix, 0);
-    if (simplified) {
-      mode = simplified.mode;
-      colMap = simplified.colMap;
-      warnings.push(
-        `Could not detect a standard TB header row. Treating file as a ${mode === "3col" ? "3-column (label, debit, credit)" : "2-column (label, net amount)"} layout. Please verify the imported data carefully.`
-      );
-    } else {
-      warnings.push(
-        "Could not detect column headers. Assuming columns A=Account, B=Debit, C=Credit. If this is wrong, please add a header row to your file."
-      );
-      colMap = { label: 0, closingDr: 1, closingCr: 2 };
-      mode = "3col";
-    }
+  const headerDetection = detectColumns(matrix);
+  const { format, colMap, headerRowIndex } = detectFormat(matrix, headerDetection);
+  let mode = format;
+  if (mode === "3col") {
+    warnings.push(
+      "Could not detect a standard TB header row. Treating file as a 3-column (label, debit balance, credit balance) layout. Please verify the imported data carefully."
+    );
+  } else if (mode === "2col") {
+    warnings.push(
+      "Could not detect a standard TB header row. Treating file as a 2-column (label, net amount) layout where positive = Dr, negative = Cr. Please verify the imported data carefully."
+    );
+  } else if (mode === "tally_prime") {
   }
-  if (!detection && colMap["label"] === void 0) {
+  if (mode === "full" && colMap["label"] === void 0) {
     throw Object.assign(
       new Error(
         "Could not detect column headers. Please ensure your file has clear column headers for account name and amounts."
@@ -783,10 +1030,10 @@ async function parseTrialBalance(buffer, filename) {
     }
     const row = extractRow(matRow, r, colMap, mode);
     if (row.rawLabel === "") continue;
-    if (colMap["closingDr"] !== void 0 && colMap["openingDr"] !== void 0) {
+    if (mode === "full" && colMap["closingDr"] !== void 0 && colMap["openingDr"] !== void 0) {
       const derivedDr = row.openingDr + row.duringDr + row.adjustmentDr;
       const derivedCr = row.openingCr + row.duringCr + row.adjustmentCr;
-      if (Math.abs(derivedDr - row.closingDr) > 1.5 || Math.abs(derivedCr - row.closingCr) > 1.5) {
+      if (!row.isGroupRow && (Math.abs(derivedDr - row.closingDr) > 1.5 || Math.abs(derivedCr - row.closingCr) > 1.5)) {
         warnings.push(
           `"${label}" (row ${r + 1}): opening + during + adjustment does not reconcile to closing (Dr: ${derivedDr.toFixed(0)} vs ${row.closingDr.toFixed(0)}, Cr: ${derivedCr.toFixed(0)} vs ${row.closingCr.toFixed(0)}).`
         );
@@ -799,21 +1046,26 @@ async function parseTrialBalance(buffer, filename) {
       `${skippedSubtotals.length} subtotal row(s) were automatically skipped to avoid double-counting: "${skippedSubtotals.slice(0, 3).join('", "')}". ` + (skippedSubtotals.length > 3 ? `\u2026and ${skippedSubtotals.length - 3} more.` : "")
     );
   }
-  if (rows.length === 0) {
+  if (rows.filter((r) => !r.isGroupRow).length === 0) {
     throw Object.assign(
-      new Error("No data rows found in the uploaded file. Please check your export and ensure it contains account entries."),
+      new Error(
+        "No data rows found in the uploaded file. Please check your export and ensure it contains account entries."
+      ),
       { status: 400, code: "NO_DATA_ROWS" }
     );
   }
-  if (rows.length > 2e3) {
+  const rowsWithParents = assignParentGroups(rows);
+  const leafRows = rowsWithParents.filter((r) => !r.isGroupRow);
+  if (leafRows.length > 2e3) {
     warnings.push(
-      `File contains ${rows.length} rows which exceeds the recommended limit of 2000. Processing may be slow. Consider filtering inactive accounts before uploading.`
+      `File contains ${leafRows.length} ledger rows which exceeds the recommended limit of 2000. Processing may be slow. Consider filtering inactive accounts before uploading.`
     );
   }
   let totalOpeningDr = 0, totalOpeningCr = 0;
   let totalDuringDr = 0, totalDuringCr = 0;
   let totalClosingDr = 0, totalClosingCr = 0;
-  for (const row of rows) {
+  for (const row of rowsWithParents) {
+    if (row.isGroupRow) continue;
     totalOpeningDr += row.openingDr;
     totalOpeningCr += row.openingCr;
     totalDuringDr += row.duringDr;
@@ -828,11 +1080,17 @@ async function parseTrialBalance(buffer, filename) {
   const isBalanced = Math.abs(difference) < 1;
   if (!isBalanced) {
     warnings.push(
-      `Trial balance does not foot: total closing debit NPR ${totalClosingDr.toLocaleString()} \u2260 total closing credit NPR ${totalClosingCr.toLocaleString()} (difference: NPR ${difference.toLocaleString()}). This must be corrected before financial statements can be generated.`
+      `Trial Balance is not balanced. Total Debit Closing: ${totalClosingDr.toLocaleString("en-IN")} vs Total Credit Closing: ${totalClosingCr.toLocaleString("en-IN")}. Difference: ${Math.abs(difference).toLocaleString("en-IN")}. Please verify your exported trial balance from the accounting software before uploading.`
+    );
+  }
+  const allOpeningZero = totalOpeningDr === 0 && totalOpeningCr === 0 && (mode === "full" || mode === "tally_prime");
+  if (allOpeningZero) {
+    warnings.push(
+      `All opening balances are zero. If this is not the first year of accounting, please ensure your export includes opening balances.`
     );
   }
   return {
-    rows,
+    rows: rowsWithParents,
     totalOpeningDr: round2(totalOpeningDr),
     totalOpeningCr: round2(totalOpeningCr),
     totalDuringDr: round2(totalDuringDr),
@@ -843,7 +1101,8 @@ async function parseTrialBalance(buffer, filename) {
     difference,
     warnings,
     detectedColumns: colMap,
-    headerRowIndex
+    headerRowIndex,
+    detectedFormat: mode
   };
 }
 
@@ -2430,40 +2689,410 @@ function similarityScore(a, b) {
   return Math.min(100, Math.round(0.7 * tokenScore + 0.3 * editScore));
 }
 var KEYWORD_BUCKETS = [
+  // Trade receivables / debtors
   { pattern: /\b(debtor|accounts? receivable|trade receivable|customer receivable)\b/i, nfrsCategory: "trade_receivables", confidence: 85 },
+  // Trade payables / creditors
   { pattern: /\b(creditor|accounts? payable|trade payable|supplier payable)\b/i, nfrsCategory: "trade_payables_creditors", confidence: 85 },
+  // Cash
+  { pattern: /\bpetty cash\b/i, nfrsCategory: "cash_in_hand", confidence: 92 },
   { pattern: /\bcash\b/i, nfrsCategory: "cash_in_hand", confidence: 80 },
-  { pattern: /\bpetty cash\b/i, nfrsCategory: "cash_in_hand", confidence: 90 },
+  // Bank borrowings
   { pattern: /\b(term loan|long term loan|bank loan)\b/i, nfrsCategory: "borrowings_noncurrent_bank", confidence: 88 },
+  // Fixed deposits
   { pattern: /\b(fd|fixed deposit)\b/i, nfrsCategory: "bank_fixed_deposit_current", confidence: 85 },
+  // Bank accounts
   { pattern: /\bbank\b/i, nfrsCategory: "bank_current_account", confidence: 80 },
+  // PPE categories
   { pattern: /\b(land|plot|property)\b/i, nfrsCategory: "ppe_land", confidence: 82 },
   { pattern: /\bbuilding/i, nfrsCategory: "ppe_buildings", confidence: 82 },
-  { pattern: /\bvehicle|motor vehicle|car\b/i, nfrsCategory: "ppe_vehicles", confidence: 82 },
-  { pattern: /\bcomputer|laptop|desktop|server\b/i, nfrsCategory: "ppe_computers", confidence: 82 },
-  { pattern: /\bfurniture|fixture|fitting\b/i, nfrsCategory: "ppe_furniture", confidence: 82 },
+  { pattern: /\b(vehicle|motor vehicle|car)\b/i, nfrsCategory: "ppe_vehicles", confidence: 82 },
+  { pattern: /\b(computer|laptop|desktop|server)\b/i, nfrsCategory: "ppe_computers", confidence: 82 },
+  { pattern: /\b(furniture|fixture|fitting)\b/i, nfrsCategory: "ppe_furniture", confidence: 82 },
   { pattern: /\b(plant|machinery|machine)\b/i, nfrsCategory: "ppe_plant_machinery", confidence: 82 },
   { pattern: /\b(software|intangible|patent|trademark)\b/i, nfrsCategory: "ppe_intangibles", confidence: 82 },
   { pattern: /\b(cwip|capital wip|construction in progress|work in progress)\b/i, nfrsCategory: "ppe_cwip", confidence: 82 },
+  // Accumulated depreciation
   { pattern: /\baccumulated depreciation\b/i, nfrsCategory: "accum_depreciation", confidence: 92 },
+  { pattern: /\bless.?:?\s*(accumulated|accum)?\s*depreciation\b/i, nfrsCategory: "accum_depreciation", confidence: 90 },
+  // Employee salaries
   { pattern: /\b(salary|salaries|wages and salary)\b/i, nfrsCategory: "emp_expense_salaries", confidence: 82 },
-  { pattern: /\b(provident fund|pf|ssf|cit)\b.*expense/i, nfrsCategory: "emp_expense_pf", confidence: 82 },
-  { pattern: /\b(provident fund|pf|ssf|cit)\b/i, nfrsCategory: "emp_expense_pf", confidence: 80 },
-  { pattern: /\b(interest expense|loan interest|interest paid)\b/i, nfrsCategory: "finance_cost_interest", confidence: 85 },
-  { pattern: /\b(bank charge|bank commission|bank fee)\b/i, nfrsCategory: "finance_cost_bank_charges", confidence: 85 },
-  { pattern: /\btds\b/i, nfrsCategory: "tds_payable", confidence: 82 },
-  { pattern: /\bvat payable\b/i, nfrsCategory: "other_payables", confidence: 88 },
+  // PF/SSF
+  { pattern: /\b(provident fund|pf|ssf|cit)\b.*expense/i, nfrsCategory: "emp_expense_pf", confidence: 85 },
+  { pattern: /\b(provident fund|pf|ssf|cit)\b/i, nfrsCategory: "emp_expense_pf", confidence: 78 },
+  // Finance costs
+  { pattern: /\b(interest expense|loan interest|interest paid)\b/i, nfrsCategory: "finance_cost_interest", confidence: 87 },
+  { pattern: /\b(bank charge|bank commission|bank fee)\b/i, nfrsCategory: "finance_cost_bank_charges", confidence: 87 },
+  // TDS — disambiguation handled separately
+  { pattern: /\btds\b/i, nfrsCategory: "tds_payable", confidence: 80 },
+  // default; overridden by context
+  // VAT
+  { pattern: /\bvat payable\b/i, nfrsCategory: "other_payables", confidence: 90 },
+  { pattern: /\binput vat\b/i, nfrsCategory: "other_receivables_other", confidence: 88 },
+  // Revenue
   { pattern: /\b(sales?|revenue|turnover)\b/i, nfrsCategory: "revenue_sales", confidence: 82 },
-  { pattern: /\bservice income\b/i, nfrsCategory: "revenue_services", confidence: 88 },
+  { pattern: /\bservice income\b/i, nfrsCategory: "revenue_services", confidence: 90 },
+  // Purchases / COGS
   { pattern: /\b(purchase|goods purchased|raw material purchased)\b/i, nfrsCategory: "cogs_purchases", confidence: 82 },
+  // Admin expenses
   { pattern: /\b(rent|office rent|house rent)\b.*expense/i, nfrsCategory: "admin_rent", confidence: 82 },
+  // Depreciation expense
   { pattern: /\b(depreciation)\b/i, nfrsCategory: "depreciation_expense", confidence: 85 },
-  { pattern: /\b(income tax|corporate tax)\b.*expense/i, nfrsCategory: "income_tax_expense", confidence: 85 },
-  { pattern: /\b(share capital|paid.?up capital)\b/i, nfrsCategory: "share_capital", confidence: 90 },
-  { pattern: /\b(retained earnings|profit and loss)\b/i, nfrsCategory: "retained_earnings", confidence: 88 },
-  { pattern: /\b(inventory|closing stock|stock in trade|finished goods)\b/i, nfrsCategory: "inventory_finished_goods", confidence: 80 }
+  // Income tax
+  { pattern: /\b(income tax|corporate tax)\b.*expense/i, nfrsCategory: "income_tax_expense", confidence: 87 },
+  // Share capital
+  { pattern: /\b(share capital|paid.?up capital)\b/i, nfrsCategory: "share_capital", confidence: 92 },
+  // Retained earnings
+  { pattern: /\b(retained earnings|profit and loss)\b/i, nfrsCategory: "retained_earnings", confidence: 90 },
+  // Inventory
+  { pattern: /\b(inventory|closing stock|stock in trade|finished goods)\b/i, nfrsCategory: "inventory_finished_goods", confidence: 80 },
+  // Biological assets
+  { pattern: /\b(biological asset|livestock|aquaculture|crops)\b/i, nfrsCategory: "biological_assets", confidence: 85 },
+  // Security deposit
+  { pattern: /\b(security deposit|guarantee margin|refundable deposit)\b/i, nfrsCategory: "nca_deposits", confidence: 85 },
+  // CSR provision
+  { pattern: /\b(csr provision|provision for csr|corporate social responsibility provision)\b/i, nfrsCategory: "provisions_current", confidence: 87 },
+  // Dividend payable
+  { pattern: /\bdividend payable\b/i, nfrsCategory: "dividend_payable", confidence: 90 },
+  // Related party
+  { pattern: /\b(director loan|loan from director|loan from partner)\b/i, nfrsCategory: "related_party_payable", confidence: 88 },
+  { pattern: /\b(loan to director|receivable from related party|loan to partner)\b/i, nfrsCategory: "related_party_receivable", confidence: 88 },
+  // Staff advance
+  { pattern: /\bstaff advance\b/i, nfrsCategory: "other_receivables_staff_advance", confidence: 85 },
+  // Provision for bad debts / impairment on debtors
+  { pattern: /\b(provision for bad debts?|provision for doubtful debts?|provision for impairment on debtors?)\b/i, nfrsCategory: "provision_impairment_debtors", confidence: 90 },
+  // Provision for impairment on investment
+  { pattern: /\bprovision for impairment on investment\b/i, nfrsCategory: "provision_impairment_investment", confidence: 90 },
+  // NCA held for sale
+  { pattern: /\b(assets? held for sale|non.?current assets? held for sale)\b/i, nfrsCategory: "nca_held_for_sale", confidence: 88 },
+  // Advance tax / TDS asset
+  { pattern: /\b(advance tax|advance income tax|tds receivable|tax deducted at source.*asset)\b/i, nfrsCategory: "other_receivables_tds", confidence: 88 }
 ];
-function matchSingleAccount(rawLabel, rowIndex) {
+var NEPALI_ROMANIZED_ENTRIES = [
+  // Land
+  {
+    patterns: [/\bjameen\b/i, /\bjalin\b/i, /\bjamiyn\b/i],
+    nfrsCategory: "ppe_land",
+    confidence: 82
+  },
+  // Buildings
+  {
+    patterns: [/\bbhawan\b/i, /\bghar\b/i, /\bimarat\b/i, /\bbhavan\b/i],
+    nfrsCategory: "ppe_buildings",
+    confidence: 82
+  },
+  // Inventory / goods
+  {
+    patterns: [/\bsaman\b/i, /\bmaal\b/i, /\bmal\b/i, /\bsaaman\b/i, /\baamal\b/i, /\bkharcha saman\b/i],
+    nfrsCategory: "inventory_finished_goods",
+    confidence: 80
+  },
+  // Cash
+  {
+    patterns: [/\bnakad\b/i, /\bnakaad\b/i, /\bnaqad\b/i],
+    nfrsCategory: "cash_in_hand",
+    confidence: 85
+  },
+  // Trade receivables / debtors
+  {
+    patterns: [/\bdhani\b/i, /\bbujandar\b/i, /\bpaune\b/i, /\bpaunekha\b/i],
+    nfrsCategory: "trade_receivables",
+    confidence: 80
+  },
+  // Trade payables / creditors
+  {
+    patterns: [/\blenidar\b/i, /\bkharidan\b/i, /\btirnu parne\b/i],
+    nfrsCategory: "trade_payables_creditors",
+    confidence: 80
+  },
+  // TDS — default to payable; overridden by context check
+  {
+    patterns: [/\btdas\b/i, /\btda\b/i],
+    nfrsCategory: "tds_payable",
+    confidence: 80
+  },
+  // Share capital
+  {
+    patterns: [/\bpanjikaran\b/i, /\bdarta\b/i, /\bsheyer kapital\b/i],
+    nfrsCategory: "share_capital",
+    confidence: 80
+  },
+  // VAT / other payables
+  {
+    patterns: [/\bhulak\b/i, /\bhulak khata\b/i, /\bvat\b/i],
+    nfrsCategory: "other_payables",
+    confidence: 78
+  },
+  // Vehicles
+  {
+    patterns: [/\bgadi\b/i, /\bsawari\b/i, /\bmotor\b/i],
+    nfrsCategory: "ppe_vehicles",
+    confidence: 80
+  },
+  // Furniture
+  {
+    patterns: [/\bfurnichar\b/i, /\bsajawat\b/i],
+    nfrsCategory: "ppe_furniture",
+    confidence: 80
+  },
+  // Salary
+  {
+    patterns: [/\btankhwah\b/i, /\btlb\b/i, /\btankhah\b/i],
+    nfrsCategory: "emp_expense_salaries",
+    confidence: 82
+  },
+  // Gratuity
+  {
+    patterns: [/\bupadhan\b/i, /\bkaryamuktibhatta\b/i],
+    nfrsCategory: "emp_expense_gratuity",
+    confidence: 82
+  },
+  // Rent
+  {
+    patterns: [/\bbhada\b/i, /\bkiraya\b/i],
+    nfrsCategory: "admin_rent",
+    confidence: 82
+  },
+  // Electricity
+  {
+    patterns: [/\bbidhyut\b/i, /\bwidyut\b/i, /\bbidyut\b/i],
+    nfrsCategory: "admin_electricity",
+    confidence: 82
+  },
+  // Retained earnings / P&L
+  {
+    patterns: [/\bafi ko nakafaa\b/i, /\bnaafaa\b/i, /\bnafaa\b/i],
+    nfrsCategory: "retained_earnings",
+    confidence: 78
+  }
+];
+var ASSET_CURRENT_CATEGORIES = [
+  "trade_receivables",
+  "cash_in_hand",
+  "bank_current_account",
+  "bank_savings_account",
+  "bank_fixed_deposit_current",
+  "inventory_raw_materials",
+  "inventory_wip",
+  "inventory_finished_goods",
+  "other_receivables_tds",
+  "other_receivables_prepayments",
+  "other_receivables_staff_advance",
+  "other_receivables_loans",
+  "other_receivables_advance_supplier",
+  "other_receivables_other",
+  "provision_impairment_debtors"
+];
+var ASSET_NONCURRENT_CATEGORIES = [
+  "ppe_land",
+  "ppe_buildings",
+  "ppe_vehicles",
+  "ppe_office_equipment",
+  "ppe_computers",
+  "ppe_furniture",
+  "ppe_plant_machinery",
+  "ppe_intangibles",
+  "ppe_cwip",
+  "accum_depreciation",
+  "investment_listed_trading",
+  "investment_unlisted",
+  "investment_fixed_deposit_noncurrent",
+  "nca_deposits",
+  "nca_loans_advances",
+  "nca_other",
+  "biological_assets",
+  "nca_held_for_sale",
+  "related_party_receivable",
+  "provision_impairment_investment"
+];
+var LIABILITY_CURRENT_CATEGORIES = [
+  "trade_payables_creditors",
+  "trade_payables_advance_customers",
+  "borrowings_current_od",
+  "borrowings_current_cc",
+  "borrowings_current_wc",
+  "borrowings_current_portion_lt",
+  "income_tax_payable",
+  "tds_payable",
+  "other_payables",
+  "audit_fee_payable",
+  "employee_payables_salary",
+  "employee_payables_bonus",
+  "employee_payables_pf",
+  "provisions_current",
+  "dividend_payable",
+  "related_party_payable"
+];
+var LIABILITY_NONCURRENT_CATEGORIES = [
+  "borrowings_noncurrent_bank",
+  "borrowings_noncurrent_other",
+  "deferred_tax_liability",
+  "employee_benefit_gratuity",
+  "provisions_noncurrent",
+  "related_party_payable"
+];
+var EQUITY_CATEGORIES = [
+  "share_capital",
+  "share_premium",
+  "general_reserve",
+  "retained_earnings",
+  "other_reserves"
+];
+var INCOME_CATEGORIES = [
+  "revenue_sales",
+  "revenue_services",
+  "other_income_interest",
+  "other_income_dividend",
+  "other_income_rental",
+  "other_income_disposal_gain",
+  "other_income_misc"
+];
+var EXPENSE_CATEGORIES = [
+  "cogs_purchases",
+  "cogs_opening_stock",
+  "direct_wages",
+  "direct_expenses_other",
+  "emp_expense_salaries",
+  "emp_expense_pf",
+  "emp_expense_gratuity",
+  "emp_expense_welfare",
+  "emp_expense_bonus",
+  "emp_expense_other",
+  "finance_cost_interest",
+  "finance_cost_bank_charges",
+  "admin_rent",
+  "admin_rates_taxes",
+  "admin_insurance",
+  "admin_repairs",
+  "admin_electricity",
+  "admin_communication",
+  "admin_printing",
+  "admin_legal_professional",
+  "admin_audit_fee",
+  "admin_traveling",
+  "admin_advertisement",
+  "admin_other",
+  "depreciation_expense",
+  "impairment_expense",
+  "income_tax_expense"
+];
+var EMPLOYEE_EXPENSE_CATEGORIES = [
+  "emp_expense_salaries",
+  "emp_expense_pf",
+  "emp_expense_gratuity",
+  "emp_expense_welfare",
+  "emp_expense_bonus",
+  "emp_expense_other"
+];
+var PARENT_GROUP_CONTEXT_MAP = [
+  // ── Current Assets ──────────────────────────────────────────────────────────
+  {
+    patterns: [
+      /\bcurrent assets?\b/i,
+      /\b(ca)\b/i,
+      /\bcurrent asset group\b/i,
+      /\bchalu sampatti\b/i
+    ],
+    allowedCategories: ASSET_CURRENT_CATEGORIES,
+    confidence: 75
+    // boost confidence when parent group context matches
+  },
+  // ── Non-Current / Fixed Assets ───────────────────────────────────────────────
+  {
+    patterns: [
+      /\bnon.?current assets?\b/i,
+      /\bfixed assets?\b/i,
+      /\b(nca)\b/i,
+      /\bproperty plant.*(equipment|ppne)\b/i,
+      /\bppe\b/i,
+      /\bsthir sampatti\b/i,
+      /\bsthayee sampatti\b/i
+    ],
+    allowedCategories: ASSET_NONCURRENT_CATEGORIES,
+    confidence: 75
+  },
+  // ── Current Liabilities ──────────────────────────────────────────────────────
+  {
+    patterns: [
+      /\bcurrent liabilit/i,
+      /\b(cl)\b/i,
+      /\bchalu dayitwa\b/i,
+      /\bcurrent creditors?\b/i
+    ],
+    allowedCategories: LIABILITY_CURRENT_CATEGORIES,
+    confidence: 75
+  },
+  // ── Non-Current Liabilities ──────────────────────────────────────────────────
+  {
+    patterns: [
+      /\bnon.?current liabilit/i,
+      /\b(ncl)\b/i,
+      /\bdirghkalin dayitwa\b/i,
+      /\blong.?term liabilit/i
+    ],
+    allowedCategories: LIABILITY_NONCURRENT_CATEGORIES,
+    confidence: 75
+  },
+  // ── Equity / Capital ─────────────────────────────────────────────────────────
+  {
+    patterns: [
+      /\b(equity|capital account|shareholders? equity|owner.*equity)\b/i,
+      /\bpunjee\b/i,
+      /\bkapital\b/i
+    ],
+    allowedCategories: EQUITY_CATEGORIES,
+    confidence: 78
+  },
+  // ── Revenue / Income ─────────────────────────────────────────────────────────
+  {
+    patterns: [
+      /\b(income|revenue|sales|direct income|indirect income|other income)\b/i,
+      /\baamdani\b/i,
+      /\bbikri\b/i
+    ],
+    allowedCategories: INCOME_CATEGORIES,
+    confidence: 75
+  },
+  // ── Expenses ─────────────────────────────────────────────────────────────────
+  {
+    patterns: [
+      /\b(expenses?|overheads?|direct expenses?|indirect expenses?|operating expenses?)\b/i,
+      /\bkharcha\b/i
+    ],
+    allowedCategories: EXPENSE_CATEGORIES,
+    confidence: 72
+  },
+  // ── Employee / HR Expenses ───────────────────────────────────────────────────
+  {
+    patterns: [
+      /\b(employee benefit expenses?|staff expenses?|hr expenses?|personnel expenses?)\b/i,
+      /\bkarmachari kharcha\b/i
+    ],
+    allowedCategories: EMPLOYEE_EXPENSE_CATEGORIES,
+    confidence: 78
+  }
+];
+function getContextCategories(parentGroup) {
+  if (!parentGroup || parentGroup.trim() === "") return null;
+  for (const entry of PARENT_GROUP_CONTEXT_MAP) {
+    for (const pattern of entry.patterns) {
+      if (pattern.test(parentGroup)) {
+        return { categories: entry.allowedCategories, confidence: entry.confidence };
+      }
+    }
+  }
+  return null;
+}
+function disambiguateTDS(parentGroup, closingBalance) {
+  const pg = (parentGroup ?? "").toLowerCase();
+  const isLiabilityContext = /liabilit/i.test(pg) || /current liabilit/i.test(pg) || /payable/i.test(pg) || /cl\b/i.test(pg);
+  const isAssetContext = /current assets?/i.test(pg) || /\bca\b/i.test(pg) || /non.?current assets?/i.test(pg) || /advance tax/i.test(pg) || /receivable/i.test(pg);
+  if (isLiabilityContext) return "tds_payable";
+  if (isAssetContext) return "other_receivables_tds";
+  if (closingBalance > 0) return "other_receivables_tds";
+  if (closingBalance < 0) return "tds_payable";
+  return "tds_payable";
+}
+function matchSingleAccount(rawLabel, rowIndex, parentGroup = "", closingBalance = 0) {
   const trimmed = rawLabel.trim();
   for (const entry of CHART_OF_ACCOUNTS) {
     if (normalize(trimmed) === normalize(entry.label)) {
@@ -2495,8 +3124,38 @@ function matchSingleAccount(rawLabel, rowIndex) {
       }
     }
   }
-  for (const { pattern, nfrsCategory, confidence } of KEYWORD_BUCKETS) {
+  for (const entry of NEPALI_ROMANIZED_ENTRIES) {
+    for (const pattern of entry.patterns) {
+      if (pattern.test(trimmed)) {
+        let nfrsCategory = entry.nfrsCategory;
+        if ((nfrsCategory === "tds_payable" || nfrsCategory === "other_receivables_tds") && /\btds|tdas|tda\b/i.test(trimmed)) {
+          nfrsCategory = disambiguateTDS(parentGroup, closingBalance);
+        }
+        const catEntries = CHART_OF_ACCOUNTS.filter((e) => e.nfrsCategory === nfrsCategory);
+        const bestEntry = catEntries[0] ?? null;
+        return {
+          rowIndex,
+          rawLabel: trimmed,
+          matchedLabel: bestEntry?.label ?? null,
+          nfrsCategory,
+          confidence: entry.confidence,
+          method: "nepali_romanized",
+          candidates: catEntries.slice(0, 5).map((e) => ({
+            label: e.label,
+            nfrsCategory: e.nfrsCategory,
+            confidence: entry.confidence
+          })),
+          needsReview: entry.confidence < CONFIDENCE_THRESHOLD
+        };
+      }
+    }
+  }
+  for (const { pattern, nfrsCategory: rawCategory, confidence } of KEYWORD_BUCKETS) {
     if (pattern.test(trimmed)) {
+      let nfrsCategory = rawCategory;
+      if (rawCategory === "tds_payable" && /\btds\b/i.test(trimmed)) {
+        nfrsCategory = disambiguateTDS(parentGroup, closingBalance);
+      }
       const catEntries = CHART_OF_ACCOUNTS.filter((e) => e.nfrsCategory === nfrsCategory);
       const bestEntry = catEntries[0] ?? null;
       return {
@@ -2512,6 +3171,33 @@ function matchSingleAccount(rawLabel, rowIndex) {
           confidence
         })),
         needsReview: confidence < CONFIDENCE_THRESHOLD
+      };
+    }
+  }
+  const contextResult = getContextCategories(parentGroup);
+  if (contextResult) {
+    const allowedSet = new Set(contextResult.categories);
+    const scored2 = CHART_OF_ACCOUNTS.filter((entry) => allowedSet.has(entry.nfrsCategory)).flatMap((entry) => {
+      const labelScore = similarityScore(trimmed, entry.label);
+      const synScores = (entry.synonyms ?? []).map((s) => similarityScore(trimmed, s));
+      const best = Math.max(labelScore, ...synScores, 0);
+      return [{ label: entry.label, nfrsCategory: entry.nfrsCategory, confidence: best }];
+    }).sort((a, b) => b.confidence - a.confidence);
+    const top2 = scored2[0];
+    if (top2 && top2.confidence >= 65) {
+      const boostedConf = Math.min(100, Math.round(top2.confidence * 1.08));
+      return {
+        rowIndex,
+        rawLabel: trimmed,
+        matchedLabel: top2.label,
+        nfrsCategory: top2.nfrsCategory,
+        confidence: boostedConf,
+        method: "context",
+        candidates: scored2.slice(0, 5).map((s) => ({
+          ...s,
+          nfrsCategory: s.nfrsCategory
+        })),
+        needsReview: boostedConf < CONFIDENCE_THRESHOLD
       };
     }
   }
@@ -2531,7 +3217,7 @@ function matchSingleAccount(rawLabel, rowIndex) {
       nfrsCategory: top.nfrsCategory,
       confidence: top.confidence,
       method: "fuzzy",
-      candidates,
+      candidates: candidates.map((c) => ({ ...c, nfrsCategory: c.nfrsCategory })),
       needsReview: top.confidence < CONFIDENCE_THRESHOLD
     };
   }
@@ -2542,12 +3228,34 @@ function matchSingleAccount(rawLabel, rowIndex) {
     nfrsCategory: "unclassified",
     confidence: top?.confidence ?? 0,
     method: "unmatched",
-    candidates,
+    candidates: candidates.map((c) => ({ ...c, nfrsCategory: c.nfrsCategory })),
     needsReview: true
   };
 }
 function matchAllAccounts(rows) {
-  return rows.map((row) => matchSingleAccount(row.rawLabel, row.rowIndex));
+  return rows.map((row) => {
+    if (row.isGroupRow) {
+      return {
+        rowIndex: row.rowIndex,
+        rawLabel: row.rawLabel,
+        matchedLabel: null,
+        nfrsCategory: "unclassified",
+        confidence: 0,
+        method: "unmatched",
+        candidates: [],
+        needsReview: false,
+        // group rows don't need user review
+        userOverride: false
+      };
+    }
+    const closingBalance = (row.closingDr ?? 0) - (row.closingCr ?? 0);
+    return matchSingleAccount(
+      row.rawLabel,
+      row.rowIndex,
+      row.parentGroup ?? "",
+      closingBalance
+    );
+  });
 }
 
 // src/data/nfrsCategories.ts
@@ -3757,6 +4465,140 @@ var trialBalance_default = router2;
 // server/routes/adjustments.ts
 import { Router as Router3 } from "express";
 
+// server/store/subledgerStore.ts
+import crypto2 from "crypto";
+var store = /* @__PURE__ */ new Map();
+function emptySubledger(sessionId) {
+  return {
+    sessionId,
+    debtors: [],
+    creditors: [],
+    bankAccounts: [],
+    relatedParties: [],
+    lastUpdatedAt: /* @__PURE__ */ new Date()
+  };
+}
+function getSubledger(sessionId) {
+  return store.get(sessionId) ?? emptySubledger(sessionId);
+}
+function upsertDebtors(sessionId, debtors) {
+  const existing = store.get(sessionId) ?? emptySubledger(sessionId);
+  const normalised = debtors.map((d) => ({
+    ...d,
+    id: d.id || crypto2.randomUUID(),
+    debitBalance: Math.max(0, d.debitBalance ?? 0),
+    creditBalance: Math.max(0, d.creditBalance ?? 0)
+  }));
+  const updated = {
+    ...existing,
+    debtors: normalised,
+    lastUpdatedAt: /* @__PURE__ */ new Date()
+  };
+  store.set(sessionId, updated);
+  return updated;
+}
+function upsertCreditors(sessionId, creditors) {
+  const existing = store.get(sessionId) ?? emptySubledger(sessionId);
+  const normalised = creditors.map((c) => ({
+    ...c,
+    id: c.id || crypto2.randomUUID(),
+    creditBalance: Math.max(0, c.creditBalance ?? 0),
+    debitBalance: Math.max(0, c.debitBalance ?? 0)
+  }));
+  const updated = {
+    ...existing,
+    creditors: normalised,
+    lastUpdatedAt: /* @__PURE__ */ new Date()
+  };
+  store.set(sessionId, updated);
+  return updated;
+}
+function upsertBankAccounts(sessionId, bankAccounts) {
+  const existing = store.get(sessionId) ?? emptySubledger(sessionId);
+  const normalised = bankAccounts.map((b) => ({
+    ...b,
+    id: b.id || crypto2.randomUUID()
+  }));
+  const updated = {
+    ...existing,
+    bankAccounts: normalised,
+    lastUpdatedAt: /* @__PURE__ */ new Date()
+  };
+  store.set(sessionId, updated);
+  return updated;
+}
+function upsertRelatedParties(sessionId, relatedParties) {
+  const existing = store.get(sessionId) ?? emptySubledger(sessionId);
+  const normalised = relatedParties.map((rp) => ({
+    ...rp,
+    id: rp.id || crypto2.randomUUID(),
+    transactionsCurrentYear: (rp.transactionsCurrentYear ?? []).map((t) => ({
+      ...t,
+      id: t.id || crypto2.randomUUID()
+    }))
+  }));
+  const updated = {
+    ...existing,
+    relatedParties: normalised,
+    lastUpdatedAt: /* @__PURE__ */ new Date()
+  };
+  store.set(sessionId, updated);
+  return updated;
+}
+function deleteSubledger(sessionId) {
+  return store.delete(sessionId);
+}
+function validateSubledger(sessionId, tbDebtorTotal, tbCreditorTotal) {
+  const data = getSubledger(sessionId);
+  const warnings = [];
+  const debtorTotal = data.debtors.reduce((s, d) => s + d.debitBalance, 0);
+  const creditorTotal = data.creditors.reduce((s, c) => s + c.creditBalance, 0);
+  const bankAssetTotal = data.bankAccounts.filter((b) => b.balance > 0).reduce((s, b) => s + b.balance, 0);
+  const bankLiabilityTotal = data.bankAccounts.filter((b) => b.balance < 0).reduce((s, b) => s + Math.abs(b.balance), 0);
+  const debtorDiff = Math.abs(debtorTotal - tbDebtorTotal);
+  if (data.debtors.length > 0 && debtorDiff > 1) {
+    warnings.push(
+      `Debtor subledger total (NPR ${debtorTotal.toLocaleString("en-IN")}) does not match trial balance trade receivables (NPR ${tbDebtorTotal.toLocaleString("en-IN")}). Difference: NPR ${debtorDiff.toLocaleString("en-IN")}.`
+    );
+  }
+  const creditorDiff = Math.abs(creditorTotal - tbCreditorTotal);
+  if (data.creditors.length > 0 && creditorDiff > 1) {
+    warnings.push(
+      `Creditor subledger total (NPR ${creditorTotal.toLocaleString("en-IN")}) does not match trial balance trade payables (NPR ${tbCreditorTotal.toLocaleString("en-IN")}). Difference: NPR ${creditorDiff.toLocaleString("en-IN")}.`
+    );
+  }
+  return {
+    debtorTotal,
+    creditorTotal,
+    bankAssetTotal,
+    bankLiabilityTotal,
+    isValid: warnings.length === 0,
+    warnings
+  };
+}
+function cleanupSubledger(maxAgeHours) {
+  const cutoff = Date.now() - maxAgeHours * 60 * 60 * 1e3;
+  let removed = 0;
+  for (const [id, data] of store.entries()) {
+    if (data.lastUpdatedAt.getTime() < cutoff) {
+      store.delete(id);
+      removed++;
+    }
+  }
+  return removed;
+}
+var subledgerStore = {
+  get: getSubledger,
+  upsertDebtors,
+  upsertCreditors,
+  upsertBankAccounts,
+  upsertRelatedParties,
+  delete: deleteSubledger,
+  validate: validateSubledger,
+  cleanup: cleanupSubledger,
+  size: () => store.size
+};
+
 // server/services/depreciationEngine.ts
 function normMonthName(name) {
   const map = {
@@ -4113,6 +4955,93 @@ router3.post("/:companyId/calculate-all", asyncHandler(async (req, res) => {
   const adj = session.adjustments;
   const journalTotal = adj.journalEntries.reduce((s, j) => s + j.amount, 0);
   return res.json({ adjustments: adj, journalEntryCount: adj.journalEntries.length, totalDebitCredit: journalTotal });
+}));
+router3.get("/subledger/:companyId", asyncHandler(async (req, res) => {
+  const { companyId } = req.params;
+  const session = sessionStore.get(companyId);
+  if (!session) return res.status(404).json({ error: "Company session not found." });
+  const data = subledgerStore.get(companyId);
+  return res.json(data);
+}));
+router3.post("/subledger/debtors", asyncHandler(async (req, res) => {
+  const { companyId, debtors } = req.body;
+  if (!companyId) {
+    return res.status(400).json({ error: "companyId is required." });
+  }
+  const session = sessionStore.get(companyId);
+  if (!session) {
+    return res.status(404).json({ error: "Company session not found." });
+  }
+  if (!Array.isArray(debtors)) {
+    return res.status(400).json({ error: "debtors must be an array." });
+  }
+  const updated = subledgerStore.upsertDebtors(companyId, debtors);
+  const tbRows = session.trialBalance?.rows ?? [];
+  const tbDebtorTotal = tbRows.filter((r) => r.nfrsCategory === "trade_receivables" && !r.isGroupRow).reduce((s, r) => s + (r.closingDr ?? 0), 0);
+  const validation = subledgerStore.validate(companyId, tbDebtorTotal, 0);
+  return res.json({
+    message: "Debtor subledger saved.",
+    count: updated.debtors.length,
+    debtorTotal: updated.debtors.reduce((s, d) => s + d.debitBalance, 0),
+    tbDebtorTotal,
+    validation
+  });
+}));
+router3.post("/subledger/creditors", asyncHandler(async (req, res) => {
+  const { companyId, creditors } = req.body;
+  if (!companyId) return res.status(400).json({ error: "companyId is required." });
+  const session = sessionStore.get(companyId);
+  if (!session) return res.status(404).json({ error: "Company session not found." });
+  if (!Array.isArray(creditors)) return res.status(400).json({ error: "creditors must be an array." });
+  const updated = subledgerStore.upsertCreditors(companyId, creditors);
+  const tbRows = session.trialBalance?.rows ?? [];
+  const tbCreditorTotal = tbRows.filter((r) => r.nfrsCategory === "trade_payables_creditors" && !r.isGroupRow).reduce((s, r) => s + (r.closingCr ?? 0), 0);
+  const validation = subledgerStore.validate(companyId, 0, tbCreditorTotal);
+  return res.json({
+    message: "Creditor subledger saved.",
+    count: updated.creditors.length,
+    creditorTotal: updated.creditors.reduce((s, c) => s + c.creditBalance, 0),
+    tbCreditorTotal,
+    validation
+  });
+}));
+router3.post("/subledger/bank-accounts", asyncHandler(async (req, res) => {
+  const { companyId, bankAccounts } = req.body;
+  if (!companyId) return res.status(400).json({ error: "companyId is required." });
+  const session = sessionStore.get(companyId);
+  if (!session) return res.status(404).json({ error: "Company session not found." });
+  if (!Array.isArray(bankAccounts)) {
+    return res.status(400).json({ error: "bankAccounts must be an array." });
+  }
+  const invalid = bankAccounts.filter((b) => !b.bankName?.trim());
+  if (invalid.length > 0) {
+    return res.status(400).json({
+      error: `${invalid.length} bank account row(s) are missing a bank name.`
+    });
+  }
+  const updated = subledgerStore.upsertBankAccounts(companyId, bankAccounts);
+  const assetTotal = updated.bankAccounts.filter((b) => b.balance >= 0).reduce((s, b) => s + b.balance, 0);
+  const liabilityTotal = updated.bankAccounts.filter((b) => b.balance < 0).reduce((s, b) => s + Math.abs(b.balance), 0);
+  return res.json({
+    message: "Bank accounts saved.",
+    count: updated.bankAccounts.length,
+    assetTotal,
+    liabilityTotal
+  });
+}));
+router3.post("/subledger/related-parties", asyncHandler(async (req, res) => {
+  const { companyId, relatedParties } = req.body;
+  if (!companyId) return res.status(400).json({ error: "companyId is required." });
+  const session = sessionStore.get(companyId);
+  if (!session) return res.status(404).json({ error: "Company session not found." });
+  if (!Array.isArray(relatedParties)) {
+    return res.status(400).json({ error: "relatedParties must be an array." });
+  }
+  const updated = subledgerStore.upsertRelatedParties(companyId, relatedParties);
+  return res.json({
+    message: "Related parties saved.",
+    count: updated.relatedParties.length
+  });
 }));
 var adjustments_default = router3;
 

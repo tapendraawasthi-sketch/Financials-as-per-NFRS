@@ -1,7 +1,14 @@
-// ===== server/services/tbParser.ts =====
 // Trial balance parser — accepts XLSX, XLS, or CSV in ANY reasonable
 // column layout, auto-detects headers, and returns a normalised row set
 // with six column pairs (opening, during, adjustment — Dr and Cr each).
+//
+// Enhanced to handle:
+//   - Indent-based hierarchy (Tally, Swastik, Business Accountant Nepal)
+//   - Tally Prime export format
+//   - Simple net balance format (3-column)
+//   - Single net balance column format
+//   - Parent group context tracking
+//   - Enhanced validation and balance checks
 
 import ExcelJS from 'exceljs';
 
@@ -19,6 +26,11 @@ export interface RawTBRow {
   adjustmentCr: number;
   closingDr: number;
   closingCr: number;
+  // ── Hierarchy fields ──────────────────────────────────────────────────────
+  rowLevel: number;           // 0 = group/parent, 1 = subgroup, 2 = ledger/leaf
+  isGroupRow: boolean;        // true if this is a group/parent row (no amounts)
+  parentGroup: string;        // nearest parent group row label above this row
+  rawIndentSpaces: number;    // number of leading whitespace chars in the label
 }
 
 export interface RawTBParseResult {
@@ -34,21 +46,55 @@ export interface RawTBParseResult {
   warnings: string[];
   detectedColumns: Record<string, number>;
   headerRowIndex: number;
+  detectedFormat: 'full' | '3col' | '2col' | '1col' | 'tally_prime';
 }
 
 // ---------------------------------------------------------------------------
 // Column-header keyword dictionaries
 // ---------------------------------------------------------------------------
 const COL_HINTS: Record<string, string[]> = {
-  label:        ['particular', 'account', 'ledger', 'description', 'head', 'name', 'title', 'narration'],
-  openingDr:    ['opening dr', 'op dr', 'opening debit', 'op debit', 'opening balance dr', 'opn dr'],
-  openingCr:    ['opening cr', 'op cr', 'opening credit', 'op credit', 'opening balance cr', 'opn cr'],
-  duringDr:     ['during dr', 'transaction dr', 'dur dr', 'movement dr', 'debit', 'dr', 'during year dr', 'receipt'],
-  duringCr:     ['during cr', 'transaction cr', 'dur cr', 'movement cr', 'credit', 'cr', 'during year cr', 'payment'],
-  adjustmentDr: ['adj dr', 'adjustment dr', 'year end adj dr', 'adjustment debit', 'jv dr'],
-  adjustmentCr: ['adj cr', 'adjustment cr', 'year end adj cr', 'adjustment credit', 'jv cr'],
-  closingDr:    ['closing dr', 'balance dr', 'closing debit', 'net dr', 'closing balance dr'],
-  closingCr:    ['closing cr', 'balance cr', 'closing credit', 'net cr', 'closing balance cr'],
+  label: [
+    'particular', 'account', 'ledger', 'description', 'head', 'name', 'title', 'narration',
+    'particulars', 'ledger name', 'account name', 'account head',
+  ],
+  openingDr: [
+    'opening dr', 'op dr', 'opening debit', 'op debit', 'opening balance dr', 'opn dr',
+    'opening balance dr', 'op balance dr', 'opening bal dr', 'ob dr', 'opening',
+    'open dr', 'open debit', 'opening dr balance',
+  ],
+  openingCr: [
+    'opening cr', 'op cr', 'opening credit', 'op credit', 'opening balance cr', 'opn cr',
+    'opening balance cr', 'op balance cr', 'opening bal cr', 'ob cr',
+    'open cr', 'open credit', 'opening cr balance',
+  ],
+  duringDr: [
+    'during dr', 'transaction dr', 'dur dr', 'movement dr', 'debit', 'dr', 'during year dr',
+    'receipt', 'dr total', 'transaction debit', 'total debit', 'transactions dr',
+    'during period dr', 'period dr',
+  ],
+  duringCr: [
+    'during cr', 'transaction cr', 'dur cr', 'movement cr', 'credit', 'cr', 'during year cr',
+    'payment', 'cr total', 'transaction credit', 'total credit', 'transactions cr',
+    'during period cr', 'period cr',
+  ],
+  adjustmentDr: [
+    'adj dr', 'adjustment dr', 'year end adj dr', 'adjustment debit', 'jv dr',
+    'adjustments dr', 'year-end dr',
+  ],
+  adjustmentCr: [
+    'adj cr', 'adjustment cr', 'year end adj cr', 'adjustment credit', 'jv cr',
+    'adjustments cr', 'year-end cr',
+  ],
+  closingDr: [
+    'closing dr', 'balance dr', 'closing debit', 'net dr', 'closing balance dr',
+    'closing balance dr', 'cl balance dr', 'closing bal dr', 'cb dr', 'balance dr',
+    'close dr', 'closing debit balance', 'cl dr', 'debit balance',
+  ],
+  closingCr: [
+    'closing cr', 'balance cr', 'closing credit', 'net cr', 'closing balance cr',
+    'closing balance cr', 'cl balance cr', 'closing bal cr', 'cb cr', 'balance cr',
+    'close cr', 'closing credit balance', 'cl cr', 'credit balance',
+  ],
 };
 
 /** Subtotal row label patterns to skip (will generate a warning). */
@@ -79,6 +125,64 @@ function toNumber(val: unknown): number {
 function normCell(val: unknown): string {
   if (val === null || val === undefined) return '';
   return String(val).toLowerCase().trim().replace(/\s+/g, ' ');
+}
+
+// ---------------------------------------------------------------------------
+// Utility: count leading whitespace (spaces or tab-equivalents)
+// ---------------------------------------------------------------------------
+function countLeadingSpaces(label: string): number {
+  const match = label.match(/^(\s+)/);
+  if (!match) return 0;
+  // Count tabs as 4 spaces each
+  return match[1].replace(/\t/g, '    ').length;
+}
+
+// ---------------------------------------------------------------------------
+// Detect row level based on indentation and amount presence
+// ---------------------------------------------------------------------------
+/**
+ * Determines if a row is a group/parent row or a leaf ledger row.
+ * 
+ * Logic:
+ *  - Count leading whitespace in the label
+ *  - Check if all amount columns are empty/zero
+ *  - Return: rowLevel (0=group, 1=subgroup, 2=leaf), isGroupRow, rawIndentSpaces
+ */
+function detectRowLevel(
+  label: string,
+  amounts: number[],
+): { rowLevel: number; isGroupRow: boolean; rawIndentSpaces: number } {
+  const rawIndentSpaces = countLeadingSpaces(label);
+  const hasAnyAmount = amounts.some((a) => a !== 0);
+
+  // If indentation > 0, it's more likely to be a subgroup or leaf
+  // If all amounts are zero AND the row is not indented, it's likely a group header
+  let rowLevel: number;
+  let isGroupRow: boolean;
+
+  if (!hasAnyAmount) {
+    // No amounts at all — this is a group/parent row
+    if (rawIndentSpaces === 0) {
+      rowLevel = 0;   // top-level group
+    } else if (rawIndentSpaces <= 4) {
+      rowLevel = 1;   // sub-group
+    } else {
+      rowLevel = 1;   // still treat as subgroup (could be deeply indented group)
+    }
+    isGroupRow = true;
+  } else {
+    // Has amounts — this is a leaf ledger row
+    if (rawIndentSpaces >= 8) {
+      rowLevel = 2;   // deeply indented leaf
+    } else if (rawIndentSpaces >= 4) {
+      rowLevel = 2;   // indented leaf
+    } else {
+      rowLevel = 2;   // even unindented leaf (e.g. simple format)
+    }
+    isGroupRow = false;
+  }
+
+  return { rowLevel, isGroupRow, rawIndentSpaces };
 }
 
 // ---------------------------------------------------------------------------
@@ -118,21 +222,104 @@ function detectColumns(
 }
 
 // ---------------------------------------------------------------------------
-// Simplified fallback layouts
+// Detect Tally Prime format specifically
+// Tally Prime: Particulars | Opening Dr | Opening Cr | Debit | Credit | Closing Dr | Closing Cr
 // ---------------------------------------------------------------------------
-function detectSimplifiedLayout(
+function detectTallyPrimeFormat(
   matrix: unknown[][],
-  startRow: number,
-): { colMap: Record<string, number>; mode: '3col' | '2col' } | null {
-  // Find first data row (non-empty row after startRow)
-  for (let r = startRow; r < matrix.length; r++) {
+): { isTallyPrime: boolean; headerRowIndex: number; colMap: Record<string, number> } {
+  for (let r = 0; r < Math.min(matrix.length, MAX_HEADER_SCAN); r++) {
+    const row = matrix[r] ?? [];
+    const cells = row.map((c) => normCell(c));
+
+    // Look for the characteristic Tally Prime header pattern
+    const hasParticulars = cells.some((c) => c === 'particulars' || c === 'ledger' || c === 'account');
+    const hasDebit = cells.some((c) => c === 'debit');
+    const hasCredit = cells.some((c) => c === 'credit');
+    const hasClosingDr = cells.some((c) =>
+      c.includes('closing') && (c.includes('dr') || c.includes('debit'))
+    );
+    const hasClosingCr = cells.some((c) =>
+      c.includes('closing') && (c.includes('cr') || c.includes('credit'))
+    );
+
+    if (hasParticulars && hasDebit && hasCredit && (hasClosingDr || hasClosingCr)) {
+      const colMap: Record<string, number> = {};
+      cells.forEach((cell, i) => {
+        if (cell === 'particulars' || cell === 'ledger' || cell === 'account') colMap['label'] = i;
+        else if ((cell === 'opening' || cell.includes('opening') && cell.includes('dr'))) colMap['openingDr'] = i;
+        else if (cell.includes('opening') && cell.includes('cr')) colMap['openingCr'] = i;
+        else if (cell === 'debit' && colMap['duringDr'] === undefined) colMap['duringDr'] = i;
+        else if (cell === 'credit' && colMap['duringCr'] === undefined) colMap['duringCr'] = i;
+        else if (cell.includes('closing') && (cell.includes('dr') || cell.includes('debit'))) colMap['closingDr'] = i;
+        else if (cell.includes('closing') && (cell.includes('cr') || cell.includes('credit'))) colMap['closingCr'] = i;
+      });
+      if (colMap['label'] !== undefined) {
+        return { isTallyPrime: true, headerRowIndex: r, colMap };
+      }
+    }
+  }
+  return { isTallyPrime: false, headerRowIndex: -1, colMap: {} };
+}
+
+// ---------------------------------------------------------------------------
+// Detect the format type of the file
+// ---------------------------------------------------------------------------
+type FileFormat = 'full' | '3col' | '2col' | '1col' | 'tally_prime';
+
+function detectFormat(
+  matrix: unknown[][],
+  detection: { colMap: Record<string, number>; headerRowIndex: number } | null,
+): { format: FileFormat; colMap: Record<string, number>; headerRowIndex: number } {
+  // First check for Tally Prime
+  const tallyCheck = detectTallyPrimeFormat(matrix);
+  if (tallyCheck.isTallyPrime) {
+    return {
+      format: 'tally_prime',
+      colMap: tallyCheck.colMap,
+      headerRowIndex: tallyCheck.headerRowIndex,
+    };
+  }
+
+  if (detection) {
+    return { format: 'full', colMap: detection.colMap, headerRowIndex: detection.headerRowIndex };
+  }
+
+  // Try to detect simple formats by looking at data rows
+  for (let r = 0; r < Math.min(matrix.length, MAX_HEADER_SCAN + 5); r++) {
     const row = (matrix[r] ?? []).filter(
       (c) => c !== null && c !== undefined && c !== '',
     );
-    if (row.length === 3) return { colMap: { label: 0, closingDr: 1, closingCr: 2 }, mode: '3col' };
-    if (row.length === 2) return { colMap: { label: 0, closingDr: 1 }, mode: '2col' };
+    if (row.length === 3) {
+      const secondIsNum = typeof row[1] === 'number' || !isNaN(parseFloat(String(row[1] ?? '')));
+      const thirdIsNum = typeof row[2] === 'number' || !isNaN(parseFloat(String(row[2] ?? '')));
+      if (secondIsNum && thirdIsNum) {
+        return {
+          format: '3col',
+          colMap: { label: 0, closingDr: 1, closingCr: 2 },
+          headerRowIndex: 0,
+        };
+      }
+    }
+    if (row.length === 2) {
+      const secondIsNum = typeof row[1] === 'number' || !isNaN(parseFloat(String(row[1] ?? '')));
+      if (secondIsNum) {
+        // Check if values include negatives (net balance format)
+        return {
+          format: '2col',
+          colMap: { label: 0, closingDr: 1 },
+          headerRowIndex: 0,
+        };
+      }
+    }
   }
-  return null;
+
+  // Default to 3-col if nothing else
+  return {
+    format: '3col',
+    colMap: { label: 0, closingDr: 1, closingCr: 2 },
+    headerRowIndex: 0,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -142,7 +329,7 @@ function extractRow(
   matRow: unknown[],
   rowIndex: number,
   colMap: Record<string, number>,
-  mode: 'full' | '3col' | '2col',
+  format: FileFormat,
 ): RawTBRow {
   const g = (key: string): number => {
     const idx = colMap[key];
@@ -150,54 +337,92 @@ function extractRow(
   };
 
   const rawLabel = String(matRow[colMap['label'] ?? 0] ?? '').trim();
+  const trimmedLabel = rawLabel.trim();
 
-  if (mode === '3col') {
-    return {
-      rowIndex, rawLabel,
-      openingDr: 0, openingCr: 0,
-      duringDr: 0, duringCr: 0,
-      adjustmentDr: 0, adjustmentCr: 0,
-      closingDr: g('closingDr'),
-      closingCr: g('closingCr'),
-    };
+  // ── Handle different formats ────────────────────────────────────────────
+  let openingDr = 0, openingCr = 0, duringDr = 0, duringCr = 0;
+  let adjustmentDr = 0, adjustmentCr = 0, closingDr = 0, closingCr = 0;
+
+  switch (format) {
+    case 'tally_prime': {
+      openingDr = g('openingDr');
+      openingCr = g('openingCr');
+      duringDr = g('duringDr');
+      duringCr = g('duringCr');
+      adjustmentDr = 0;
+      adjustmentCr = 0;
+      closingDr = g('closingDr');
+      closingCr = g('closingCr');
+      break;
+    }
+    case '3col': {
+      closingDr = g('closingDr');
+      closingCr = g('closingCr');
+      break;
+    }
+    case '2col': {
+      // Net balance: positive = Dr, negative = Cr
+      const amt = g('closingDr');
+      if (amt >= 0) {
+        closingDr = amt;
+        closingCr = 0;
+      } else {
+        closingDr = 0;
+        closingCr = Math.abs(amt);
+      }
+      break;
+    }
+    case '1col': {
+      // Single balance column
+      const amt = g('closingDr');
+      if (amt >= 0) {
+        closingDr = amt;
+      } else {
+        closingCr = Math.abs(amt);
+      }
+      break;
+    }
+    case 'full':
+    default: {
+      openingDr = g('openingDr');
+      openingCr = g('openingCr');
+      duringDr = g('duringDr');
+      duringCr = g('duringCr');
+      adjustmentDr = g('adjustmentDr');
+      adjustmentCr = g('adjustmentCr');
+
+      // Derive closing if not present
+      const hasClosingDr = colMap['closingDr'] !== undefined;
+      const hasClosingCr = colMap['closingCr'] !== undefined;
+      closingDr = hasClosingDr
+        ? g('closingDr')
+        : openingDr + duringDr + adjustmentDr;
+      closingCr = hasClosingCr
+        ? g('closingCr')
+        : openingCr + duringCr + adjustmentCr;
+      break;
+    }
   }
 
-  if (mode === '2col') {
-    const amt = g('closingDr'); // positive = debit, negative = credit
-    return {
-      rowIndex, rawLabel,
-      openingDr: 0, openingCr: 0,
-      duringDr: 0, duringCr: 0,
-      adjustmentDr: 0, adjustmentCr: 0,
-      closingDr: amt >= 0 ? amt : 0,
-      closingCr: amt < 0 ? -amt : 0,
-    };
-  }
-
-  // Full layout
-  const openingDr    = g('openingDr');
-  const openingCr    = g('openingCr');
-  const duringDr     = g('duringDr');
-  const duringCr     = g('duringCr');
-  const adjustmentDr = g('adjustmentDr');
-  const adjustmentCr = g('adjustmentCr');
-
-  // Derive closing if not present
-  const hasClosingDr = colMap['closingDr'] !== undefined;
-  const hasClosingCr = colMap['closingCr'] !== undefined;
-  const closingDr = hasClosingDr
-    ? g('closingDr')
-    : openingDr + duringDr + adjustmentDr;
-  const closingCr = hasClosingCr
-    ? g('closingCr')
-    : openingCr + duringCr + adjustmentCr;
+  // ── Detect row level from indentation and amount presence ────────────────
+  const amounts = [openingDr, openingCr, duringDr, duringCr, closingDr, closingCr];
+  const { rowLevel, isGroupRow, rawIndentSpaces } = detectRowLevel(rawLabel, amounts);
 
   return {
-    rowIndex, rawLabel,
-    openingDr, openingCr,
-    duringDr, duringCr,
-    adjustmentDr, adjustmentCr,
-    closingDr, closingCr,
+    rowIndex,
+    rawLabel: trimmedLabel,   // store trimmed label for matching
+    openingDr,
+    openingCr,
+    duringDr,
+    duringCr,
+    adjustmentDr,
+    adjustmentCr,
+    closingDr,
+    closingCr,
+    rowLevel,
+    isGroupRow,
+    parentGroup: '',    // filled in during the parent-tracking pass
+    rawIndentSpaces,
   };
 }
 
@@ -228,13 +453,53 @@ function parseCSV(text: string): unknown[][] {
 }
 
 // ---------------------------------------------------------------------------
+// Parent group tracking — assigns parentGroup to each leaf row
+// ---------------------------------------------------------------------------
+/**
+ * After extracting all rows, do a second pass to assign parentGroup.
+ * Logic:
+ *   - Maintain a stack of group rows with their indent levels
+ *   - For each leaf row, the parentGroup is the nearest group row above it
+ *     with a smaller or equal indent level
+ */
+function assignParentGroups(rows: RawTBRow[]): RawTBRow[] {
+  const groupStack: Array<{ label: string; indentSpaces: number; level: number }> = [];
+
+  return rows.map((row) => {
+    if (row.isGroupRow) {
+      // Pop any groups with deeper or equal indentation (we've moved back up in hierarchy)
+      while (
+        groupStack.length > 0 &&
+        groupStack[groupStack.length - 1].indentSpaces >= row.rawIndentSpaces
+      ) {
+        groupStack.pop();
+      }
+      // Push this group onto the stack
+      groupStack.push({
+        label: row.rawLabel,
+        indentSpaces: row.rawIndentSpaces,
+        level: row.rowLevel,
+      });
+      return { ...row, parentGroup: groupStack.length > 1 ? groupStack[groupStack.length - 2].label : '' };
+    } else {
+      // For leaf rows, find the nearest parent group
+      // The parent is the group at the top of the stack (if any)
+      const parentGroup = groupStack.length > 0
+        ? groupStack[groupStack.length - 1].label
+        : '';
+      return { ...row, parentGroup };
+    }
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Main export: parseTrialBalance
 // ---------------------------------------------------------------------------
 export async function parseTrialBalance(
   buffer: Buffer,
   filename: string,
 ): Promise<RawTBParseResult> {
-  // --- Validation guards (add before existing parsing logic) ---
+  // --- Validation guards ---
   if (!buffer || buffer.length === 0) {
     throw Object.assign(
       new Error('The uploaded file is empty. Please upload a valid Excel or CSV file.'),
@@ -291,36 +556,29 @@ export async function parseTrialBalance(
   }
 
   // ── Detect columns ───────────────────────────────────────────────────────
-  const detection = detectColumns(matrix);
-  let headerRowIndex = 0;
-  let colMap: Record<string, number> = {};
-  let mode: 'full' | '3col' | '2col' = 'full';
+  const headerDetection = detectColumns(matrix);
+  const { format, colMap, headerRowIndex } = detectFormat(matrix, headerDetection);
 
-  if (detection) {
-    headerRowIndex = detection.headerRowIndex;
-    colMap = detection.colMap;
-  } else {
-    // Fallback: try simplified layout
-    const simplified = detectSimplifiedLayout(matrix, 0);
-    if (simplified) {
-      mode = simplified.mode;
-      colMap = simplified.colMap;
-      warnings.push(
-        `Could not detect a standard TB header row. ` +
-        `Treating file as a ${mode === '3col' ? '3-column (label, debit, credit)' : '2-column (label, net amount)'} layout. ` +
-        `Please verify the imported data carefully.`,
-      );
-    } else {
-      warnings.push(
-        'Could not detect column headers. Assuming columns A=Account, B=Debit, C=Credit. ' +
-        'If this is wrong, please add a header row to your file.',
-      );
-      colMap = { label: 0, closingDr: 1, closingCr: 2 };
-      mode = '3col';
-    }
+  let mode: FileFormat = format;
+
+  // Warn about simplified formats
+  if (mode === '3col') {
+    warnings.push(
+      'Could not detect a standard TB header row. ' +
+      'Treating file as a 3-column (label, debit balance, credit balance) layout. ' +
+      'Please verify the imported data carefully.'
+    );
+  } else if (mode === '2col') {
+    warnings.push(
+      'Could not detect a standard TB header row. ' +
+      'Treating file as a 2-column (label, net amount) layout where positive = Dr, negative = Cr. ' +
+      'Please verify the imported data carefully.'
+    );
+  } else if (mode === 'tally_prime') {
+    // No warning — this is a recognized format
   }
 
-  if (!detection && colMap['label'] === undefined) {
+  if (mode === 'full' && colMap['label'] === undefined) {
     throw Object.assign(
       new Error(
         'Could not detect column headers. Please ensure your file has clear column headers for account name and amounts.'
@@ -350,14 +608,18 @@ export async function parseTrialBalance(
     const row = extractRow(matRow, r, colMap, mode);
     if (row.rawLabel === '') continue;
 
-    // Validate: if closing is provided, check it matches derived
+    // Validate: if closing is provided, check it matches derived (full format only)
     if (
+      mode === 'full' &&
       colMap['closingDr'] !== undefined &&
       colMap['openingDr'] !== undefined
     ) {
       const derivedDr = row.openingDr + row.duringDr + row.adjustmentDr;
       const derivedCr = row.openingCr + row.duringCr + row.adjustmentCr;
-      if (Math.abs(derivedDr - row.closingDr) > 1.5 || Math.abs(derivedCr - row.closingCr) > 1.5) {
+      if (
+        !row.isGroupRow &&
+        (Math.abs(derivedDr - row.closingDr) > 1.5 || Math.abs(derivedCr - row.closingCr) > 1.5)
+      ) {
         warnings.push(
           `"${label}" (row ${r + 1}): opening + during + adjustment does not reconcile to closing ` +
           `(Dr: ${derivedDr.toFixed(0)} vs ${row.closingDr.toFixed(0)}, ` +
@@ -377,26 +639,34 @@ export async function parseTrialBalance(
     );
   }
 
-  if (rows.length === 0) {
+  if (rows.filter((r) => !r.isGroupRow).length === 0) {
     throw Object.assign(
-      new Error('No data rows found in the uploaded file. Please check your export and ensure it contains account entries.'),
+      new Error(
+        'No data rows found in the uploaded file. Please check your export and ensure it contains account entries.'
+      ),
       { status: 400, code: 'NO_DATA_ROWS' }
     );
   }
 
+  // ── Assign parent groups ─────────────────────────────────────────────────
+  const rowsWithParents = assignParentGroups(rows);
+
   // Row limit warning (do NOT throw — add to warnings)
-  if (rows.length > 2000) {
+  const leafRows = rowsWithParents.filter((r) => !r.isGroupRow);
+  if (leafRows.length > 2000) {
     warnings.push(
-      `File contains ${rows.length} rows which exceeds the recommended limit of 2000. Processing may be slow. Consider filtering inactive accounts before uploading.`
+      `File contains ${leafRows.length} ledger rows which exceeds the recommended limit of 2000. ` +
+      `Processing may be slow. Consider filtering inactive accounts before uploading.`
     );
   }
 
-  // ── Compute totals ───────────────────────────────────────────────────────
+  // ── Compute totals (leaf rows only) ─────────────────────────────────────
   let totalOpeningDr = 0, totalOpeningCr = 0;
   let totalDuringDr = 0, totalDuringCr = 0;
   let totalClosingDr = 0, totalClosingCr = 0;
 
-  for (const row of rows) {
+  for (const row of rowsWithParents) {
+    if (row.isGroupRow) continue;   // skip group rows in totals
     totalOpeningDr += row.openingDr;
     totalOpeningCr += row.openingCr;
     totalDuringDr  += row.duringDr;
@@ -413,15 +683,27 @@ export async function parseTrialBalance(
 
   if (!isBalanced) {
     warnings.push(
-      `Trial balance does not foot: total closing debit NPR ${totalClosingDr.toLocaleString()} ` +
-      `≠ total closing credit NPR ${totalClosingCr.toLocaleString()} ` +
-      `(difference: NPR ${difference.toLocaleString()}). ` +
-      `This must be corrected before financial statements can be generated.`,
+      `Trial Balance is not balanced. ` +
+      `Total Debit Closing: ${totalClosingDr.toLocaleString('en-IN')} vs ` +
+      `Total Credit Closing: ${totalClosingCr.toLocaleString('en-IN')}. ` +
+      `Difference: ${Math.abs(difference).toLocaleString('en-IN')}. ` +
+      `Please verify your exported trial balance from the accounting software before uploading.`
+    );
+  }
+
+  // ── Check for all-zero opening balances ─────────────────────────────────
+  const allOpeningZero =
+    totalOpeningDr === 0 && totalOpeningCr === 0 &&
+    (mode === 'full' || mode === 'tally_prime');
+  if (allOpeningZero) {
+    warnings.push(
+      `All opening balances are zero. If this is not the first year of accounting, ` +
+      `please ensure your export includes opening balances.`
     );
   }
 
   return {
-    rows,
+    rows: rowsWithParents,
     totalOpeningDr: round2(totalOpeningDr),
     totalOpeningCr: round2(totalOpeningCr),
     totalDuringDr:  round2(totalDuringDr),
@@ -433,5 +715,6 @@ export async function parseTrialBalance(
     warnings,
     detectedColumns: colMap,
     headerRowIndex,
+    detectedFormat: mode,
   };
 }

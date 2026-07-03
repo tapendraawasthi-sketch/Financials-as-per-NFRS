@@ -352,237 +352,437 @@ export interface CashFlowStatement {
 //    MEs Financials Format template (Notes 3.1 to 3.23).
 // ---------------------------------------------------------------------------
 export interface NotesData {
-  // ── Note 3.1: Property, Plant and Equipment ────────────────────────────────
-  /** Full PPE schedule per category, imported from YearEndAdjustments */
-  note31_ppe: DepreciationSummary[];
 
-  // ── Note 3.2: Investments ──────────────────────────────────────────────────
+  // ── Note 3.1 — PPE ─────────────────────────────────────────────────────────
+  note31_ppe: Array<{
+    categoryId:          string;
+    categoryName:        string;
+    // Cost movement
+    openingCost:         number;
+    additions:           number;
+    disposals:           number;
+    closingCost:         number;
+    // Accumulated depreciation movement
+    openingAccumDepn:    number;
+    depnForYear:         number;
+    impairmentLosses:    number;
+    depnOnDisposal:      number;
+    closingAccumDepn:    number;
+    // Net book value
+    nbvClosing:          number;
+    nbvOpening:          number;
+    // Security
+    securedAmount:       number;
+    hasSecuredAssets:    boolean;
+    assets:              any[];
+  }>;
+
+  // ── Note 3.2 — Investments ─────────────────────────────────────────────────
   note32_investments: {
-    /** NEPSE-listed shares — marked to market or lower of cost/market */
-    listedShares: InvestmentAdjustment[];
-    /** Unlisted equity investments at cost less impairment */
-    otherInvestments: InvestmentAdjustment[];
+    listedShares: Array<{
+      companyName:         string;
+      openingUnits:        number;
+      purchasesDuringYear: number;
+      salesDuringYear:     number;
+      closingUnits:        number;
+      costPerUnit:         number;
+      totalCost:           number;
+      ltp:                 number;
+      marketValue:         number;
+      fairValueGainLoss:   number;
+      impairmentAmount:    number;
+      carryingAmount:      number;
+    }>;
+    unlistedShares: Array<{
+      companyName:      string;
+      openingCost:      number;
+      additions:        number;
+      disposals:        number;
+      impairmentAmount: number;
+      closingCarrying:  number;
+    }>;
+    fdrNonCurrent:   number;
+    fdrCurrent:      number;
+    totalNonCurrent: number;
+    totalCurrent:    number;
   };
 
-  // ── Note 3.3: Trade Receivables ────────────────────────────────────────────
+  // ── Note 3.3 — Trade and Other Receivables ─────────────────────────────────
   note33_tradeReceivables: {
-    grossReceivables_cy: number;
-    grossReceivables_py: number;
+    grossReceivables_cy:       number;
+    grossReceivables_py:       number;
+    provisionMovement: {
+      opening:   number;
+      additions: number;
+      writeOffs: number;
+      reversals: number;
+      closing:   number;
+    };
     provisionForImpairment_cy: number;
     provisionForImpairment_py: number;
-    /** Net trade receivables = gross − provision */
-    netReceivables_cy: number;
-    netReceivables_py: number;
-    /**
-     * Aging analysis (optional) — each bucket has a label like
-     * "0–30 days", "31–90 days", "91–180 days", "Over 180 days"
-     * and the outstanding amount in NPR.
-     */
-    agingBuckets?: { label: string; amount: number }[];
+    netReceivables_cy:         number;
+    netReceivables_py:         number;
+    relatedPartyReceivables:   number;
+    prepayments:               number;
+    tdsReceivable:             number;
+    staffAdvances:             number;
+    advanceToSuppliers:        number;
+    otherLoansAdvances:        number;
+    nonCurrentPortion:         number;
+    currentPortion:            number;
+    agingAnalysis: Array<{
+      agingBucket:   string;
+      amount:        number;
+    }>;
   };
 
-  // ── Note 3.4: Other Receivables ────────────────────────────────────────────
-  /**
-   * Keyed by item name, e.g.:
-   *   "Receivables from related parties" → { cy: 100000, py: 0 }
-   *   "Loans and Advances" → { cy: 50000, py: 20000 }
-   *   "Prepayments" → { cy: 0, py: 0 }
-   *   "Deposits" → { cy: 275000, py: 225000 }
-   *   "Staff Advances" → { cy: 25000, py: 75000 }
-   */
-  note34_otherReceivables: Record<string, { cy: number; py: number }>;
+  // ── Note 3.4 — Other Current Assets ───────────────────────────────────────
+  note34_otherCurrentAssets: {
+    securityDeposits:     number;
+    guaranteeMargins:     number;
+    advanceIncomeTax:     number;
+    otherPrepaidExpenses: number;
+    total:                number;
+  };
 
-  // ── Note 3.5: Other Non-Current Assets ────────────────────────────────────
-  /**
-   * Keyed by item name, e.g.:
-   *   "Biological Assets" → { cy: 1010000, py: 0 }
-   */
-  note35_otherNonCurrentAssets: Record<string, { cy: number; py: number }>;
+  // ── Note 3.5 — Biological Assets ──────────────────────────────────────────
+  note35_biologicalAssets: {
+    hasBalance:          boolean;
+    openingCarrying:     number;
+    additionsPurchases:  number;
+    disposalsSales:      number;
+    fairValueAdjustment: number;
+    closingCarrying:     number;
+  };
 
-  // ── Note 3.6: Other Current Assets ────────────────────────────────────────
-  /**
-   * Keyed by item name, e.g.:
-   *   "Non-Current Assets Held for Sale" → { cy: 10000, py: 0 }
-   *   "Advance to Suppliers" → { cy: 100000, py: 0 }
-   */
-  note36_otherCurrentAssets: Record<string, { cy: number; py: number }>;
+  // ── Note 3.6 — Non-Current Assets Held for Sale ───────────────────────────
+  note36_heldForSale: {
+    hasBalance: boolean;
+    assets: Array<{
+      description:      string;
+      carryingAmount:   number;
+      expectedSaleDate: string | null;
+    }>;
+    total: number;
+  };
 
-  // ── Note 3.7: Inventories ──────────────────────────────────────────────────
+  // ── Note 3.7 — Inventories ─────────────────────────────────────────────────
   note37_inventories: {
-    rawMaterials_cy: number;
-    rawMaterials_py: number;
-    wip_cy: number;
-    wip_py: number;
-    finishedGoods_cy: number;
-    finishedGoods_py: number;
-    totalInventory_cy: number;
-    totalInventory_py: number;
-    /** Any inventory impairment recognised in the current year (Note 3.21) */
-    impairmentRecognized_cy: number;
+    rawMaterials:          { opening: number; closing: number };
+    wip:                   { opening: number; closing: number };
+    finishedGoods:         { opening: number; closing: number };
+    totalOpening:          number;
+    totalClosing:          number;
+    impairmentRecognised:  number;
+    inventoryAtNRV:        number;
+    pledgedAsSecurityAmt:  number;
+    costFormula:           string;
   };
 
-  // ── Note 3.8: Cash and Cash Equivalents ────────────────────────────────────
-  note38_cashAndEquivalents: {
+  // ── Note 3.8 — Cash and Cash Equivalents ──────────────────────────────────
+  note38_cashEquivalents: {
     cashInHand_cy: number;
     cashInHand_py: number;
-    /**
-     * One entry per bank account:
-     *   bankName: e.g. "NABIL Bank – Current A/c 123456"
-     *   accountType: "current" | "savings" | "call"
-     *   cy: balance at 31 Ashadh
-     *   py: balance at previous year-end
-     */
-    bankBalances: { bankName: string; accountType: string; cy: number; py: number }[];
+    bankAccounts: Array<{
+      accountName:    string;
+      bankName:       string;
+      accountType:    'Current' | 'Savings' | 'Fixed Deposit (≤3 months)';
+      closingBalance: number;
+      openingBalance: number;
+    }>;
     totalCash_cy: number;
     totalCash_py: number;
   };
 
-  // ── Note 3.9: Share Capital ────────────────────────────────────────────────
+  // ── Note 3.9 — Share Capital ───────────────────────────────────────────────
   note39_shareCapital: {
-    /** Total authorised shares (number of shares) */
-    authorizedShares: number;
-    /** Face value per share in NPR, typically NPR 100 */
-    faceValuePerShare: number;
-    /** Shares issued and fully paid (number) */
-    issuedShares: number;
-    /** Paid-up shares (number — equal to issuedShares for fully-paid) */
-    paidUpShares: number;
-    /** Paid-up capital in NPR at current year-end */
-    paidUpAmount_cy: number;
-    /** Paid-up capital in NPR at previous year-end */
-    paidUpAmount_py: number;
+    ordinaryShares: {
+      authorizedAmount:    number;
+      authorizedShares:    number;
+      parValuePerShare:    number;
+      openingIssuedShares: number;
+      openingPaidUp:       number;
+      issuedDuringYear:    number;
+      issuedForCash:       number;
+      closingIssuedShares: number;
+      closingPaidUp:       number;
+    };
+    preferenceShares: null | {
+      authorizedAmount:    number;
+      closingPaidUp:       number;
+    };
+    restrictionsOnDistribution: string | null;
+    sharesReservedForOptions:   number;
   };
 
-  // ── Note 3.10: Reserves ────────────────────────────────────────────────────
-  /**
-   * Keyed by reserve name, e.g. "General Reserve", "Capital Reserve".
-   * Each entry shows opening balance, additions, and closing balance for CY;
-   * and prior-year closing balance as the PY comparative.
-   */
-  note310_reserves: Record<
-    string,
-    { openingCY: number; additionCY: number; closingCY: number; py: number }
-  >;
+  // ── Note 3.10 — Reserves ──────────────────────────────────────────────────
+  note310_reserves: {
+    sharePremium: {
+      opening:   number;
+      additions: number;
+      closing:   number;
+    };
+    generalReserve: {
+      opening:              number;
+      transferFromProfit:   number;
+      closing:              number;
+    };
+    retainedEarnings: {
+      opening:           number;
+      netProfitForYear:  number;
+      dividendsDeclared: number;
+      transferToReserve: number;
+      closing:           number;
+    };
+    otherReserves: number;
+  };
 
-  // ── Note 3.11: Loans and Borrowings ───────────────────────────────────────
+  // ── Note 3.11 — Loans and Borrowings ──────────────────────────────────────
   note311_borrowings: {
-    /** Term loans from banks and financial institutions — non-current portion */
-    nonCurrentBank: {
-      lenderName: string;
-      amount_cy: number;
-      amount_py: number;
-      /** Annual interest rate as a percentage, e.g. 12.5 */
+    nonCurrent: Array<{
+      lenderName:   string;
+      type:         'Bank Term Loan' | 'Debentures' | 'Other Loan';
+      secured:      boolean;
       interestRate: number;
-      /** Collateral description, e.g. "Land & Building at Boudha" */
-      security: string;
-    }[];
-    /** Overdraft, cash credit, working capital loans — current portion */
-    currentLoans: {
+      maturityDate: string | null;
+      balance_cy:   number;
+      balance_py:   number;
+    }>;
+    current: Array<{
       lenderName: string;
-      amount_cy: number;
-      amount_py: number;
-      /** "overdraft" | "cash_credit" | "working_capital" | "short_term" */
-      loanType: string;
-    }[];
+      type:       'Bank Overdraft' | 'Cash Credit' | 'Working Capital Loan' | 'Current Portion of Long-Term Loan' | 'Related Party Loan';
+      secured:    boolean;
+      balance_cy: number;
+      balance_py: number;
+    }>;
+    totalNonCurrent_cy: number;
+    totalCurrent_cy:    number;
   };
 
-  // ── Note 3.12: Liability for Employee Benefits ────────────────────────────
-  /**
-   * Keyed by benefit type, e.g. "Salary Payable", "Bonus Payable",
-   * "Provident Fund Payable", "Gratuity Payable".
-   * Each entry shows the movement (opening → expense → paid → closing).
-   */
-  note312_employeeBenefits: Record<
-    string,
-    { opening: number; expense: number; paid: number; closing: number }
-  >;
-
-  // ── Note 3.13: Trade and Other Payables ───────────────────────────────────
-  /**
-   * Keyed by payable type, e.g. "Trade Payables", "Audit Fee Payable",
-   * "TDS Payable", "VAT Payable", "Other Payables".
-   */
-  note313_tradePayables: Record<string, { cy: number; py: number }>;
-
-  // ── Note 3.14: Provisions ─────────────────────────────────────────────────
-  /** Full provision movement schedules, imported from YearEndAdjustments */
-  note314_provisions: ProvisionEntry[];
-
-  // ── Note 3.17: Revenue ────────────────────────────────────────────────────
-  /**
-   * Keyed by revenue stream, e.g. "Sale of Goods", "Rendering of Services",
-   * "Interest Income", "Commission Income", "Rental Income",
-   * "Dividend Income", "Gain on Disposal of Assets".
-   */
-  note317_revenue: Record<string, { cy: number; py: number }>;
-
-  // ── Note 3.18: Material Consumed Expenses ─────────────────────────────────
-  note318_materialConsumed: {
-    /** Opening inventory at 1 Shrawan */
-    openingInventory: number;
-    /** Purchases during the year */
-    purchases: number;
-    /** Closing inventory at 31 Ashadh */
-    closingInventory: number;
-    /** consumed = openingInventory + purchases − closingInventory */
-    consumed: number;
+  // ── Note 3.12 — Employee Benefit Liabilities ──────────────────────────────
+  note312_employeeBenefits: {
+    definedBenefit: {
+      description:   string;
+      openingBalance: number;
+      expenseForYear: number;
+      paidDuringYear: number;
+      closingBalance: number;
+      nonCurrentPortion: number;
+      currentPortion: number;
+    };
+    definedContribution: {
+      pfContribution:  number;
+      ssfContribution: number;
+    };
+    leaveEncashment: {
+      openingBalance: number;
+      expenseForYear: number;
+      paidDuringYear: number;
+      closingBalance: number;
+    };
+    salaryPayable: number;
+    bonusPayable:  number;
+    totalCurrentEmployeeLiabilities:    number;
+    totalNonCurrentEmployeeLiabilities: number;
   };
 
-  // ── Note 3.19: Direct Expenses ────────────────────────────────────────────
-  /**
-   * Keyed by expense head, e.g. "Direct Wages", "Carriage Inward",
-   * "Packing Charges", "Other Direct Expenses".
-   */
-  note319_directExpenses: Record<string, { cy: number; py: number }>;
+  // ── Note 3.13 — Trade and Other Payables ──────────────────────────────────
+  note313_tradePayables: {
+    tradeCreditors:        number;
+    advanceFromCustomers:  number;
+    auditFeePayable:       number;
+    vatPayable:            number;
+    tdsPayableBreakdown: Array<{
+      ledgerName: string;
+      amount:     number;
+    }>;
+    tdsPayableTotal: number;
+    otherAccruals:   number;
+    total:           number;
+    // Previous year
+    tradeCreditors_py:   number;
+    auditFeePayable_py:  number;
+    vatPayable_py:       number;
+    tdsPayableTotal_py:  number;
+  };
 
-  // ── Note 3.20: Employee Benefit Expenses ──────────────────────────────────
-  /**
-   * Keyed by expense component, e.g. "Wages and Salaries",
-   * "Short-term Non-monetary Benefits", "Defined Contribution Pension",
-   * "Defined Benefit Pension Cost", "Other Long-term Employee Benefits",
-   * "Other Expenses".
-   */
-  note320_employeeBenefitExpenses: Record<string, { cy: number; py: number }>;
-
-  // ── Note 3.21: Impairment Expenses ────────────────────────────────────────
-  /** Each entry names an impairment category and its CY and PY amounts */
-  note321_impairment: { description: string; cy: number; py: number }[];
-
-  // ── Note 3.22: Administrative and Other Expenses ─────────────────────────
-  /**
-   * Keyed by expense line, e.g. "Bank Charges", "Audit Fees",
-   * "Advertisement & Business Promotion", "Fuel Expenses",
-   * "House Rent / Lease Rentals", "Electricity & Water", etc.
-   */
-  note322_adminExpenses: Record<string, { cy: number; py: number }>;
-
-  // ── Note 3.23: Income Tax ─────────────────────────────────────────────────
-  note323_incomeTax: {
-    /** Tax charge recognised in the Statement of Income */
-    currentTax: number;
-    /** Book profit before tax from the Statement of Income */
-    profitBeforeTax: number;
-    /** Applicable rate, e.g. 0.25 for 25 % */
-    taxRate: number;
-    /**
-     * Expenses disallowed under Nepal Income Tax Act 2058
-     * (e.g. penalties, personal expenses, excess depreciation).
-     * Keyed by item description → disallowable amount.
-     */
-    addDisallowableExpenses: Record<string, number>;
-    /**
-     * Additional allowable deductions beyond book expenses
-     * (e.g. tax depreciation excess over book depreciation).
-     * Keyed by item description → deductible amount.
-     */
-    lessAllowableExpenses: Record<string, number>;
-    /** Taxable income after all adjustments */
-    taxableIncome: number;
-    /** Advance income tax (TDS + self-assessment instalments) paid during the year */
-    advanceTaxPaid: number;
-    /** TDS credits available (e.g. TDS on interest income) */
+  // ── Note 3.14 — Tax Computation Summary ───────────────────────────────────
+  note314_taxComputation: {
+    advanceTaxPaid:     number;
     tdsCreditAvailable: number;
-    /** Net tax payable = currentTax − advanceTaxPaid − tdsCreditAvailable */
-    netTaxPayable: number;
+    incomeTaxForYear:   number;
+    netTaxLiability:    number;
+    taxRecoverable:     number;
+  };
+
+  // ── Note 3.15 — Revenue (Summary) ─────────────────────────────────────────
+  note315_revenue: {
+    saleOfGoods_cy:    number;
+    saleOfServices_cy: number;
+    totalRevenue_cy:   number;
+    saleOfGoods_py:    number;
+    saleOfServices_py: number;
+    totalRevenue_py:   number;
+  };
+
+  // ── Note 3.16 — Dividend Payable ──────────────────────────────────────────
+  note316_dividendPayable: {
+    hasDividend:           boolean;
+    paidUpCapital:         number;
+    declaredRatePercent:   number;
+    amountPerShare:        number;
+    totalDividendDeclared: number;
+    tdsOnDividend:         number;
+    netDividendPayable:    number;
+  };
+
+  // ── Note 3.17 — Revenue from Operations (Detailed) ────────────────────────
+  note317_revenueDetailed: {
+    saleOfGoods:         { cy: number; py: number };
+    renderingOfServices: { cy: number; py: number };
+    interestIncome:      { cy: number; py: number };
+    dividendIncome:      { cy: number; py: number };
+    otherIncome:         { cy: number; py: number };
+    totalIncome:         { cy: number; py: number };
+  };
+
+  // ── Note 3.18 — Material Consumed ─────────────────────────────────────────
+  note318_materialConsumed: {
+    openingRawMaterial:        number;
+    purchasesDuringYear:       number;
+    closingRawMaterial:        number;
+    rawMaterialConsumed:       number;
+    changeInInventoriesFGWIP:  number;
+    openingFGWIP:              number;
+    closingFGWIP:              number;
+    directWages:               number;
+    otherDirectExpenses:       number;
+    totalCostOfProduction:     number;
+  };
+
+  // ── Note 3.19 — Other Income ──────────────────────────────────────────────
+  note319_otherIncome: {
+    interestIncome:              { cy: number; py: number };
+    commissionIncome:            { cy: number; py: number };
+    rentalIncome:                { cy: number; py: number };
+    dividendReceived:            { cy: number; py: number };
+    gainOnDisposalAssets:        { cy: number; py: number };
+    insuranceClaims:             { cy: number; py: number };
+    fairValueGainOnInvestments:  { cy: number; py: number };
+    miscellaneousIncome:         { cy: number; py: number };
+    total:                       { cy: number; py: number };
+  };
+
+  // ── Note 3.20 — Employee Benefit Expenses ─────────────────────────────────
+  note320_employeeExpenses: {
+    salariesWages:         { cy: number; py: number };
+    allowances:            { cy: number; py: number };
+    pfSsfContribution:     { cy: number; py: number };
+    gratuityExpense:       { cy: number; py: number };
+    leaveEncashment:       { cy: number; py: number };
+    staffBonusExpense:     { cy: number; py: number };
+    staffWelfare:          { cy: number; py: number };
+    otherEmployeeCosts:    { cy: number; py: number };
+    totalEmployeeExpenses: { cy: number; py: number };
+    kmpCompensation: {
+      description:   string;
+      salary:        number;
+      bonus:         number;
+      otherBenefits: number;
+      total:         number;
+    };
+  };
+
+  // ── Note 3.21 — Depreciation ──────────────────────────────────────────────
+  note321_depreciation: {
+    byClass: Array<{
+      categoryName:        string;
+      depreciationForYear: number;
+    }>;
+    totalDepreciation:    number;
+    totalDepreciation_py: number;
+  };
+
+  // ── Note 3.22 — Administrative Expenses ───────────────────────────────────
+  note322_adminExpenses: {
+    lineItems: Array<{
+      label: string;
+      cy:    number;
+      py:    number;
+    }>;
+    total_cy: number;
+    total_py: number;
+  };
+
+  // ── Note 3.23 — Tax Expense and Reconciliation ────────────────────────────
+  note323_taxExpense: {
+    currentTaxExpense:   number;
+    deferredTaxExpense:  number;
+    priorYearAdjustment: number;
+    totalTaxExpense:     number;
+    effectiveTaxRate:    number;
+    reconciliation: {
+      profitBeforeTax:      number;
+      disallowableExpenses: Record<string, number>;
+      allowableDeductions:  Record<string, number>;
+      taxableProfit:        number;
+      taxAtStatutoryRate:   number;
+      taxAdjustments:       number;
+      totalCurrentTax:      number;
+    };
+    taxDepreciationByPool: Array<{
+      poolName:          string;
+      rate:              number;
+      openingBasis:      number;
+      additions:         number;
+      disposals:         number;
+      depreciationBasis: number;
+      taxDepreciation:   number;
+      closingBasis:      number;
+    }>;
+    advanceTaxPaid:     number;
+    tdsCreditAvailable: number;
+    netTaxPayable:      number;
+  };
+
+  // ── Note 3.24 — Related Party Transactions ────────────────────────────────
+  note324_relatedParty: {
+    relatedParties: Array<{
+      partyName:           string;
+      relationship:        'Director / Related Party' | 'Group Company' | 'Associate' | 'KMP' | 'Other';
+      natureOfTransaction: 'Loan Given' | 'Loan Received' | 'Sales' | 'Purchases' | 'Rent Paid' | 'Salary Paid' | 'Other';
+      transactionAmount:   number;
+      outstandingBalance:  number;
+      balanceType:         'Receivable' | 'Payable';
+      atArmSLength:        boolean;
+    }>;
+    kmpCompensationTotal:          number;
+    noRelatedPartyTransactions:    boolean;
+  };
+
+  // ── Note 3.25 — Contingent Liabilities ────────────────────────────────────
+  note325_contingencies: {
+    hasContingencies:              boolean;
+    bankGuaranteesIssued:          number;
+    lcOpened:                      number;
+    legalCasesPending: Array<{
+      caseDescription: string;
+      amount:          number;
+      status:          string;
+    }>;
+    capitalCommitments:            number;
+    operatingLeaseCommitments:     number;
+    defaultText:                   string;
+  };
+
+  // ── Note 3.26 — Subsequent Events ────────────────────────────────────────
+  note326_subsequentEvents: {
+    hasSubsequentEvents: boolean;
+    events: Array<{
+      description: string;
+      date:        string;
+      amount:      number | null;
+    }>;
+    defaultText: string;
   };
 }
