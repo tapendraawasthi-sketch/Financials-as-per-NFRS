@@ -152,22 +152,16 @@ export default function Sidebar({
           const accessible = isAccessible(item.step, currentStep, completedSteps);
           const ItemIcon   = item.icon;
 
-          // Determine text color via inline style (not Tailwind) so it's always visible on dark sidebar
+          // All steps always visible — only color changes by state
           const labelColor = isActive
             ? '#ffffff'
-            : isDone
-            ? '#cbd5e1'  // slate-300 — light enough on dark bg
-            : accessible
-            ? '#94a3b8'  // slate-400 — medium grey, always visible
-            : 'rgba(148,163,184,0.35)'; // very muted for locked steps
+            : '#94a3b8';  // same visible grey for ALL non-active steps
 
           const iconColor = isActive
-            ? '#a5b4fc'  // indigo-300
+            ? '#a5b4fc'   // indigo-300
             : isDone
-            ? 'rgba(45,212,191,0.7)'  // teal
-            : accessible
-            ? '#64748b'  // slate-500
-            : 'rgba(100,116,139,0.35)';
+            ? 'rgba(45,212,191,0.8)'
+            : '#64748b';  // slate-500 — visible on dark bg
 
           return (
             <button
@@ -176,11 +170,11 @@ export default function Sidebar({
               disabled={!accessible}
               aria-current={isActive ? 'step' : undefined}
               aria-label={`Step ${idx + 1}: ${item.label}${isDone ? ' (completed)' : ''}${!accessible ? ' (not yet available)' : ''}`}
-              className="w-full flex items-center gap-3 px-3 py-2.5 text-left relative transition-all duration-150 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-400"
+              className="w-full flex items-center gap-3 px-3 py-2.5 text-left relative transition-all duration-150"
               style={{
                 color: labelColor,
-                cursor: accessible ? 'pointer' : 'not-allowed',
-                opacity: accessible || isActive ? 1 : 0.4,
+                cursor: accessible ? 'pointer' : 'default',
+                opacity: 1,
                 background: isActive
                   ? 'linear-gradient(90deg, rgba(99,102,241,0.22) 0%, transparent 100%)'
                   : 'transparent',
@@ -223,9 +217,9 @@ export default function Sidebar({
                         color: '#2dd4bf',
                       }
                     : {
-                        background: 'rgba(255,255,255,0.06)',
-                        border: '1px solid rgba(255,255,255,0.10)',
-                        color: 'rgba(148,163,184,0.7)',
+                        background: 'rgba(255,255,255,0.08)',
+                        border: '1px solid rgba(255,255,255,0.15)',
+                        color: '#94a3b8',
                       }),
                 }}
               >
