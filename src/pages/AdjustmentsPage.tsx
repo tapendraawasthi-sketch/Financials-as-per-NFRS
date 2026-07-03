@@ -12,7 +12,7 @@ type TabId = 'assets' | 'provisions';
 
 export default function AdjustmentsPage() {
   const { state, dispatch } = useAppStore();
-  const { saveAssets, calculateDepreciation } = useAdjustments();
+  const { saveAssets, calculateDepreciation, finalizeAdjustments } = useAdjustments();
   const [activeTab, setActiveTab] = useState<TabId>('assets');
 
   const handleCalculateDepreciation = async (assets: any[]) => {
@@ -26,9 +26,12 @@ export default function AdjustmentsPage() {
     await adjustmentsApi.saveProvisions(state.company.id, rows);
   };
 
-  const handleProceed = () => {
-    dispatch({ type: 'COMPLETE_STEP', payload: 'year_end_adjustments' });
-    dispatch({ type: 'SET_STEP', payload: 'review_statements' });
+  const handleProceed = async () => {
+    try {
+      await finalizeAdjustments();
+    } catch {
+      return;
+    }
   };
 
   const tabs = [
