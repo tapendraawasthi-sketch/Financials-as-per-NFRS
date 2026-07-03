@@ -1054,22 +1054,40 @@ export function buildNotesData(params: {
 
   // ─── Note 3.25 — Contingent Liabilities and Commitments ───────────────────
 
+  const nas = (company.nasCompliance ?? {}) as Record<string, boolean>;
+  const hasContingencies = Boolean(nas.contingentLiabilities || nas.leaseArrangements);
+  const contingencyParts: string[] = [];
+  if (nas.contingentLiabilities) {
+    contingencyParts.push(
+      'Management has confirmed the existence of contingent liabilities that require disclosure in accordance with NAS for MEs.',
+    );
+  }
+  if (nas.leaseArrangements) {
+    contingencyParts.push(
+      'The Company has lease arrangements (finance or operating) that may give rise to commitments requiring disclosure.',
+    );
+  }
   const note325_contingencies: NotesData['note325_contingencies'] = {
-    hasContingencies:      false,
+    hasContingencies,
     bankGuaranteesIssued:  0,
     lcOpened:              0,
     legalCasesPending:     [],
     capitalCommitments:    0,
-    operatingLeaseCommitments: 0,
-    defaultText:           'The Company has no contingent liabilities or commitments as at the reporting date.',
+    operatingLeaseCommitments: nas.leaseArrangements ? 1 : 0,
+    defaultText: hasContingencies
+      ? contingencyParts.join(' ')
+      : 'The Company has no contingent liabilities or commitments as at the reporting date.',
   };
 
   // ─── Note 3.26 — Subsequent Events ────────────────────────────────────────
 
+  const hasSubsequentEvents = Boolean(nas.eventsAfterDate);
   const note326_subsequentEvents: NotesData['note326_subsequentEvents'] = {
-    hasSubsequentEvents: false,
+    hasSubsequentEvents,
     events:              [],
-    defaultText:         'There are no significant events after the reporting date that require adjustment to or disclosure in these financial statements.',
+    defaultText: hasSubsequentEvents
+      ? 'Management has identified material events after the reporting date that require disclosure in these financial statements. Details are provided in the accompanying schedules.'
+      : 'There are no significant events after the reporting date that require adjustment to or disclosure in these financial statements.',
   };
 
   // ─── Assemble and return ───────────────────────────────────────────────────

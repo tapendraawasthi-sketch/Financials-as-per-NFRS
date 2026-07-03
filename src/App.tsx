@@ -5,10 +5,11 @@ import type { CompanyProfile, ParsedTrialBalance, YearEndAdjustments, AppStep } 
 import LoadingSpinner from './components/ui/LoadingSpinner';
 import Alert from './components/ui/Alert';
 import AppShell from './components/layout/AppShell';
+import WizardFooter from './components/layout/WizardFooter';
 import { KeyboardShortcutsModal } from './components/ui/KeyboardShortcutsModal';
 import { useToast } from './components/ui/Toast';
 import { AlertTriangle, ArrowRight } from 'lucide-react';
-import { saveSession, useSessionPersistence } from './hooks/useSessionPersistence';
+import { loadSession, saveSession, useSessionPersistence } from './hooks/useSessionPersistence';
 import useKeyboardShortcuts from './hooks/useKeyboardShortcuts';
 
 // ── Prerequisite definitions ───────────────────────────────────────────────────
@@ -230,6 +231,69 @@ const AppInner: React.FC = () => {
 
   const canGoPrev = stepIndex > 0;
 
+  const goNext = React.useCallback(() => {
+    if (!canGoNext()) return;
+    dispatch({ type: 'SET_STEP', payload: WIZARD_STEPS[stepIndex + 1] });
+  }, [canGoNext, dispatch, stepIndex]);
+
+  const goPrev = React.useCallback(() => {
+    if (!canGoPrev) return;
+    dispatch({ type: 'SET_STEP', payload: WIZARD_STEPS[stepIndex - 1] });
+  }, [canGoPrev, dispatch, stepIndex]);
+
+  const restoreCompanySession = React.useCallback(async (companyId: string) => {
+    const localState = loadSession(companyId);
+    if (localState) {
+      dispatch({ type: 'HYDRATE_STATE', payload: localState });
+    }
+    localStorage.setItem('me_last_company_id', companyId);
+
+    try {
+      const companyResult = await fetchWithStatus<Record<string, unknown>>(
+        `/api/company/${companyId}`,
+      );
+      if (companyResult.data) {
+        dispatch({ type: 'SET_COMPANY', payload: companyResult.data as CompanyProfile });
+      }
+
+      const tbResult = await fetchWithStatus<Record<string, unknown>>(
+        `/api/trial-balance/${companyId}`,
+      );
+      if (tbResult.data) {
+        dispatch({ type: 'SET_TRIAL_BALANCE', payload: tbResult.data as ParsedTrialBalance });
+      } else if (localState?.trialBalance) {
+        dispatch({ type: 'SET_TRIAL_BALANCE', payload: localState.trialBalance });
+      }
+
+      const adjResult = await fetchWithStatus<Record<string, unknown>>(
+        `/api/adjustments/${companyId}`,
+      );
+      if (adjResult.data) {
+        dispatch({ type: 'SET_ADJUSTMENTS', payload: adjResult.data as YearEndAdjustments });
+      } else if (localState?.adjustments) {
+        dispatch({ type: 'SET_ADJUSTMENTS', payload: localState.adjustments });
+      }
+
+      if (!localState) {
+        let nextStep: AppStep = 'trial_balance_upload';
+        if (adjResult.data) {
+          nextStep = 'year_end_adjustments';
+        } else if (tbResult.data) {
+          nextStep = 'trial_balance_mapping';
+        }
+        dispatch({ type: 'SET_STEP', payload: nextStep });
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to restore client session.';
+      showToast(message, 'error', 4000);
+    }
+  }, [dispatch, showToast]);
+
+  const handleSwitchClient = React.useCallback((companyId: string) => {
+    void restoreCompanySession(companyId);
+    showToast('Switched client', 'success');
+  }, [restoreCompanySession, showToast]);
+
   useKeyboardShortcuts([
     {
       key: 's',
@@ -249,7 +313,7 @@ const AppInner: React.FC = () => {
       enabled: canGoNext(),
       handler: () => {
         if (!canGoNext()) return;
-        dispatch({ type: 'SET_STEP', payload: WIZARD_STEPS[stepIndex + 1] });
+        goNext();
       },
     },
     {
@@ -259,7 +323,7 @@ const AppInner: React.FC = () => {
       enabled: canGoPrev,
       handler: () => {
         if (!canGoPrev) return;
-        dispatch({ type: 'SET_STEP', payload: WIZARD_STEPS[stepIndex - 1] });
+        goPrev();
       },
     },
     {
@@ -359,12 +423,24 @@ const AppInner: React.FC = () => {
       currentStep={state.currentStep}
       completedSteps={state.completedSteps}
       onNavigate={handleNavigate}
+      companyId={state.company?.id}
       companyName={state.company?.companyName}
       fiscalYear={state.company?.fiscalYear.bsFY}
+      onSwitchClient={handleSwitchClient}
       lastSavedAt={lastSavedAt}
       headerTitle={stepInfo.title}
       headerSubtitle={stepInfo.subtitle}
       breadcrumb={['Home', stepInfo.title]}
+      wizardFooter={(
+        <WizardFooter
+          canGoPrev={canGoPrev}
+          canGoNext={canGoNext()}
+          onPrev={goPrev}
+          onNext={goNext}
+          stepIndex={Math.max(stepIndex, 0)}
+          totalSteps={WIZARD_STEPS.length}
+        />
+      )}
     >
       {/* Global error banner */}
       {state.error && (

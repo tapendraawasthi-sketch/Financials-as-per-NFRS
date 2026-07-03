@@ -287,6 +287,7 @@ export default function AdjustmentsPage() {
                 lossOnDisposals={state.adjustments?.lossOnDisposals ?? 0}
                 roundingLevel={roundingLevel}
                 fiscalYear={fiscalYear}
+                taxDepreciationPools={state.adjustments?.taxDepreciationPools}
               />
             )}
           </>

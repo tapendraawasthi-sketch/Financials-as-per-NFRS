@@ -1,8 +1,9 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { computeBalanceSheet } from '../../server/services/financialEngine.js';
+import { computeBalanceSheet, computeCashFlow } from '../../server/services/financialEngine.js';
+import { buildNotesData } from '../../server/services/notesEngine.js';
 import { SAMPLE_COMPANY } from '../../src/data/sampleData.js';
-import type { IncomeStatement, MappedTBRow, YearEndAdjustments } from '../../src/types/index.js';
+import type { BalanceSheet, IncomeStatement, MappedTBRow, YearEndAdjustments } from '../../src/types/index.js';
 
 const emptyAdj = {
   investmentAdjustments: [],
@@ -57,5 +58,54 @@ describe('financialEngine investments', () => {
     );
     assert.equal(bs.nca_investments, 500_000);
     assert.equal(bs.ca_investments, 0);
+  });
+});
+
+describe('financialEngine cash flow', () => {
+  it('handles minimal adjustments without depreciationResults or assets', () => {
+    const minimalAdj = {
+      investmentAdjustments: [],
+      totalDepreciationExpense: 0,
+      staffBonusProvision: 0,
+      gainOnDisposals: 0,
+      lossOnDisposals: 0,
+    } as YearEndAdjustments;
+
+    const is = { profitBeforeTax: 0, interestIncome: 0, financeCharges: 0, impairment: 0, staffBonus: 0 } as IncomeStatement;
+    const bs = { ca_tradeReceivables: 0, ca_inventories: 0, ca_other: 0, cl_tradePayables: 0, cl_incomeTaxPayable: 0, cl_provisions: 0, ca_cashAndEquivalents: 1000 } as BalanceSheet;
+
+    const cf = computeCashFlow(
+      { rows: [row('cash_in_hand', 1000)] } as any,
+      minimalAdj,
+      is,
+      bs,
+    );
+
+    assert.equal(cf.proceedsFromPPEDisposal, 0);
+    assert.ok(cf.purchaseOfPPE === 0);
+    assert.equal(cf.closingCash, 1000);
+  });
+});
+
+describe('notesEngine nasCompliance', () => {
+  it('uses company nasCompliance flags for contingencies and subsequent events', () => {
+    const notes = buildNotesData({
+      tb: { rows: [] } as any,
+      adj: emptyAdj,
+      bs: {} as BalanceSheet,
+      is: emptyIS,
+      company: {
+        ...SAMPLE_COMPANY,
+        nasCompliance: {
+          contingentLiabilities: true,
+          eventsAfterDate: true,
+        },
+      },
+    });
+
+    assert.equal(notes.note325_contingencies?.hasContingencies, true);
+    assert.match(notes.note325_contingencies?.defaultText ?? '', /contingent liabilities/i);
+    assert.equal(notes.note326_subsequentEvents?.hasSubsequentEvents, true);
+    assert.match(notes.note326_subsequentEvents?.defaultText ?? '', /events after the reporting date/i);
   });
 });

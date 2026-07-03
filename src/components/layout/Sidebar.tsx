@@ -10,10 +10,10 @@ import {
   FileText,
   Download,
   Check,
-  Calendar,
   ShieldCheck,
 } from 'lucide-react';
 import { AppStep } from '../../types';
+import ClientSwitcher from './ClientSwitcher';
 
 interface NavItem {
   step:  AppStep;
@@ -25,8 +25,10 @@ interface SidebarProps {
   currentStep:    AppStep;
   completedSteps: AppStep[];
   onNavigate:     (step: AppStep) => void;
+  companyId?:     string;
   companyName?:   string;
   fiscalYear?:    string;
+  onSwitchClient?: (companyId: string) => void;
 }
 
 const NAV_ITEMS: NavItem[] = [
@@ -52,8 +54,10 @@ export default function Sidebar({
   currentStep,
   completedSteps,
   onNavigate,
+  companyId,
   companyName,
   fiscalYear,
+  onSwitchClient,
 }: SidebarProps) {
   const totalSteps  = NAV_ITEMS.length;
   const currentIdx  = STEP_ORDER.indexOf(currentStep);
@@ -123,25 +127,13 @@ export default function Sidebar({
         </div>
       </div>
 
-      {/* ── Active company context ─────────────────────────────────── */}
-      {companyName && (
-        <div
-          className="relative mx-3 mt-3 mb-1 rounded-xl px-3 py-2.5 flex-shrink-0"
-          style={{ background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.20)' }}
-        >
-          <p className="text-[9px] font-semibold uppercase tracking-widest leading-none" style={{ color: 'rgba(129,140,248,0.70)' }}>
-            Active Client
-          </p>
-          <p className="text-white text-xs mt-1.5 font-semibold truncate" title={companyName}>
-            {companyName}
-          </p>
-          {fiscalYear && (
-            <p className="text-[11px] mt-1 flex items-center gap-1" style={{ color: 'rgba(129,140,248,0.60)' }}>
-              <Calendar size={10} />
-              <span>FY {fiscalYear}</span>
-            </p>
-          )}
-        </div>
+      {/* ── Active company / client switcher ───────────────────────── */}
+      {(companyName || onSwitchClient) && (
+        <ClientSwitcher
+          activeCompanyId={companyId}
+          activeCompanyName={companyName}
+          onSwitch={onSwitchClient ?? (() => {})}
+        />
       )}
 
       {/* ── Navigation ────────────────────────────────────────────── */}

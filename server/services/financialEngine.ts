@@ -112,8 +112,8 @@ export function computeIncomeStatement(
   );
   const otherIncome = round2(
     sumCr(rows, 'other_income_dividend', 'other_income_rental', 'other_income_misc', 'other_income_disposal_gain', 'commission_income' as NFRSCategory, 'insurance_claim_income' as NFRSCategory)
-    + adj.gainOnDisposals
-    + adj.investmentAdjustments
+    + (adj.gainOnDisposals ?? 0)
+    + (adj.investmentAdjustments ?? [])
       .filter((i) => (i.fairValueGainLoss ?? 0) > 0)
       .reduce((s, i) => s + (i.fairValueGainLoss ?? 0), 0),
   );
@@ -137,11 +137,11 @@ export function computeIncomeStatement(
   );
 
   const financeCharges = round2(sumDr(rows, 'finance_cost_interest', 'finance_cost_bank_charges'));
-  const depreciation = round2(adj.totalDepreciationExpense);
+  const depreciation = round2(adj.totalDepreciationExpense ?? 0);
   const impairment = round2(
     sumDr(rows, 'impairment_expense')
-    + adj.investmentAdjustments.reduce((s, i) => s + (i.impairmentAmount ?? 0), 0)
-    + adj.investmentAdjustments
+    + (adj.investmentAdjustments ?? []).reduce((s, i) => s + (i.impairmentAmount ?? 0), 0)
+    + (adj.investmentAdjustments ?? [])
       .filter((i) => (i.fairValueGainLoss ?? 0) < 0)
       .reduce((s, i) => s + Math.abs(i.fairValueGainLoss ?? 0), 0),
   );
@@ -213,10 +213,10 @@ export function computeBalanceSheet(
     : accumDepn + adj.totalDepreciationExpense;
   const nca_ppe = round2(Math.max(0, grossPPE - totalAccumDepn));
 
-  const listedFVAdj = adj.investmentAdjustments
+  const listedFVAdj = (adj.investmentAdjustments ?? [])
     .filter((i) => i.investmentType === 'listed_trading' || i.investmentType === 'listed_ats')
     .reduce((s, i) => s + (i.fairValueGainLoss ?? 0), 0);
-  const unlistedImpair = adj.investmentAdjustments
+  const unlistedImpair = (adj.investmentAdjustments ?? [])
     .filter((i) => i.investmentType === 'unlisted')
     .reduce((s, i) => s + (i.impairmentAmount ?? 0), 0);
 
@@ -243,7 +243,7 @@ export function computeBalanceSheet(
 
   const ca_investments = investmentListedTrading;
   const { closingCY } = inventoryFromAdj(adj, rows);
-  const ca_inventories = round2(Math.max(0, closingCY - adj.totalInventoryImpairment));
+  const ca_inventories = round2(Math.max(0, closingCY - (adj.totalInventoryImpairment ?? 0)));
 
   const tradeRec = sumDr(rows, 'trade_receivables');
   const impairmentOnRec = sumCr(rows, 'provision_impairment_debtors');
@@ -426,18 +426,18 @@ export function computeCashFlow(
   const rows = tb.rows;
   const profitBeforeTax = is.profitBeforeTax;
 
-  const addDepreciation = adj.totalDepreciationExpense;
+  const addDepreciation = adj.totalDepreciationExpense ?? 0;
   const addImpairment = is.impairment;
   const lessInterestIncome = -is.interestIncome;
   const lessDividendIncome = -sumCr(rows, 'other_income_dividend');
   const addInterestExpense = is.financeCharges;
-  const addLossOnDisposal = adj.lossOnDisposals;
-  const lessGainOnDisposal = -adj.gainOnDisposals;
+  const addLossOnDisposal = adj.lossOnDisposals ?? 0;
+  const lessGainOnDisposal = -(adj.gainOnDisposals ?? 0);
 
-  const fvLoss = adj.investmentAdjustments
+  const fvLoss = (adj.investmentAdjustments ?? [])
     .filter((i) => (i.fairValueGainLoss ?? 0) < 0)
     .reduce((s, i) => s - (i.fairValueGainLoss ?? 0), 0);
-  const fvGain = adj.investmentAdjustments
+  const fvGain = (adj.investmentAdjustments ?? [])
     .filter((i) => (i.fairValueGainLoss ?? 0) > 0)
     .reduce((s, i) => s + (i.fairValueGainLoss ?? 0), 0);
   const addFVLossOnInvestment = fvLoss;
@@ -497,12 +497,12 @@ export function computeCashFlow(
   );
   const netCashFromOperating = round2(cashGeneratedFromOperations + interestPaid + incomeTaxPaid);
 
-  const proceedsFromPPEDisposal = adj.depreciationResults
+  const proceedsFromPPEDisposal = (adj.depreciationResults ?? [])
     .reduce((s, r) => s + (r.disposalProceeds ?? 0), 0);
   const proceedsFromInvestmentDisposal = 0;
   const interestReceived = is.interestIncome;
   const dividendReceived = sumCr(rows, 'other_income_dividend');
-  const purchaseOfPPE = -adj.assets.reduce((s, a) => s + (a.additionalCost ?? 0), 0);
+  const purchaseOfPPE = -(adj.assets ?? []).reduce((s, a) => s + (a.additionalCost ?? 0), 0);
   const purchaseOfInvestments = -Math.max(0,
     netBalance(rows, 'investment_listed_trading', 'investment_unlisted', 'investment_fixed_deposit_noncurrent')
     - (sumOpeningDr(rows, 'investment_listed_trading', 'investment_unlisted', 'investment_fixed_deposit_noncurrent')

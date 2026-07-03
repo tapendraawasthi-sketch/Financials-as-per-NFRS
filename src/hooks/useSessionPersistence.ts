@@ -60,6 +60,37 @@ export function clearSession(companyId: string): void {
   }
 }
 
+export interface StoredSessionSummary {
+  companyId: string;
+  companyName: string;
+  fiscalYear?: string;
+  currentStep?: string;
+}
+
+export function listStoredSessions(): StoredSessionSummary[] {
+  const sessions: StoredSessionSummary[] = [];
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!key?.startsWith('me_session_')) continue;
+      const companyId = key.slice('me_session_'.length);
+      const raw = localStorage.getItem(key);
+      if (!raw) continue;
+      const state = JSON.parse(raw) as AppState;
+      sessions.push({
+        companyId,
+        companyName: state.company?.companyName?.trim()
+          || `Client ${companyId.slice(0, 8)}`,
+        fiscalYear: state.company?.fiscalYear?.bsFY,
+        currentStep: state.currentStep,
+      });
+    }
+  } catch {
+    return sessions;
+  }
+  return sessions.sort((a, b) => a.companyName.localeCompare(b.companyName));
+}
+
 export function useSessionPersistence(companyId: string | undefined) {
   const { state, dispatch } = useAppStore();
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);

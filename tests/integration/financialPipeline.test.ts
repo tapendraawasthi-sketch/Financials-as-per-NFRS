@@ -134,6 +134,9 @@ describe('financial pipeline integration', () => {
       ?? 0;
     assert.ok(Math.abs(cfEndCash - bsCash) <= 0.5);
 
+    // Sample fixture TB is not fully mapped/balanced (see tbParser isBalanced flag).
+    // BS balance is verified below with a minimal balanced trial balance.
+
     const balancedTrialBalance: ParsedTrialBalance = {
       rows: [
         {

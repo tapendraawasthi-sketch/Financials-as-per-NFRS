@@ -3,14 +3,17 @@ import React from 'react';
 import { AlertCircle, X } from 'lucide-react';
 import Sidebar from './Sidebar';
 import Header  from './Header';
+import { SlimWizardProgress } from './WizardProgress';
 import { AppStep } from '../../types';
 
 interface AppShellProps {
   currentStep:      AppStep;
   completedSteps:   AppStep[];
   onNavigate:       (step: AppStep) => void;
+  companyId?:       string;
   companyName?:     string;
   fiscalYear?:      string;
+  onSwitchClient?:  (companyId: string) => void;
   headerTitle:      string;
   headerSubtitle?:  string;
   headerActions?:   React.ReactNode;
@@ -18,6 +21,7 @@ interface AppShellProps {
   lastSavedAt?:     Date | null;
   error?:           string | null;
   onDismissError?:  () => void;
+  wizardFooter?:    React.ReactNode;
   children:         React.ReactNode;
 }
 
@@ -25,8 +29,10 @@ export default function AppShell({
   currentStep,
   completedSteps,
   onNavigate,
+  companyId,
   companyName,
   fiscalYear,
+  onSwitchClient,
   headerTitle,
   headerSubtitle,
   headerActions,
@@ -34,6 +40,7 @@ export default function AppShell({
   lastSavedAt,
   error,
   onDismissError,
+  wizardFooter,
   children,
 }: AppShellProps) {
   return (
@@ -46,8 +53,10 @@ export default function AppShell({
         currentStep={currentStep}
         completedSteps={completedSteps}
         onNavigate={onNavigate}
+        companyId={companyId}
         companyName={companyName}
         fiscalYear={fiscalYear}
+        onSwitchClient={onSwitchClient}
       />
 
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
@@ -59,6 +68,11 @@ export default function AppShell({
           companyName={companyName}
           fiscalYear={fiscalYear}
           lastSavedAt={lastSavedAt}
+        />
+
+        <SlimWizardProgress
+          currentStep={currentStep}
+          completedSteps={completedSteps}
         />
 
         {error && (
@@ -95,6 +109,8 @@ export default function AppShell({
             {children}
           </div>
         </main>
+
+        {wizardFooter}
       </div>
     </div>
   );
