@@ -32,7 +32,10 @@ function parseBSMonth(dateStr: string): number {
   return months[(parts[1] ?? '').toLowerCase()] ?? 1;
 }
 
-function monthsHeldInFY(purchaseDate: string): number {
+function monthsHeldInFY(purchaseDate: string | number): number {
+  if (typeof purchaseDate === 'number') {
+    return 12;
+  }
   const month = parseBSMonth(purchaseDate);
   if (month <= 6) return 12;
   if (month <= 9) return 12 - (month - 6) * 2;
@@ -61,10 +64,31 @@ function computeAccountingDepreciation(
   asset: AssetRegisterEntry,
   policies?: AccountingPolicies,
 ): AssetRegisterEntry {
+  const raw = asset as AssetRegisterEntry & {
+    purchaseDateBS?: string;
+    accumDepn?: number;
+    accumulatedDepreciation?: number;
+    name?: string;
+    purchaseDate?: string | number;
+  };
+  const assetLabel = asset.assetName ?? raw.name ?? asset.id;
+
+  let purchaseDateForCalc: string | number;
+  if (raw.purchaseDateBS) {
+    purchaseDateForCalc = raw.purchaseDateBS;
+  } else if (typeof raw.purchaseDate === 'number') {
+    purchaseDateForCalc = raw.purchaseDate;
+  } else if (raw.purchaseDate) {
+    purchaseDateForCalc = raw.purchaseDate;
+  } else {
+    throw new Error(`Asset '${assetLabel}': purchaseDate or purchaseDateBS required.`);
+  }
+
   const { rate, method } = getRateAndMethod(asset, policies);
   const costBase = asset.originalCost + asset.additionsCY;
-  const months = monthsHeldInFY(asset.purchaseDate);
+  const months = monthsHeldInFY(purchaseDateForCalc);
   const fraction = asset.disposalDate ? months / 12 : months / 12;
+  const accumulatedDepnPY = raw.accumDepn ?? asset.accumulatedDepnPY ?? raw.accumulatedDepreciation ?? 0;
 
   let depreciationCY = 0;
   if (asset.assetClass === 'Land' || rate === 0) {
@@ -72,19 +96,19 @@ function computeAccountingDepreciation(
   } else if (method === 'SLM') {
     depreciationCY = costBase * rate * fraction;
   } else {
-    const wdv = costBase - asset.accumulatedDepnPY;
+    const wdv = costBase - accumulatedDepnPY;
     depreciationCY = wdv * rate * fraction;
   }
 
   if (asset.disposalDate && asset.disposalValue !== undefined) {
-    const nbv = costBase - asset.accumulatedDepnPY - depreciationCY;
+    const nbv = costBase - accumulatedDepnPY - depreciationCY;
     const gainLoss = asset.disposalValue - nbv;
     void gainLoss;
   }
 
-  const accumulatedDepnCY = asset.accumulatedDepnPY + depreciationCY;
+  const accumulatedDepnCY = accumulatedDepnPY + depreciationCY;
   const netBookValueCY = costBase - accumulatedDepnCY;
-  const netBookValuePY = asset.originalCost - asset.accumulatedDepnPY;
+  const netBookValuePY = asset.originalCost - accumulatedDepnPY;
 
   return {
     ...asset,
