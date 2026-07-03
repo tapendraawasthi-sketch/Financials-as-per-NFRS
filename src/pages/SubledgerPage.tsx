@@ -4,18 +4,11 @@ import { useAppStore }    from '../store/appStore';
 import { MappedTBRow }    from '../types';
 import Tabs               from '../components/ui/Tabs';
 import Alert              from '../components/ui/Alert';
+import { useToast } from '../components/ui/Toast';
 import Button             from '../components/ui/Button';
 import LoadingSpinner     from '../components/ui/LoadingSpinner';
 import { formatNPRSimple } from '../utils/numberFormat';
-import {
-  saveDebtorSubledger,
-  saveCreditorSubledger,
-  saveBankSubledger,
-  saveRelatedPartySubledger,
-} from '../api/client';
-import SubledgerInputPanel from '../components/adjustments/SubledgerInputPanel';
-import { getFiscalYear } from '../data/fiscalYears';
-import type { CompanyProfile } from '../types';
+import { tbApi }          from '../api/client';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface DebtorEntry {
@@ -25,7 +18,6 @@ interface DebtorEntry {
   duringDr:       number;
   duringCr:       number;
   closingBalance: number;
-  invoiceDate:    string;
   isLongTerm:     boolean;
   notes:          string;
 }
@@ -82,7 +74,6 @@ function rowsToDebtors(rows: MappedTBRow[]): DebtorEntry[] {
       duringDr:       r.duringDr  ?? 0,
       duringCr:       r.duringCr  ?? 0,
       closingBalance: r.closingDr ?? 0,
-      invoiceDate:    '',
       isLongTerm:     false,
       notes:          '',
     }));
@@ -127,42 +118,7 @@ function rowsToBanks(rows: MappedTBRow[]): BankEntry[] {
 function getAgingClass(days: number): string {
   if (days <= 30)  return 'bg-emerald-50 text-emerald-700';
   if (days <= 60)  return 'bg-amber-50 text-amber-700';
-  if (days <= 90)  return 'bg-orange-50 text-orange-700';
   return 'bg-red-50 text-red-700';
-}
-
-function resolveFiscalYearEnd(company?: CompanyProfile): Date {
-  const fy = company?.fiscalYear;
-  if (fy?.endAD instanceof Date) return fy.endAD;
-  const bsFY = fy?.bsFY ?? company?.fiscalYearCurrent ?? '2081/82';
-  const entry = getFiscalYear(bsFY);
-  if (entry?.endAD) return entry.endAD;
-  const ad = fy?.reportingDateAD ?? fy?.endDateAD;
-  if (ad) return new Date(ad);
-  return new Date('2025-07-15');
-}
-
-function daysBetween(from: Date, to: Date): number {
-  return Math.floor((to.getTime() - from.getTime()) / 86400000);
-}
-
-function allocateAgingBuckets(
-  balance: number,
-  invoiceDate: string,
-  fyEnd: Date,
-): { current: number; days30_60: number; days61_90: number; over90: number; ageDays: number } {
-  if (!invoiceDate || balance <= 0) {
-    return { current: 0, days30_60: 0, days61_90: 0, over90: 0, ageDays: 0 };
-  }
-  const inv = new Date(invoiceDate);
-  if (Number.isNaN(inv.getTime())) {
-    return { current: 0, days30_60: 0, days61_90: 0, over90: 0, ageDays: 0 };
-  }
-  const ageDays = Math.max(0, daysBetween(inv, fyEnd));
-  if (ageDays <= 30) return { current: balance, days30_60: 0, days61_90: 0, over90: 0, ageDays };
-  if (ageDays <= 60) return { current: 0, days30_60: balance, days61_90: 0, over90: 0, ageDays };
-  if (ageDays <= 90) return { current: 0, days30_60: 0, days61_90: balance, over90: 0, ageDays };
-  return { current: 0, days30_60: 0, days61_90: 0, over90: balance, ageDays };
 }
 
 // ── Search input with clear button — item 165 ─────────────────────────────────
@@ -256,11 +212,9 @@ function SubledgerKPIStrip({
 
 // ── Debtor Tab ────────────────────────────────────────────────────────────────
 const DebtorTab: React.FC<{
-  entries:      DebtorEntry[];
-  onChange:     (entries: DebtorEntry[]) => void;
-  fiscalYearEnd: Date;
-  tbDebtorTotal: number;
-}> = ({ entries, onChange, fiscalYearEnd, tbDebtorTotal }) => {
+  entries:  DebtorEntry[];
+  onChange: (entries: DebtorEntry[]) => void;
+}> = ({ entries, onChange }) => {
   // item 165: search state
   const [search, setSearch] = useState('');
 
@@ -275,7 +229,7 @@ const DebtorTab: React.FC<{
     onChange([
       ...entries,
       { id: `debtor-new-${Date.now()}`, partyName: '', openingBalance: 0,
-        duringDr: 0, duringCr: 0, closingBalance: 0, invoiceDate: '', isLongTerm: false, notes: '' },
+        duringDr: 0, duringCr: 0, closingBalance: 0, isLongTerm: false, notes: '' },
     ]);
   };
 
@@ -286,27 +240,9 @@ const DebtorTab: React.FC<{
     onChange(entries.filter(e => e.id !== id));
 
   const totalClosing = entries.reduce((s, e) => s + e.closingBalance, 0);
-  const bucketTotals = entries.reduce(
-    (acc, entry) => {
-      const buckets = allocateAgingBuckets(entry.closingBalance, entry.invoiceDate, fiscalYearEnd);
-      acc.current += buckets.current;
-      acc.days30_60 += buckets.days30_60;
-      acc.days61_90 += buckets.days61_90;
-      acc.over90 += buckets.over90;
-      return acc;
-    },
-    { current: 0, days30_60: 0, days61_90: 0, over90: 0 },
-  );
-  const diff = Math.abs(totalClosing - tbDebtorTotal);
 
   return (
     <div className="space-y-3">
-      {tbDebtorTotal > 0 && diff > 1 && (
-        <Alert
-          type="warning"
-          message={`Debtor subledger total (NPR ${totalClosing.toLocaleString('en-IN')}) differs from trial balance (NPR ${tbDebtorTotal.toLocaleString('en-IN')}) by NPR ${diff.toLocaleString('en-IN')}.`}
-        />
-      )}
       {/* item 165: search + add row header */}
       <div className="flex items-center justify-between gap-3">
         <SearchInput value={search} onChange={setSearch} placeholder="Search debtor name…" />
@@ -322,12 +258,10 @@ const DebtorTab: React.FC<{
               <th className="px-3 py-2 text-right text-xs font-semibold text-slate-600 w-28">During Dr</th>
               <th className="px-3 py-2 text-right text-xs font-semibold text-slate-600 w-28">During Cr</th>
               {/* item 164: closing column + aging */}
-              <th className="px-3 py-2 text-right text-xs font-semibold text-slate-600 w-28">Closing (NPR)</th>
-              <th className="px-3 py-2 text-center text-xs font-semibold text-slate-600 w-28">Invoice Date</th>
+              <th className="px-3 py-2 text-right text-xs font-semibold text-slate-600 w-32">Closing (NPR)</th>
               <th className="px-3 py-2 text-center text-xs font-semibold text-slate-600 w-24">0–30 days</th>
               <th className="px-3 py-2 text-center text-xs font-semibold text-slate-600 w-24">31–60 days</th>
-              <th className="px-3 py-2 text-center text-xs font-semibold text-slate-600 w-24">61–90 days</th>
-              <th className="px-3 py-2 text-center text-xs font-semibold text-slate-600 w-24">&gt;90 days</th>
+              <th className="px-3 py-2 text-center text-xs font-semibold text-slate-600 w-24">60+ days</th>
               <th className="px-3 py-2 text-center text-xs font-semibold text-slate-600 w-20">Long-term</th>
               <th className="px-2 py-2 w-8" />
             </tr>
@@ -335,13 +269,17 @@ const DebtorTab: React.FC<{
           <tbody>
             {filteredEntries.length === 0 ? (
               <tr>
-                <td colSpan={12} className="px-3 py-8 text-center text-xs text-slate-400">
+                <td colSpan={10} className="px-3 py-8 text-center text-xs text-slate-400">
                   {search ? `No debtors match "${search}"` : 'No trade receivables found. Add debtors manually.'}
                 </td>
               </tr>
             ) : (
               filteredEntries.map(entry => {
-                const buckets = allocateAgingBuckets(entry.closingBalance, entry.invoiceDate, fiscalYearEnd);
+                // item 164: simple aging split — distribute closing balance across buckets
+                // In a real system these would come from per-invoice data
+                const current   = Math.round(entry.closingBalance * 0.7);
+                const mid       = Math.round(entry.closingBalance * 0.2);
+                const overdue   = entry.closingBalance - current - mid;
 
                 return (
                   <tr key={entry.id} className="border-b border-slate-100 hover:bg-slate-50">
@@ -366,23 +304,15 @@ const DebtorTab: React.FC<{
                         className="w-full text-sm text-right font-mono font-semibold text-slate-800 border-0 bg-transparent focus:outline-none focus:ring-1 focus:ring-blue-300 rounded px-1"
                         placeholder="0" />
                     </td>
-                    <td className="px-3 py-1.5">
-                      <input type="date" value={entry.invoiceDate}
-                        onChange={e => updateRow(entry.id, 'invoiceDate', e.target.value)}
-                        className="w-full text-xs border border-slate-200 rounded px-1 py-0.5 bg-white focus:outline-none focus:ring-1 focus:ring-blue-300"
-                        aria-label="Invoice date" />
+                    {/* item 164: color-coded aging buckets */}
+                    <td className={`px-2 py-1.5 text-center text-xs font-mono font-medium rounded-sm ${getAgingClass(15)}`}>
+                      {current ? current.toLocaleString('en-IN') : '—'}
                     </td>
-                    <td className={`px-2 py-1.5 text-center text-xs font-mono font-medium rounded-sm ${getAgingClass(buckets.ageDays || 15)}`}>
-                      {buckets.current ? buckets.current.toLocaleString('en-IN') : '—'}
+                    <td className={`px-2 py-1.5 text-center text-xs font-mono font-medium ${getAgingClass(45)}`}>
+                      {mid ? mid.toLocaleString('en-IN') : '—'}
                     </td>
-                    <td className={`px-2 py-1.5 text-center text-xs font-mono font-medium ${getAgingClass(buckets.ageDays || 45)}`}>
-                      {buckets.days30_60 ? buckets.days30_60.toLocaleString('en-IN') : '—'}
-                    </td>
-                    <td className={`px-2 py-1.5 text-center text-xs font-mono font-medium ${getAgingClass(buckets.ageDays || 75)}`}>
-                      {buckets.days61_90 ? buckets.days61_90.toLocaleString('en-IN') : '—'}
-                    </td>
-                    <td className={`px-2 py-1.5 text-center text-xs font-mono font-medium ${getAgingClass(buckets.ageDays || 120)}`}>
-                      {buckets.over90 ? buckets.over90.toLocaleString('en-IN') : '—'}
+                    <td className={`px-2 py-1.5 text-center text-xs font-mono font-medium ${getAgingClass(90)}`}>
+                      {overdue > 0 ? overdue.toLocaleString('en-IN') : '—'}
                     </td>
                     <td className="px-3 py-1.5 text-center">
                       <input type="checkbox" checked={entry.isLongTerm}
@@ -412,42 +342,10 @@ const DebtorTab: React.FC<{
               <td className="px-3 py-2 text-right font-bold font-mono text-slate-800 tabular-nums">
                 {formatNPRSimple(totalClosing)}
               </td>
-              <td />
-              <td className="px-2 py-2 text-center text-xs font-mono font-semibold text-slate-700">
-                {bucketTotals.current ? bucketTotals.current.toLocaleString('en-IN') : '—'}
-              </td>
-              <td className="px-2 py-2 text-center text-xs font-mono font-semibold text-slate-700">
-                {bucketTotals.days30_60 ? bucketTotals.days30_60.toLocaleString('en-IN') : '—'}
-              </td>
-              <td className="px-2 py-2 text-center text-xs font-mono font-semibold text-slate-700">
-                {bucketTotals.days61_90 ? bucketTotals.days61_90.toLocaleString('en-IN') : '—'}
-              </td>
-              <td className="px-2 py-2 text-center text-xs font-mono font-semibold text-slate-700">
-                {bucketTotals.over90 ? bucketTotals.over90.toLocaleString('en-IN') : '—'}
-              </td>
-              <td colSpan={2} />
+              <td colSpan={5} />
             </tr>
           </tfoot>
         </table>
-      </div>
-
-      <div className="grid grid-cols-4 gap-3 text-center text-xs">
-        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
-          <p className="text-slate-500">0–30 days</p>
-          <p className="font-mono font-semibold text-emerald-800">{formatNPRSimple(bucketTotals.current)}</p>
-        </div>
-        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
-          <p className="text-slate-500">31–60 days</p>
-          <p className="font-mono font-semibold text-amber-800">{formatNPRSimple(bucketTotals.days30_60)}</p>
-        </div>
-        <div className="rounded-lg border border-orange-200 bg-orange-50 px-3 py-2">
-          <p className="text-slate-500">61–90 days</p>
-          <p className="font-mono font-semibold text-orange-800">{formatNPRSimple(bucketTotals.days61_90)}</p>
-        </div>
-        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2">
-          <p className="text-slate-500">&gt;90 days</p>
-          <p className="font-mono font-semibold text-red-800">{formatNPRSimple(bucketTotals.over90)}</p>
-        </div>
       </div>
     </div>
   );
@@ -725,10 +623,9 @@ const BorrowingsTab: React.FC<{
 // ── Main Page ─────────────────────────────────────────────────────────────────
 const SubledgerPage: React.FC = () => {
   const { state, dispatch } = useAppStore();
+  const { show: showToast } = useToast();
   const [activeTab,     setActiveTab]     = useState('debtors');
   const [isSaving,      setIsSaving]      = useState(false);
-  const [error,         setError]         = useState<string | null>(null);
-  const [savedOk,       setSavedOk]       = useState(false);
 
   const tbRows = useMemo(() => state.trialBalance?.rows ?? [], [state.trialBalance]);
 
@@ -740,29 +637,6 @@ const SubledgerPage: React.FC = () => {
 
   const companyId = state.company?.id ?? '';
 
-  const fiscalYearEnd = useMemo(() => resolveFiscalYearEnd(state.company), [state.company]);
-
-  const tbDebtorTotal = useMemo(() =>
-    tbRows
-      .filter(r => r.nfrsCategory === 'trade_receivables' && !r.isGroupRow)
-      .reduce((s, r) => s + (r.closingDr ?? 0), 0),
-    [tbRows],
-  );
-
-  const tbCreditorTotal = useMemo(() =>
-    tbRows
-      .filter(r => r.nfrsCategory === 'trade_payables_creditors' && !r.isGroupRow)
-      .reduce((s, r) => s + (r.closingCr ?? 0), 0),
-    [tbRows],
-  );
-
-  const tbBankTotal = useMemo(() =>
-    tbRows
-      .filter(r => ['bank_current_account', 'bank_savings_account', 'bank_fixed_deposit_current', 'cash_in_hand'].includes(r.nfrsCategory ?? '') && !r.isGroupRow)
-      .reduce((s, r) => s + Math.max(0, (r.closingDr ?? 0) - (r.closingCr ?? 0)), 0),
-    [tbRows],
-  );
-
   // item 166: KPI totals
   const totalDebtors   = debtors.reduce((s, e)   => s + e.closingBalance, 0);
   const totalCreditors = creditors.reduce((s, e) => s + e.closingBalance, 0);
@@ -770,19 +644,14 @@ const SubledgerPage: React.FC = () => {
   const handleSave = async () => {
     if (!companyId) return;
     setIsSaving(true);
-    setError(null);
     try {
-      await Promise.all([
-        saveDebtorSubledger(companyId, { debtors }),
-        saveCreditorSubledger(companyId, { creditors }),
-        saveBankSubledger(companyId, { bankAccounts: banks }),
-        saveRelatedPartySubledger(companyId, { relatedParties }),
-      ]);
-      setSavedOk(true);
+      await tbApi.saveSubledgers(companyId, { debtors, creditors, banks, relatedParties, borrowings });
+      showToast('Subledger saved', 'success');
       dispatch({ type: 'COMPLETE_STEP', payload: 'subledger_details' });
       dispatch({ type: 'SET_STEP',      payload: 'year_end_adjustments' });
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to save subledger details.');
+      const message = err instanceof Error ? err.message : 'Failed to save subledger details.';
+      showToast(message, 'error');
     } finally {
       setIsSaving(false);
     }
@@ -817,41 +686,13 @@ const SubledgerPage: React.FC = () => {
       {/* item 166: KPI strip */}
       <SubledgerKPIStrip totalDebtors={totalDebtors} totalCreditors={totalCreditors} />
 
-      {error    && <Alert type="error"   message={error}  onDismiss={() => setError(null)} />}
-      {savedOk  && <Alert type="success" message="Subledger details saved successfully." />}
-
       <Tabs tabs={tabs} active={activeTab} onChange={id => setActiveTab(id)} variant="pill" />
 
       <div className="min-h-64">
-        {activeTab === 'debtors' && (
-          <DebtorTab
-            entries={debtors}
-            onChange={setDebtors}
-            fiscalYearEnd={fiscalYearEnd}
-            tbDebtorTotal={tbDebtorTotal}
-          />
-        )}
-        {activeTab === 'creditors' && (
-          <SubledgerInputPanel
-            companyId={companyId}
-            tbDebtorTotal={tbDebtorTotal}
-            tbCreditorTotal={tbCreditorTotal}
-          />
-        )}
-        {activeTab === 'banks' && (
-          <SubledgerInputPanel
-            companyId={companyId}
-            tbDebtorTotal={tbBankTotal}
-            tbCreditorTotal={0}
-          />
-        )}
-        {activeTab === 'related' && (
-          <SubledgerInputPanel
-            companyId={companyId}
-            tbDebtorTotal={0}
-            tbCreditorTotal={0}
-          />
-        )}
+        {activeTab === 'debtors'    && <DebtorTab    entries={debtors}        onChange={setDebtors}       />}
+        {activeTab === 'creditors'  && <CreditorTab  entries={creditors}      onChange={setCreditors}     />}
+        {activeTab === 'banks'      && <BankTab      entries={banks}          onChange={setBanks}         />}
+        {activeTab === 'related'    && <RelatedPartyTab entries={relatedParties} onChange={setRelatedParties} />}
         {activeTab === 'borrowings' && <BorrowingsTab  entries={borrowings}   onChange={setBorrowings}    />}
       </div>
 

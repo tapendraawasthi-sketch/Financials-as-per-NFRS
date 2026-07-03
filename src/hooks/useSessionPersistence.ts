@@ -1,4 +1,9 @@
 // src/hooks/useSessionPersistence.ts
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useAppStore, type AppState } from '../store/appStore';
+
+const SAVE_THROTTLE_MS = 30_000;
+const sessionKey = (companyId: string) => `me_session_${companyId}`;
 
 export function formatLastSaved(date: Date | null | undefined): string {
   if (!date) return 'Not saved';
@@ -12,4 +17,76 @@ export function formatLastSaved(date: Date | null | undefined): string {
   if (diffMin < 60) return `${diffMin}m ago`;
   const diffHr = Math.floor(diffMin / 60);
   return `${diffHr}h ago`;
+}
+
+export function saveSession(
+  state: AppState,
+  companyId: string,
+  lastSaveRef?: { current: number },
+): string | null {
+  if (!companyId) return null;
+  const now = Date.now();
+  const ref = lastSaveRef ?? { current: 0 };
+  if (ref.current > 0 && now - ref.current < SAVE_THROTTLE_MS) {
+    return null;
+  }
+  ref.current = now;
+  const iso = new Date(now).toISOString();
+  try {
+    localStorage.setItem(sessionKey(companyId), JSON.stringify(state));
+  } catch {
+    return null;
+  }
+  return iso;
+}
+
+export function loadSession(companyId: string): AppState | null {
+  if (!companyId) return null;
+  try {
+    const raw = localStorage.getItem(sessionKey(companyId));
+    if (!raw) return null;
+    return JSON.parse(raw) as AppState;
+  } catch {
+    return null;
+  }
+}
+
+export function clearSession(companyId: string): void {
+  if (!companyId) return;
+  try {
+    localStorage.removeItem(sessionKey(companyId));
+  } catch {
+    // ignore storage errors
+  }
+}
+
+export function useSessionPersistence(companyId: string | undefined) {
+  const { state, dispatch } = useAppStore();
+  const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
+  const lastSaveRef = useRef(0);
+  const hydratedRef = useRef(false);
+
+  useEffect(() => {
+    if (!companyId || hydratedRef.current) return;
+    hydratedRef.current = true;
+    const loaded = loadSession(companyId);
+    if (loaded && state.currentStep === 'company_setup' && !state.company && !state.trialBalance) {
+      dispatch({ type: 'HYDRATE_STATE', payload: loaded });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- hydrate once on mount
+  }, [companyId]);
+
+  useEffect(() => {
+    if (!companyId) return;
+    const iso = saveSession(state, companyId, lastSaveRef);
+    if (iso) setLastSavedAt(new Date(iso));
+  }, [state, companyId]);
+
+  const clear = useCallback(() => {
+    if (companyId) clearSession(companyId);
+    setLastSavedAt(null);
+    lastSaveRef.current = 0;
+  }, [companyId]);
+
+  return { lastSavedAt, clearSession: clear };
 }

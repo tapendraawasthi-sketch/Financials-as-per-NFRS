@@ -68,6 +68,7 @@ type AppAction =
   | { type: 'SET_ERROR'; payload: string }
   | { type: 'CLEAR_ERROR' }
   | { type: 'UPDATE_TB_ROW_MAPPING'; payload: { rowIndex: number; nfrsCategory: import('../types').NFRSCategory; matchedLabel: string } }
+  | { type: 'HYDRATE_STATE'; payload: AppState }
   | { type: 'RESET_ALL' };
 
 // ── Reducer ───────────────────────────────────────────────────────────────────
@@ -137,6 +138,9 @@ function appReducer(state: AppState, action: AppAction): AppState {
 
     case 'RESET_ALL':
       return { ...initialState };
+
+    case 'HYDRATE_STATE':
+      return { ...action.payload };
 
     default:
       return state;
