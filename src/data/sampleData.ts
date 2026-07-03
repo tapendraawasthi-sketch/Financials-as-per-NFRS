@@ -18,7 +18,7 @@ export const SAMPLE_COMPANY: CompanyProfile = {
     position: 'Proprietor',
   },
   fiscalYear: {
-    bsYear: '2081/82',
+    bsFY: '2081/82',
     startDateBS: '1 Shrawan 2081',
     endDateBS: '31 Ashadh 2082',
     startDateAD: 'July 16, 2024',
