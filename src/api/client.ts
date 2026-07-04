@@ -425,6 +425,15 @@ export const adjustmentsApi = {
   getByCompany: (companyId: string): Promise<YearEndAdjustments> =>
     apiRequest<YearEndAdjustments>('GET', `/api/adjustments/${companyId}`),
 
+  getRelevance: (
+    companyId: string,
+    useAI = false,
+  ): Promise<import('../utils/adjustmentRelevance').AdjustmentRelevance & {
+    aiEnhanced?: boolean;
+    aiNotes?: string[];
+  }> =>
+    apiRequest('GET', `/api/adjustments/${companyId}/relevance?useAI=${useAI ? 'true' : 'false'}`),
+
   calculateAll: (companyId: string): Promise<YearEndAdjustments> =>
     apiRequest<YearEndAdjustments>('POST', `/api/adjustments/${companyId}/calculate-all`),
 

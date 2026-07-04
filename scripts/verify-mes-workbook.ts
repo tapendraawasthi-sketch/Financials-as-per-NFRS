@@ -12,6 +12,11 @@ import {
   compareSheetOrderToReference,
   mesReferenceXlsxPath,
 } from '../server/services/mesWorkbookContract.js';
+import {
+  validateCellAnchors,
+  validateEnterDetailsLabels,
+  compareReferenceHeaderParity,
+} from '../server/services/mesWorkbookCellParity.js';
 
 async function main() {
   const target = process.argv[2] ?? path.join(process.cwd(), 'test-output/NFRS_Test_Output.xlsx');
@@ -41,6 +46,22 @@ async function main() {
 
   console.log('✓ MEs workbook structure OK');
 
+  const anchors = validateCellAnchors(wb);
+  if (!anchors.ok) {
+    console.error('Cell anchor errors:');
+    anchors.errors.forEach((e) => console.error(`  ✗ ${e}`));
+    process.exit(1);
+  }
+  console.log(`✓ ${anchors.checked} cell anchors OK`);
+
+  const labels = validateEnterDetailsLabels(wb);
+  if (!labels.ok) {
+    console.error('Enter Details label errors:');
+    labels.errors.forEach((e) => console.error(`  ✗ ${e}`));
+    process.exit(1);
+  }
+  console.log(`✓ Enter Details labels OK (${labels.checked} checks)`);
+
   const refPath = mesReferenceXlsxPath();
   if (refPath && fs.existsSync(refPath)) {
     const refWb = new ExcelJS.Workbook();
@@ -55,6 +76,16 @@ async function main() {
       process.exit(1);
     }
     console.log(`✓ Sheet order matches reference: ${refPath}`);
+
+    const headerParity = compareReferenceHeaderParity(wb, refWb, [
+      'Enter Details', 'Trial Balance', 'Disallow for Tax', 'Instructions',
+    ]);
+    if (!headerParity.ok) {
+      console.error('Reference header parity errors (sample):');
+      headerParity.errors.slice(0, 15).forEach((e) => console.error(`  ✗ ${e}`));
+      process.exit(1);
+    }
+    console.log(`✓ Reference header parity OK (${headerParity.checked} cells)`);
   }
 
   process.exit(0);

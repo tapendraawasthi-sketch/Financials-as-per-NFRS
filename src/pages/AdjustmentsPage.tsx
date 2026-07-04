@@ -19,7 +19,7 @@ import AdjustmentRelevanceBanner from '../components/adjustments/AdjustmentRelev
 import RelatedPartyLoanPanel from '../components/adjustments/RelatedPartyLoanPanel';
 import NasComplianceAdjustmentsPanel from '../components/adjustments/NasComplianceAdjustmentsPanel';
 import { useToast } from '../components/ui/Toast';
-import { detectAdjustmentRelevance } from '../utils/adjustmentRelevance';
+import { detectAdjustmentRelevance, type AdjustmentRelevance } from '../utils/adjustmentRelevance';
 import { assetItemToRow, assetRowToAssetItem } from '../utils/assetMapping';
 import { isAssetRegisterEmpty, prefillAssetsFromTrialBalance } from '../utils/ppePrefill';
 
@@ -36,13 +36,29 @@ export default function AdjustmentsPage() {
   } = useAdjustments();
   const { show: showToast } = useToast();
   const [activeTab, setActiveTab] = useState<TabId>('assets');
+  const [useAIRelevance, setUseAIRelevance] = useState(false);
+  const [serverRelevance, setServerRelevance] = useState<AdjustmentRelevance | null>(null);
   const ppePrefillDone = useRef(false);
   const journalAutoDone = useRef(false);
 
-  const relevance = useMemo(
+  const ruleRelevance = useMemo(
     () => detectAdjustmentRelevance(state.trialBalance?.rows ?? [], state.company),
     [state.trialBalance?.rows, state.company],
   );
+
+  const relevance = serverRelevance ?? ruleRelevance;
+
+  useEffect(() => {
+    if (!state.company?.id) {
+      setServerRelevance(null);
+      return;
+    }
+    let cancelled = false;
+    adjustmentsApi.getRelevance(state.company.id, useAIRelevance)
+      .then((data) => { if (!cancelled) setServerRelevance(data); })
+      .catch(() => { if (!cancelled) setServerRelevance(null); });
+    return () => { cancelled = true; };
+  }, [state.company?.id, state.trialBalance?.rows, useAIRelevance]);
 
   useEffect(() => {
     if (!relevance.hasPPE && activeTab === 'assets') {
@@ -299,7 +315,11 @@ export default function AdjustmentsPage() {
       />
 
       <div className="page-enter space-y-5">
-        <AdjustmentRelevanceBanner relevance={relevance} />
+        <AdjustmentRelevanceBanner
+          relevance={relevance}
+          useAI={useAIRelevance}
+          onToggleAI={setUseAIRelevance}
+        />
         <NasComplianceAdjustmentsPanel nasFlags={relevance.nasFlags} />
 
         {effectiveTab === 'assets' && relevance.hasPPE && (

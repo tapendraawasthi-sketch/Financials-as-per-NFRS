@@ -6,11 +6,12 @@ import Modal from '../ui/Modal';
 interface ExcelPreviewModalProps {
   buffer: ArrayBuffer;
   onClose: () => void;
+  onDownload?: () => void;
 }
 
 const HIDDEN_SHEETS = new Set(['Workings']);
 
-export default function ExcelPreviewModal({ buffer, onClose }: ExcelPreviewModalProps) {
+export default function ExcelPreviewModal({ buffer, onClose, onDownload }: ExcelPreviewModalProps) {
   const [workbook, setWorkbook] = useState<XLSX.WorkBook | null>(null);
   const [activeSheet, setActiveSheet] = useState('');
 
@@ -74,6 +75,18 @@ export default function ExcelPreviewModal({ buffer, onClose }: ExcelPreviewModal
             font-weight: 600;
           }
         `}</style>
+        {onDownload && (
+          <div className="flex justify-end pt-2">
+            <button
+              type="button"
+              onClick={onDownload}
+              className="px-4 py-2 text-xs font-semibold rounded"
+              style={{ background: 'var(--brand-600)', color: 'white' }}
+            >
+              Download This File
+            </button>
+          </div>
+        )}
       </div>
     </Modal>
   );

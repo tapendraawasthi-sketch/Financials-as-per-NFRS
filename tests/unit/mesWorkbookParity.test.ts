@@ -9,6 +9,11 @@ import {
   MES_WORKBOOK_SHEET_ORDER,
   MES_CONSOLIDATED_NOTES_SHEET,
 } from '../../server/services/mesWorkbookContract.js';
+import {
+  validateCellAnchors,
+  validateEnterDetailsLabels,
+  compareReferenceHeaderParity,
+} from '../../server/services/mesWorkbookCellParity.js';
 import { generateNFRSWorkbook } from '../../server/services/excelWriter.js';
 import { SAMPLE_COMPANY } from '../../src/data/sampleData.js';
 import type { BalanceSheet, CashFlowStatement, ChangesInEquity, IncomeStatement } from '../../src/types/index.js';
@@ -180,6 +185,18 @@ describe('mesWorkbookContract', () => {
     assert.equal(result.sheetNames.length, 26);
   });
 
+  it('validates cell-level anchors and Enter Details labels', async () => {
+    const wb = await loadGeneratedWorkbook();
+    const anchors = validateCellAnchors(wb);
+    if (!anchors.ok) {
+      assert.fail(`Cell anchor errors:\n${anchors.errors.join('\n')}`);
+    }
+    const labels = validateEnterDetailsLabels(wb);
+    if (!labels.ok) {
+      assert.fail(`Enter Details label errors:\n${labels.errors.join('\n')}`);
+    }
+  });
+
   it('optionally compares to reference xlsx when MES_REFERENCE_XLSX_PATH is set', async () => {
     const refPath = mesReferenceXlsxPath();
     if (!refPath || !fs.existsSync(refPath)) {
@@ -192,5 +209,15 @@ describe('mesWorkbookContract', () => {
     const genNames = genWb.worksheets.map((ws) => ws.name);
     const orderErrors = compareSheetOrderToReference(genNames, refNames);
     assert.equal(orderErrors.length, 0, orderErrors.join('\n'));
+
+    const headerParity = compareReferenceHeaderParity(genWb, refWb, [
+      'Enter Details',
+      'Trial Balance',
+      'Disallow for Tax',
+      'Instructions',
+    ]);
+    if (!headerParity.ok) {
+      assert.fail(`Reference header parity errors (first ${headerParity.errors.length}):\n${headerParity.errors.slice(0, 10).join('\n')}`);
+    }
   });
 });

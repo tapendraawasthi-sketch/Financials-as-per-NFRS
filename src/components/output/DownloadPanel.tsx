@@ -1,6 +1,6 @@
 // src/components/output/DownloadPanel.tsx
 import React, { useState } from 'react';
-import { FileSpreadsheet, CheckCircle2, Eye } from 'lucide-react';
+import { FileSpreadsheet, CheckCircle2, Eye, Download } from 'lucide-react';
 import { useAppStore } from '../../store/appStore';
 import { outputApi } from '../../api/client';
 import Button from '../ui/Button';
@@ -61,27 +61,32 @@ export default function DownloadPanel() {
 
   const allDone = checklist.every(item => item.done);
 
+  const fileName = `NFRS_Financials_${(company?.companyName ?? 'Company').replace(/[^a-zA-Z0-9]/g, '_')}_${(fiscalYear?.bsFY ?? 'FY').replace(/\//g, '-')}.xlsx`;
+
   const handleFixThis = (step?: string) => {
     if (!step) return;
     dispatch({ type: 'SET_STEP', payload: step as any });
   };
 
-  const handleGenerate = async () => {
+  const generateWorkbook = async (): Promise<Blob> => {
+    if (!company?.id) throw new Error('Company not found.');
+    const blob = await outputApi.generateExcel(
+      company.id,
+      company.companyName ?? company.name ?? 'Company',
+      fiscalYear?.bsFY ?? '',
+    );
+    const buf = await blob.arrayBuffer();
+    setExcelBuffer(buf);
+    return blob;
+  };
+
+  const handlePreview = async () => {
     if (!allDone || !company?.id) return;
     setIsGenerating(true);
     setError(null);
     try {
-      const blob = await outputApi.generateExcel(
-        company.id,
-        company.companyName ?? company.name ?? 'Company',
-        fiscalYear?.bsFY ?? '',
-      );
-      const buf = await blob.arrayBuffer();
-      setExcelBuffer(buf);
-      const safeName = (company?.companyName ?? company?.name ?? 'Company').replace(/[^a-zA-Z0-9]/g, '_');
-      const fy = fiscalYear?.bsFY ?? 'FY';
-      outputApi.triggerDownload(blob, `NFRS_Financials_${safeName}_${fy.replace(/\//g, '-')}.xlsx`);
-      setDownloadComplete(true);
+      await generateWorkbook();
+      setShowPreview(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Excel generation failed.');
     } finally {
@@ -89,7 +94,22 @@ export default function DownloadPanel() {
     }
   };
 
-  const fileName = `NFRS_Financials_${(company?.companyName ?? 'Company').replace(/[^a-zA-Z0-9]/g, '_')}_${(fiscalYear?.bsFY ?? 'FY').replace(/\//g, '-')}.xlsx`;
+  const handleDownload = async () => {
+    if (!allDone || !company?.id) return;
+    setIsGenerating(true);
+    setError(null);
+    try {
+      const blob = excelBuffer
+        ? new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+        : await generateWorkbook();
+      outputApi.triggerDownload(blob, fileName);
+      setDownloadComplete(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Excel generation failed.');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
 
   const headingText = isGenerating
     ? 'Generating Your Report…'
@@ -130,7 +150,6 @@ export default function DownloadPanel() {
         </div>
       </div>
 
-      {/* Pre-generation readiness (preserved logic) */}
       {!allDone && (
         <div className="card text-left mb-6">
           <div className="card-header">
@@ -163,6 +182,10 @@ export default function DownloadPanel() {
         </div>
       )}
 
+      <p className="text-xs mb-4 text-left" style={{ color: 'var(--ink-500)' }}>
+        Preview renders the actual generated .xlsx bytes (same file as download) — not an HTML approximation.
+      </p>
+
       {downloadComplete && (
         <div
           className="flex items-center justify-center gap-2 mb-6 rounded-lg px-4 py-3"
@@ -181,20 +204,42 @@ export default function DownloadPanel() {
         </div>
       )}
 
-      {downloadComplete ? (
-        <div className="flex flex-col items-center gap-3">
-          <div className="flex items-center justify-center gap-3">
+      <div className="flex flex-col items-center gap-3">
+        {!downloadComplete ? (
+          <div className="flex flex-wrap items-center justify-center gap-3 w-full">
+            <Button
+              variant="secondary"
+              size="lg"
+              onClick={handlePreview}
+              disabled={!allDone}
+              loading={isGenerating && !showPreview}
+              className="flex-1 min-w-[140px]"
+            >
+              <Eye size={16} className="mr-1.5" />
+              Preview Workbook
+            </Button>
+            <Button
+              variant="primary"
+              size="lg"
+              onClick={handleDownload}
+              disabled={!allDone}
+              loading={isGenerating && !showPreview}
+              className="flex-1 min-w-[140px]"
+              title={!allDone ? 'Complete all checklist items before generating' : undefined}
+            >
+              <Download size={16} className="mr-1.5" />
+              Download Excel
+            </Button>
+          </div>
+        ) : (
+          <div className="flex flex-wrap items-center justify-center gap-3">
             {excelBuffer && (
-              <Button
-                variant="secondary"
-                size="lg"
-                onClick={() => setShowPreview(true)}
-              >
+              <Button variant="secondary" size="lg" onClick={() => setShowPreview(true)}>
                 <Eye size={16} className="mr-1.5" />
-                Preview Before Download
+                Preview Again
               </Button>
             )}
-            <Button variant="secondary" size="lg" onClick={handleGenerate}>
+            <Button variant="secondary" size="lg" onClick={handleDownload}>
               Download Again
             </Button>
             <Button
@@ -208,25 +253,18 @@ export default function DownloadPanel() {
               Start New Report
             </Button>
           </div>
-        </div>
-      ) : (
-        <Button
-          variant="primary"
-          size="lg"
-          onClick={handleGenerate}
-          disabled={!allDone}
-          loading={isGenerating}
-          className="w-full"
-          title={!allDone ? 'Complete all checklist items before generating' : undefined}
-        >
-          {isGenerating ? 'Generating…' : 'Generate and Download Excel'}
-        </Button>
-      )}
+        )}
+      </div>
 
       {showPreview && excelBuffer && (
         <ExcelPreviewModal
           buffer={excelBuffer}
           onClose={() => setShowPreview(false)}
+          onDownload={() => {
+            const blob = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+            outputApi.triggerDownload(blob, fileName);
+            setDownloadComplete(true);
+          }}
         />
       )}
     </div>

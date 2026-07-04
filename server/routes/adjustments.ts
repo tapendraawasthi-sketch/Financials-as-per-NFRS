@@ -17,6 +17,7 @@ import { sessionStore } from '../store/sessionStore';
 import { calculateDepreciationSummary, calculateTaxDepreciation } from '../services/depreciationEngine';
 import { normalizePPEClassId } from '../services/ppeCategoryMap.js';
 import type { AssetItem, ProvisionEntry, InventoryAdjustment, InvestmentAdjustment, YearEndAdjustments } from '../../src/types';
+import { detectRelevanceWithOptionalAI } from '../services/adjustmentRelevanceAI.js';
 
 function toDepreciationAssets(assets: AssetItem[]) {
   return assets.map((asset) => ({
@@ -339,6 +340,21 @@ router.post('/:companyId/investments', asyncHandler(async (req: Request, res: Re
   const totalFV = items.reduce((s, i) => s + (i.fairValueGainLoss ?? i.gainLossOnFV ?? 0), 0);
   sessionStore.set(req.params.companyId, { adjustments: { ...adj, investmentAdjustments: items, totalInvestmentFVAdjustment: totalFV } });
   return res.json({ message: 'Investment adjustments saved.', totalFVAdjustment: totalFV });
+}));
+
+// GET /:companyId/relevance — rule-based (+ optional AI) adjustment section gating
+router.get('/:companyId/relevance', asyncHandler(async (req: Request, res: Response) => {
+  const session = sessionStore.get(req.params.companyId);
+  if (!session) return res.status(404).json({ error: 'Company not found.' });
+  const useAI = req.query.useAI === 'true';
+  const rows = (session.trialBalance as { rows?: Array<Record<string, unknown>> } | undefined)?.rows ?? [];
+  const result = await detectRelevanceWithOptionalAI(
+    rows as Parameters<typeof detectRelevanceWithOptionalAI>[0],
+    session.company as Parameters<typeof detectRelevanceWithOptionalAI>[1],
+    useAI,
+    process.env.ANTHROPIC_API_KEY,
+  );
+  return res.json(result);
 }));
 
 // GET /:companyId
