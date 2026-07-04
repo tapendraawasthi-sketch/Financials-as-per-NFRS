@@ -108,4 +108,60 @@ describe('notesEngine nasCompliance', () => {
     assert.equal(notes.note326_subsequentEvents?.hasSubsequentEvents, true);
     assert.match(notes.note326_subsequentEvents?.defaultText ?? '', /events after the reporting date/i);
   });
+
+  it('routes government grants and foreign currency flags into note disclosures', () => {
+    const notes = buildNotesData({
+      tb: {
+        rows: [
+          {
+            rowIndex: 0,
+            rawLabel: 'Grant income',
+            nfrsCategory: 'other_income_misc',
+            closingDr: 0,
+            closingCr: 50_000,
+            openingDr: 0,
+            openingCr: 0,
+            duringDr: 0,
+            duringCr: 0,
+            adjustmentDr: 0,
+            adjustmentCr: 0,
+            isGroupRow: false,
+          },
+          {
+            rowIndex: 1,
+            rawLabel: 'Finance charges',
+            nfrsCategory: 'finance_cost_interest',
+            closingDr: 12_000,
+            closingCr: 0,
+            openingDr: 0,
+            openingCr: 0,
+            duringDr: 0,
+            duringCr: 0,
+            adjustmentDr: 0,
+            adjustmentCr: 0,
+            isGroupRow: false,
+          },
+        ],
+      } as any,
+      adj: emptyAdj,
+      bs: {} as BalanceSheet,
+      is: emptyIS,
+      company: {
+        ...SAMPLE_COMPANY,
+        nasCompliance: {
+          governmentGrants: true,
+          foreignCurrency: true,
+        },
+      },
+    });
+
+    assert.equal((notes.note319_otherIncome as any)?.governmentGrantIncome?.cy, 50_000);
+    assert.equal((notes.note319_otherIncome as any)?.miscellaneousIncome?.cy, 0);
+    assert.equal((notes.note319_otherIncome as any)?.hasForeignCurrencyTransactions, true);
+    assert.ok(
+      (notes.note322_adminExpenses?.lineItems ?? []).some(
+        (item) => String(item.label).includes('Foreign Exchange'),
+      ),
+    );
+  });
 });

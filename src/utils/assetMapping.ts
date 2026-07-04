@@ -11,6 +11,9 @@ export interface AssetRow {
   method: 'SLM' | 'WDV';
   wdvRate: number;
   mortgaged: boolean;
+  disposed: boolean;
+  disposalDate: string;
+  disposalValue: number;
 }
 
 const CATEGORY_TO_CLASS: Record<string, string> = {
@@ -60,7 +63,9 @@ export function assetRowToAssetItem(row: AssetRow): AssetItem {
     accumDepreciationOpening: row.accumDepn,
     isFullyDepreciated: false,
     isMortgaged: row.mortgaged,
-    disposed: false,
+    disposed: row.disposed,
+    disposalDateBS: row.disposed ? row.disposalDate : undefined,
+    disposalValue: row.disposed ? row.disposalValue : undefined,
   };
 }
 
@@ -76,5 +81,8 @@ export function assetItemToRow(asset: AssetItem & { name?: string; cost?: number
     method: asset.depreciationMethod === 'WrittenDownValue' || asset.depreciationMethod === 'WDV' ? 'WDV' : 'SLM',
     wdvRate: asset.wdvRate ?? 20,
     mortgaged: asset.isMortgaged ?? false,
+    disposed: asset.disposed ?? false,
+    disposalDate: asset.disposalDateBS ?? '',
+    disposalValue: asset.disposalValue ?? 0,
   };
 }
