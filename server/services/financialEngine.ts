@@ -594,6 +594,17 @@ export function computeAllFinancials(
 } {
   const enrichedAdj: YearEndAdjustments = { ...adj };
 
+  if (!enrichedAdj.inventoryDetails?.rawMaterialsCY && !enrichedAdj.inventoryDetails?.finishedGoodsCY) {
+    enrichedAdj.inventoryDetails = {
+      rawMaterialsCY: sumDr(tb.rows, 'inventory_raw_materials'),
+      rawMaterialsPY: sumOpeningDr(tb.rows, 'inventory_raw_materials'),
+      wipCY: sumDr(tb.rows, 'inventory_wip'),
+      wipPY: sumOpeningDr(tb.rows, 'inventory_wip'),
+      finishedGoodsCY: sumDr(tb.rows, 'inventory_finished_goods'),
+      finishedGoodsPY: sumOpeningDr(tb.rows, 'inventory_finished_goods'),
+    };
+  }
+
   const pyBS: Partial<BalanceSheet> = previousYearData ? {
     nca_ppe: previousYearData.ppe,
     nca_investments: previousYearData.investments,

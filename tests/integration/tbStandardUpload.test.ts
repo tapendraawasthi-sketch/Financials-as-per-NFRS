@@ -61,11 +61,11 @@ describe('tbStandardUpload integration', () => {
       const label = String(ws.getRow(rowNum).getCell(1).value ?? '');
       if (!label || label.toUpperCase() === label) continue;
       if (filled === 0) {
-        ws.getRow(rowNum).getCell(8).value = 100000;
-        ws.getRow(rowNum).getCell(9).value = 0;
-      } else {
         ws.getRow(rowNum).getCell(9).value = 100000;
-        ws.getRow(rowNum).getCell(8).value = 0;
+        ws.getRow(rowNum).getCell(10).value = 0;
+      } else {
+        ws.getRow(rowNum).getCell(10).value = 100000;
+        ws.getRow(rowNum).getCell(9).value = 0;
       }
       filled++;
     }
@@ -96,11 +96,11 @@ describe('tbStandardUpload integration', () => {
       const label = String(ws.getRow(rowNum).getCell(1).value ?? '');
       if (!label || label.toUpperCase() === label) continue;
       if (filled === 0) {
-        ws.getRow(rowNum).getCell(8).value = 100000;
-        ws.getRow(rowNum).getCell(9).value = 0;
-      } else {
         ws.getRow(rowNum).getCell(9).value = 100000;
-        ws.getRow(rowNum).getCell(8).value = 0;
+        ws.getRow(rowNum).getCell(10).value = 0;
+      } else {
+        ws.getRow(rowNum).getCell(10).value = 100000;
+        ws.getRow(rowNum).getCell(9).value = 0;
       }
       filled++;
     }

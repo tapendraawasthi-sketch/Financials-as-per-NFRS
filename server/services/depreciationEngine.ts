@@ -19,11 +19,27 @@ const DEFAULT_RATES: Record<string, { rate: number; method: 'SLM' | 'WDV' }> = {
 
 const TAX_POOLS: Array<{ poolName: string; rate: number; classes: string[] }> = [
   { poolName: 'Pool A (Building 5%)', rate: 0.05, classes: ['Building'] },
-  { poolName: 'Pool B (Computers & Software 25%)', rate: 0.25, classes: ['Intangible', 'OfficeEquipment'] },
+  { poolName: 'Pool B (Computers & Software 25%)', rate: 0.25, classes: ['OfficeEquipment'] },
   { poolName: 'Pool C (Office Equipment & Furniture 25%)', rate: 0.25, classes: ['OfficeEquipment'] },
   { poolName: 'Pool D (Vehicles 20%)', rate: 0.20, classes: ['Vehicle'] },
   { poolName: 'Pool E (Plant & Machinery 15%)', rate: 0.15, classes: ['PlantMachinery'] },
 ];
+
+/** Software/Leasehold intangibles: SLM outside WDV pools (ITA 2058). */
+const INTANGIBLE_TAX_SLM: Record<string, number> = {
+  Intangible: 10,
+  Leasehold: 30,
+};
+
+function computeIntangibleTaxDepreciation(assets: AssetRegisterEntry[]): number {
+  return assets
+    .filter((a) => a.assetClass in INTANGIBLE_TAX_SLM)
+    .reduce((total, asset) => {
+      const life = INTANGIBLE_TAX_SLM[asset.assetClass] ?? 10;
+      const basis = asset.originalCost + (asset.additionsCY ?? 0) - (asset.accumulatedDepnPY ?? 0);
+      return total + Math.max(0, basis / life);
+    }, 0);
+}
 
 function parseBSMonth(dateStr: string): number {
   const months: Record<string, number> = {
@@ -226,12 +242,15 @@ function computeTaxDepPool(
     };
   });
 
-  const totalNetDep = poolResults.reduce((s, p) => s + p.netDepreciation, 0);
+  const poolOnlyTotal = poolResults.reduce((s, p) => s + p.netDepreciation, 0);
+  const intangibleDep = computeIntangibleTaxDepreciation(assets);
+  const totalNetDep = poolOnlyTotal + intangibleDep;
   const maxAllowable = taxableIncome * (2 / 3);
   const totalUnabsorbed = Math.max(0, totalNetDep - maxAllowable);
 
-  return poolResults.map((pool) => {
-    const share = totalNetDep > 0 ? pool.netDepreciation / totalNetDep : 0;
+  return [
+    ...poolResults.map((pool) => {
+    const share = poolOnlyTotal > 0 ? pool.netDepreciation / poolOnlyTotal : 0;
     const unabsorbed = Math.round(totalUnabsorbed * share * 100) / 100;
     const taxableDepreciation = Math.round((pool.netDepreciation - unabsorbed) * 100) / 100;
     const nextYearBasis = Math.max(0, pool.depreciationBasis - taxableDepreciation);
@@ -251,7 +270,23 @@ function computeTaxDepPool(
       nextYearBasis: Math.round(nextYearBasis * 100) / 100,
       repairExpense: pool.repairExpense,
     };
-  });
+    }),
+    ...(intangibleDep > 0 ? [{
+      poolName: 'Intangibles (SLM)',
+      pool: 'Intangibles (SLM)',
+      rate: 0,
+      openingBasis: 0,
+      additions: 0,
+      disposals: 0,
+      absorbed: intangibleDep,
+      unabsorbed: 0,
+      taxDepreciation: intangibleDep,
+      depreciationBasis: 0,
+      closingBasis: 0,
+      nextYearBasis: 0,
+      repairExpense: 0,
+    }] : []),
+  ];
 }
 
 export interface DepreciationEngineResult {

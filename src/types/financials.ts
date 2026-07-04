@@ -266,6 +266,12 @@ export interface EmpBenefitExpensesNote {
   leaveEncashment: { amountCY: number; amountPY: number };
   other: { amountCY: number; amountPY: number };
   total: { amountCY: number; amountPY: number };
+  kmpCompensation?: {
+    salary: number;
+    bonus: number;
+    otherBenefits: number;
+    total: number;
+  };
 }
 
 export interface ImpairmentNote {

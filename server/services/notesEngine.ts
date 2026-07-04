@@ -17,6 +17,7 @@ import type {
   ProvisionEntry,
 } from '../../src/types/index.js';
 import { computeIncomeTax } from './taxEngine.js';
+import { classifyDebtors } from './subledgerRules.js';
 import { subledgerStore } from '../store/subledgerStore.js';
 
 // ─── Internal helpers ──────────────────────────────────────────────────────────
@@ -278,8 +279,8 @@ export function buildNotesData(params: {
 
   // ─── Note 3.3 — Trade and Other Receivables ────────────────────────────────
 
-  const grossReceivables     = sumTB(rows, 'trade_receivables', 'closingDr');
-  const grossReceivablesOpen = sumTB(rows, 'trade_receivables', 'openingDr');
+  const grossReceivablesTB     = sumTB(rows, 'trade_receivables', 'closingDr');
+  const grossReceivablesOpenTB = sumTB(rows, 'trade_receivables', 'openingDr');
 
   const provisionBadDebt    = provisions.find((p) => p.provisionType === 'doubtful_debts');
   const provisionImpairment = Math.abs(safeSum(
@@ -299,9 +300,22 @@ export function buildNotesData(params: {
       ? subledger.debtors
       : (adj.debtors as unknown as Record<string, unknown>[] | undefined) ?? []
   ) as Record<string, unknown>[];
-  const agingAnalysis = debtorRows.length > 0
-    ? buildAgingAnalysis(debtorRows, grossReceivables)
-    : [];
+
+  const debtorClass = classifyDebtors(debtorRows as Parameters<typeof classifyDebtors>[0]);
+  const grossReceivables = debtorRows.length > 0
+    ? debtorClass.tradeReceivablesCY
+    : grossReceivablesTB;
+  const grossReceivablesOpen = debtorRows.length > 0
+    ? debtorClass.tradeReceivablesPY
+    : grossReceivablesOpenTB;
+
+  const agingAnalysis = debtorClass.classifiedDebtors
+    .filter((d) => !d.isAdvanceFromCustomer)
+    .length > 0
+    ? buildAgingAnalysis(debtorClass.classifiedDebtors.filter((d) => !d.isAdvanceFromCustomer), grossReceivables)
+    : debtorRows.length > 0
+      ? buildAgingAnalysis(debtorRows, grossReceivables)
+      : [];
 
   const note33_tradeReceivables: NotesData['note33_tradeReceivables'] = {
     grossReceivables_cy:       grossReceivables,
@@ -338,46 +352,67 @@ export function buildNotesData(params: {
     agingAnalysis,
   };
 
-  // ─── Note 3.4 — Other Current Assets ──────────────────────────────────────
+  // ─── Note 3.4 — Other Receivables (Non-current) ───────────────────────────
+  // BS Note 3.4 = deposits, staff advances, related-party receivables (NCA)
 
-  const note34_otherCurrentAssets: NotesData['note34_otherCurrentAssets'] = {
-    securityDeposits:    sumTB(rows, 'nca_deposits', 'closingDr'),    // current portion
-    guaranteeMargins:    0,
-    advanceIncomeTax:    sumTB(rows, 'advance_tax_paid', 'closingDr'),
-    otherPrepaidExpenses:sumTB(rows, 'other_receivables_other', 'closingDr'),
-    total: round(
-      sumTB(rows, 'nca_deposits', 'closingDr')
-      + sumTB(rows, 'advance_tax_paid', 'closingDr')
-      + sumTB(rows, 'other_receivables_other', 'closingDr')
-    ),
+  const ncaDepositsCY = sumTB(rows, 'nca_deposits', 'closingDr');
+  const ncaDepositsPY = sumTB(rows, 'nca_deposits', 'openingDr');
+  const ncaLoansCY = sumTB(rows, 'nca_loans_advances', 'closingDr');
+  const ncaLoansPY = sumTB(rows, 'nca_loans_advances', 'openingDr');
+  const rpRecvCY = sumTB(rows, 'related_party_receivable', 'closingDr');
+  const rpRecvPY = sumTB(rows, 'related_party_receivable', 'openingDr');
+  const staffAdvCY = sumTB(rows, 'other_receivables_staff_advance', 'closingDr');
+  const staffAdvPY = sumTB(rows, 'other_receivables_staff_advance', 'openingDr');
+
+  const note34_otherReceivables: NotesData['note34_otherReceivables'] = {
+    items: [
+      { description: 'Deposits', balanceCY: ncaDepositsCY, balancePY: ncaDepositsPY },
+      { description: 'Staff Advances', balanceCY: staffAdvCY, balancePY: staffAdvPY },
+      { description: 'Related Party Receivables', balanceCY: rpRecvCY, balancePY: rpRecvPY },
+      { description: 'Loans & Advances (NCA)', balanceCY: ncaLoansCY, balancePY: ncaLoansPY },
+    ].filter((i) => i.balanceCY > 0 || i.balancePY > 0),
+    total: {
+      balanceCY: round(ncaDepositsCY + ncaLoansCY + rpRecvCY + staffAdvCY),
+      balancePY: round(ncaDepositsPY + ncaLoansPY + rpRecvPY + staffAdvPY),
+    },
   };
 
-  // ─── Note 3.5 — Biological Assets ─────────────────────────────────────────
+  // ─── Note 3.5 — Other Non-Current Assets (Biological Assets) ───────────────
 
   const bioOpeningBalance = sumTB(rows, 'biological_assets' as NFRSCategory, 'openingDr');
   const bioClosingBalance = sumTB(rows, 'biological_assets' as NFRSCategory, 'closingDr');
 
-  const note35_biologicalAssets: NotesData['note35_biologicalAssets'] = {
-    hasBalance: bioClosingBalance > 0 || bioOpeningBalance > 0,
-    openingCarrying:    bioOpeningBalance,
-    additionsPurchases: Math.max(0, sumTB(rows, 'biological_assets' as NFRSCategory, 'duringDr')),
-    disposalsSales:     Math.max(0, sumTB(rows, 'biological_assets' as NFRSCategory, 'duringCr')),
-    fairValueAdjustment:0,
-    closingCarrying:    bioClosingBalance,
+  const note35_otherNCA: NotesData['note35_otherNCA'] = {
+    items: bioClosingBalance > 0 || bioOpeningBalance > 0
+      ? [{ description: 'Biological Assets', balanceCY: bioClosingBalance, balancePY: bioOpeningBalance }]
+      : [],
+    total: { balanceCY: bioClosingBalance, balancePY: bioOpeningBalance },
   };
 
-  // ─── Note 3.6 — Non-Current Assets Held for Sale ──────────────────────────
+  // ─── Note 3.6 — Other Current Assets ─────────────────────────────────────
+  // LC/BG margins, assets held for sale, advances to suppliers, advance tax
 
   const hfsBalance = sumTB(rows, 'nca_held_for_sale' as NFRSCategory, 'closingDr');
+  const hfsBalancePY = sumTB(rows, 'nca_held_for_sale' as NFRSCategory, 'openingDr');
+  const advSupplierCY = sumTB(rows, 'other_receivables_advance_supplier', 'closingDr');
+  const advSupplierPY = sumTB(rows, 'other_receivables_advance_supplier', 'openingDr');
+  const advTaxCY = sumTB(rows, 'advance_tax_paid', 'closingDr');
+  const advTaxPY = sumTB(rows, 'advance_tax_paid', 'openingDr');
+  const otherPrepaidCY = sumTB(rows, 'other_receivables_other', 'closingDr');
+  const otherPrepaidPY = sumTB(rows, 'other_receivables_other', 'openingDr');
 
-  const note36_heldForSale: NotesData['note36_heldForSale'] = {
-    hasBalance: hfsBalance > 0,
-    assets: hfsBalance > 0 ? [{
-      description:    'Non-Current Assets Held for Sale',
-      carryingAmount: hfsBalance,
-      expectedSaleDate: null,
-    }] : [],
-    total: hfsBalance,
+  const note36_otherCA: NotesData['note36_otherCA'] = {
+    items: [
+      { description: 'Guarantee / LC Margins', balanceCY: 0, balancePY: 0 },
+      { description: 'Assets Held for Sale', balanceCY: hfsBalance, balancePY: hfsBalancePY },
+      { description: 'Advance to Suppliers', balanceCY: advSupplierCY, balancePY: advSupplierPY },
+      { description: 'Advance Income Tax', balanceCY: advTaxCY, balancePY: advTaxPY },
+      { description: 'Other Prepaid Expenses', balanceCY: otherPrepaidCY, balancePY: otherPrepaidPY },
+    ].filter((i) => i.balanceCY > 0 || i.balancePY > 0),
+    total: {
+      balanceCY: round(hfsBalance + advSupplierCY + advTaxCY + otherPrepaidCY),
+      balancePY: round(hfsBalancePY + advSupplierPY + advTaxPY + otherPrepaidPY),
+    },
   };
 
   // ─── Note 3.7 — Inventories ────────────────────────────────────────────────
@@ -476,23 +511,24 @@ export function buildNotesData(params: {
     rows.filter((r) => r.nfrsCategory === 'share_capital' && !(r as any).isGroupRow)
       .reduce((s, r) => s + (r.openingCr ?? 0) - (r.openingDr ?? 0), 0)
   );
-  const sharesIssued = Math.round(paidUpCapital / 100);   // NPR 100 par value standard
+  const sharesIssued = Math.round(paidUpCapital / (company.shareParValue ?? 100));
+  const parValue = company.shareParValue ?? 100;
+  const authCapital = company.authorizedCapital ?? paidUpCapital;
+  const authShares = company.authorizedSharesOrdinary ?? Math.round(authCapital / parValue);
+  const sharesIssuedDuringYear = company.shareIssuedDuringYear ?? Math.max(
+    0,
+    Math.round(paidUpCapital / parValue) - Math.round(paidUpCapitalOpen / parValue),
+  );
 
   const note39_shareCapital: NotesData['note39_shareCapital'] = {
-    ordinaryShares: {
-      authorizedAmount:    paidUpCapital,
-      authorizedShares:    sharesIssued,
-      parValuePerShare:    100,
-      openingIssuedShares: Math.round(paidUpCapitalOpen / 100),
-      openingPaidUp:       paidUpCapitalOpen,
-      issuedDuringYear:    0,
-      issuedForCash:       0,
-      closingIssuedShares: sharesIssued,
-      closingPaidUp:       paidUpCapital,
-    },
-    preferenceShares: null,
-    restrictionsOnDistribution: null,
-    sharesReservedForOptions:   0,
+    authorizedShares: authShares,
+    authorizedAmount: authCapital,
+    issuedSharesPY: Math.round(paidUpCapitalOpen / parValue),
+    issuedSharesCY: sharesIssued,
+    issuedAmountPY: paidUpCapitalOpen,
+    issuedAmountCY: paidUpCapital,
+    parValue,
+    sharesIssuedDuringYear,
   };
 
   // ─── Note 3.10 — Reserves ──────────────────────────────────────────────────
@@ -698,7 +734,10 @@ export function buildNotesData(params: {
 
   const note313_tradePayables: NotesData['note313_tradePayables'] = {
     tradeCreditors: creditorRows.reduce((s, r) => s + Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)), 0),
-    advanceFromCustomers: advFromCustRows.reduce((s, r) => s + Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)), 0),
+    advanceFromCustomers: round(
+      advFromCustRows.reduce((s, r) => s + Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)), 0)
+      + debtorClass.advanceFromCustomersCY,
+    ),
     auditFeePayable: auditFeeRows.reduce((s, r) => s + Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)), 0),
     vatPayable: vatRows.reduce((s, r) => s + Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)), 0),
     tdsPayableBreakdown: tdsPayRows.map((r) => ({
@@ -757,7 +796,7 @@ export function buildNotesData(params: {
   const dividendPayableBalance = Math.abs(
     sumTB(rows, 'dividend_payable' as NFRSCategory, 'closingCr')
   );
-  const paidUpForDividend = note39_shareCapital.ordinaryShares.closingPaidUp;
+  const paidUpForDividend = note39_shareCapital.issuedAmountCY;
 
   // Compute declared dividend rate from balance if available
   const declaredRate = paidUpForDividend > 0 && dividendPayableBalance > 0
@@ -768,8 +807,8 @@ export function buildNotesData(params: {
     hasDividend:         dividendPayableBalance > 0,
     paidUpCapital:       paidUpForDividend,
     declaredRatePercent: declaredRate,
-    amountPerShare:      note39_shareCapital.ordinaryShares.closingIssuedShares > 0
-      ? round(dividendPayableBalance / note39_shareCapital.ordinaryShares.closingIssuedShares)
+    amountPerShare:      note39_shareCapital.issuedSharesCY > 0
+      ? round(dividendPayableBalance / note39_shareCapital.issuedSharesCY)
       : 0,
     totalDividendDeclared: dividendPayableBalance,
     tdsOnDividend:         round(dividendPayableBalance * 0.05),
@@ -888,22 +927,21 @@ export function buildNotesData(params: {
   const leaveExp         = leaveProv?.additionForYear ?? sumTB(rows, 'emp_expense_leave' as NFRSCategory, 'closingDr');
   const otherEmpExp      = sumTB(rows, 'emp_expense_other', 'closingDr');
 
-  const note320_employeeExpenses: NotesData['note320_employeeExpenses'] = {
-    salariesWages:        { cy: salariesExp,  py: 0 },
-    allowances:           { cy: 0,            py: 0 },
-    pfSsfContribution:    { cy: pfExp,        py: 0 },
-    gratuityExpense:      { cy: gratuityExp,  py: 0 },
-    leaveEncashment:      { cy: leaveExp,     py: 0 },
-    staffBonusExpense:    { cy: bonusExp,     py: 0 },
-    staffWelfare:         { cy: welfareExp,   py: 0 },
-    otherEmployeeCosts:   { cy: otherEmpExp,  py: 0 },
-    totalEmployeeExpenses:{ cy: round(salariesExp + pfExp + gratuityExp + welfareExp + bonusExp + leaveExp + otherEmpExp), py: 0 },
+  const kmp = adj.kmpCompensation ?? { salary: 0, bonus: 0, otherBenefits: 0 };
+
+  const note320_employeeExpenses: NotesData['note320_employeeBenefitExpenses'] = {
+    salaries: { amountCY: salariesExp, amountPY: 0 },
+    allowances: { amountCY: 0, amountPY: 0 },
+    pfSsf: { amountCY: pfExp, amountPY: 0 },
+    bonus: { amountCY: bonusExp, amountPY: 0 },
+    leaveEncashment: { amountCY: leaveExp, amountPY: 0 },
+    other: { amountCY: round(welfareExp + otherEmpExp + gratuityExp), amountPY: 0 },
+    total: { amountCY: round(salariesExp + pfExp + gratuityExp + welfareExp + bonusExp + leaveExp + otherEmpExp), amountPY: 0 },
     kmpCompensation: {
-      description: 'Key Management Personnel Compensation',
-      salary:      0,
-      bonus:       0,
-      otherBenefits: 0,
-      total:       0,
+      salary: kmp.salary ?? 0,
+      bonus: kmp.bonus ?? 0,
+      otherBenefits: kmp.otherBenefits ?? 0,
+      total: round((kmp.salary ?? 0) + (kmp.bonus ?? 0) + (kmp.otherBenefits ?? 0)),
     },
   };
 
@@ -1114,9 +1152,9 @@ export function buildNotesData(params: {
     note31_ppe,
     note32_investments,
     note33_tradeReceivables,
-    note34_otherCurrentAssets,
-    note35_biologicalAssets,
-    note36_heldForSale,
+    note34_otherReceivables,
+    note35_otherNCA,
+    note36_otherCA,
     note37_inventories,
     note38_cashEquivalents,
     note39_shareCapital,
@@ -1130,7 +1168,7 @@ export function buildNotesData(params: {
     note317_revenueDetailed,
     note318_materialConsumed,
     note319_otherIncome,
-    note320_employeeExpenses,
+    note320_employeeBenefitExpenses: note320_employeeExpenses,
     note321_depreciation,
     note322_adminExpenses,
     note323_taxExpense,

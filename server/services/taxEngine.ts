@@ -43,6 +43,114 @@ export function computeDividendTDS(dividendAmount: number): number {
   return Math.round(dividendAmount * 0.05 * 100) / 100;
 }
 
+/** Statutory ceiling for donation deduction u/s 12 ITA 2058. */
+export const DONATION_STATUTORY_CEILING = 100_000;
+
+/** Donation u/s 12: MIN(actual, NPR 100,000, 5% of adjusted taxable income). */
+export function computeDonationAllowance(
+  donations: number,
+  adjustedTaxableIncome: number,
+): number {
+  return Math.min(
+    donations,
+    DONATION_STATUTORY_CEILING,
+    Math.max(0, adjustedTaxableIncome * 0.05),
+  );
+}
+
+/** General deduction u/s 13 — excludes material/direct/interest/depreciation/repair. */
+export function computeGeneralDeductionUs13(input: {
+  employeeBenefitExpenses?: number;
+  staffBonus?: number;
+  adminAndOtherExpenses?: number;
+  repairExpense?: number;
+  impairment?: number;
+}): number {
+  const empBenefit = Number(input.employeeBenefitExpenses ?? 0);
+  const staffBonus = Number(input.staffBonus ?? 0);
+  const adminExRepair = Math.max(
+    0,
+    Number(input.adminAndOtherExpenses ?? 0) - Number(input.repairExpense ?? 0),
+  );
+  const impairment = Number(input.impairment ?? 0);
+  return Math.max(0, Math.round((empBenefit + staffBonus + adminExRepair + impairment) * 100) / 100);
+}
+
+/** Seven-year loss carry-forward schedule u/s 20(1)(Kha). */
+export interface LossCarryForwardYear {
+  fiscalYear: string;
+  broughtForwardLoss: number;
+  utilized: number;
+  expired: number;
+  closingBalance: number;
+}
+
+export function buildLossCarryForwardSchedule(
+  priorYearLosses: Array<{ fiscalYear: string; amount: number }>,
+  currentYearTaxableIncome: number,
+): { schedule: LossCarryForwardYear[]; totalAllowable: number } {
+  const sorted = [...priorYearLosses]
+    .sort((a, b) => a.fiscalYear.localeCompare(b.fiscalYear))
+    .slice(-7);
+  let remaining = Math.max(0, currentYearTaxableIncome);
+  const schedule: LossCarryForwardYear[] = sorted.map((entry) => {
+    const utilized = Math.min(entry.amount, remaining);
+    remaining -= utilized;
+    return {
+      fiscalYear: entry.fiscalYear,
+      broughtForwardLoss: entry.amount,
+      utilized,
+      expired: 0,
+      closingBalance: entry.amount - utilized,
+    };
+  });
+  const totalAllowable = schedule.reduce((s, y) => s + y.utilized, 0);
+  return { schedule, totalAllowable };
+}
+
+/** Section 118/119 advance-tax installment checkpoints (40/70/90%). */
+export interface AdvanceTaxInstallment {
+  checkpoint: string;
+  cumulativePercent: number;
+  requiredAmount: number;
+  paidAmount: number;
+  shortfall: number;
+  interestRate: number;
+  interestAmount: number;
+}
+
+export function computeAdvanceTaxInterest(
+  estimatedTaxLiability: number,
+  installments: Array<{ checkpoint: string; cumulativePercent: number; paidAmount: number; daysLate: number }>,
+  annualRate = 0.15,
+): { installments: AdvanceTaxInstallment[]; totalInterest118: number; totalInterest119: number; finalShortfall: number } {
+  const results: AdvanceTaxInstallment[] = installments.map((inst) => {
+    const required = estimatedTaxLiability * inst.cumulativePercent;
+    const shortfall = Math.max(0, required - inst.paidAmount);
+    const interestAmount = shortfall > 0
+      ? Math.round(shortfall * annualRate * (inst.daysLate / 365) * 100) / 100
+      : 0;
+    return {
+      checkpoint: inst.checkpoint,
+      cumulativePercent: inst.cumulativePercent,
+      requiredAmount: Math.round(required * 100) / 100,
+      paidAmount: inst.paidAmount,
+      shortfall: Math.round(shortfall * 100) / 100,
+      interestRate: annualRate,
+      interestAmount,
+    };
+  });
+  const totalInterest118 = results.reduce((s, r) => s + r.interestAmount, 0);
+  const totalPaid = installments.length > 0
+    ? installments[installments.length - 1].paidAmount
+    : 0;
+  const finalShortfall = Math.max(0, estimatedTaxLiability * 0.9 - totalPaid);
+  const totalInterest119 = finalShortfall > 0
+    ? Math.round(finalShortfall * annualRate * 100) / 100
+    : 0;
+  return { installments: results, totalInterest118, totalInterest119, finalShortfall };
+}
+
 function computePrivateFirmTax(taxableIncome: number): number {
   if (taxableIncome <= 500_000) return 0;
   if (taxableIncome <= 700_000) return (taxableIncome - 500_000) * 0.15;
@@ -85,8 +193,8 @@ export function computeTax(input: TaxComputationInput): TaxComputationResult {
     taxDepreciation +
     totalDisallowed;
 
-  // Donations limited to 5% of adjusted profit
-  const donationAllowed = Math.min(donations, adjustedProfit * 0.05);
+  // Donations u/s 12: three-way minimum (actual, NPR 100,000 ceiling, 5% of adjusted income)
+  const donationAllowed = computeDonationAllowance(donations, adjustedProfit);
   adjustedProfit -= donationAllowed;
 
   // R&D 150% allowable

@@ -12,6 +12,8 @@ import {
   CY_AMOUNT_COLS,
   PY_AMOUNT_COLS,
   TOTAL_COLS,
+  STANDARD_TB_COLUMNS,
+  HEADER_ROW_INDEX,
 } from './tbStandardSchema.js';
 
 function colLetter(col: number): string {
@@ -58,32 +60,16 @@ export async function generateTrialBalanceTemplate(): Promise<Buffer> {
     noteCell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
     ws.getRow(3).height = 36;
 
-    const cyHeaders = [
-      'Particulars',
-      'Opening Dr.',
-      'Opening Cr.',
-      'During Dr.',
-      'During Cr.',
-      'Adjustment Dr.',
-      'Adjustment Cr.',
-      'Closing Dr.',
-      'Closing Cr.',
-    ];
-    const headerRow = ws.getRow(5);
-    cyHeaders.forEach((h, i) => {
-      const c = headerRow.getCell(i + 1);
-      c.value = h;
+    const headerRow = ws.getRow(HEADER_ROW_INDEX);
+    for (const colDef of STANDARD_TB_COLUMNS) {
+      if (colDef.block === 'spacer' || !colDef.header) continue;
+      const c = headerRow.getCell(colDef.col);
+      c.value = colDef.header;
       applySubHeaderStyle(c);
-      c.alignment = { horizontal: i === 0 ? 'left' : 'center', vertical: 'middle' };
-    });
-    cyHeaders.forEach((h, i) => {
-      const c = headerRow.getCell(11 + i);
-      c.value = h;
-      applySubHeaderStyle(c);
-      c.alignment = { horizontal: i === 0 ? 'left' : 'center', vertical: 'middle' };
-    });
+      c.alignment = { horizontal: colDef.col === 1 || colDef.col === 12 ? 'left' : 'center', vertical: 'middle' };
+    }
 
-    let currentRow = 6;
+    let currentRow = HEADER_ROW_INDEX + 1;
     const sections = buildSectionAccounts();
 
     for (const { header, accounts } of sections) {
@@ -115,7 +101,7 @@ export async function generateTrialBalanceTemplate(): Promise<Buffer> {
       }
     }
 
-    const dataStartRow = 6;
+    const dataStartRow = HEADER_ROW_INDEX + 1;
     const dataEndRow = currentRow - 1;
     const totalRow = ws.getRow(currentRow);
     totalRow.getCell(1).value = 'GRAND TOTAL';
@@ -132,7 +118,7 @@ export async function generateTrialBalanceTemplate(): Promise<Buffer> {
       cell.border = { top: doubleTop };
     }
 
-    ws.views = [{ state: 'frozen', ySplit: 5 }];
+    ws.views = [{ state: 'frozen', ySplit: HEADER_ROW_INDEX }];
 
     const buffer = await wb.xlsx.writeBuffer();
     return Buffer.from(buffer);

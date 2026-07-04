@@ -51,8 +51,8 @@ describe('tbStandardValidator', () => {
     for (let rowNum = HEADER_ROW_INDEX + 2; rowNum <= ws.rowCount; rowNum++) {
       const label = String(ws.getRow(rowNum).getCell(1).value ?? '');
       if (label && label !== label.toUpperCase()) {
-        ws.getRow(rowNum).getCell(8).value = 500000;
-        ws.getRow(rowNum).getCell(9).value = 0;
+        ws.getRow(rowNum).getCell(9).value = 500000;
+        ws.getRow(rowNum).getCell(10).value = 0;
         break;
       }
     }

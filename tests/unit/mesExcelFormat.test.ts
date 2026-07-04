@@ -26,12 +26,20 @@ describe('mesEnterDetailsFields', () => {
     assert.ok(labels.includes('number of employees'));
     assert.ok(labels.includes('income tax rate (%)'));
     assert.ok(labels.includes('dividend declared (%)'));
+    assert.ok(labels.includes('type of audit firm'));
     assert.ok(labels.includes('inventory — raw materials (cy)'));
+    assert.ok(labels.includes('inventory check (cy = bs?)'));
+  });
+
+  it('computes dividend capacity from retained earnings and profit', async () => {
+    const { computeDividendCapacityPercent } = await import('../../server/services/mesEnterDetailsFields.js');
+    const capacity = computeDividendCapacityPercent(10_000_000, 2_000_000, 51_000_000);
+    assert.ok(Math.abs(capacity - 23.5294) < 0.01);
   });
 });
 
 describe('mesTrialBalanceWriter', () => {
-  it('writes 19-column dual-year trial balance with grand total', async () => {
+  it('writes 21-column dual-year trial balance with adjusted balance and grand total', async () => {
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet('Trial Balance');
     const tb: ParsedTrialBalance = {
@@ -56,10 +64,17 @@ describe('mesTrialBalanceWriter', () => {
       warnings: [],
     };
     writeMesFormatTrialBalance(ws, tb, SAMPLE_COMPANY);
-    assert.equal(ws.columnCount, 19);
+    assert.equal(ws.columnCount, 21);
+    assert.equal(String(ws.getRow(5).getCell(8).value), 'Adjusted Balance');
     assert.ok(String(ws.getRow(1).getCell(1).value).includes('Test') || String(ws.getRow(1).getCell(1).value).length > 0);
-    const grandTotal = ws.getRow(ws.rowCount).getCell(1).value;
-    assert.equal(grandTotal, 'GRAND TOTAL');
+    let grandTotalRow = 0;
+    for (let r = 1; r <= ws.rowCount; r++) {
+      if (ws.getRow(r).getCell(1).value === 'GRAND TOTAL') {
+        grandTotalRow = r;
+        break;
+      }
+    }
+    assert.ok(grandTotalRow > 0);
     const buffer = await wb.xlsx.writeBuffer();
     assert.ok(Buffer.from(buffer).length > 1000);
   });

@@ -10,6 +10,9 @@ import {
   TOTAL_COLS,
 } from './tbStandardSchema.js';
 
+const CY_CLOSING_DR_COL = CY_AMOUNT_COLS[7];
+const CY_CLOSING_CR_COL = CY_AMOUNT_COLS[8];
+
 export interface TbDiagnosticIssue {
   severity: 'error' | 'warning';
   category: 'structure' | 'headers' | 'sections' | 'accounts' | 'balances' | 'arithmetic';
@@ -143,8 +146,8 @@ function findLikelyMistypedRow(
     const label = cellText(ws.getRow(rowNum).getCell(1).value);
     if (!label || isSectionHeaderRow(ws, rowNum, merges)) continue;
 
-    const closingDr = toNumber(ws.getRow(rowNum).getCell(8).value);
-    const closingCr = toNumber(ws.getRow(rowNum).getCell(9).value);
+    const closingDr = toNumber(ws.getRow(rowNum).getCell(CY_CLOSING_DR_COL).value);
+    const closingCr = toNumber(ws.getRow(rowNum).getCell(CY_CLOSING_CR_COL).value);
 
     const swapImbalance = Math.abs(
       (closingCr - closingDr) - (target * Math.sign(imbalance)),
@@ -160,7 +163,7 @@ function findLikelyMistypedRow(
       if (!best || candidate.improvement > best.improvement) best = candidate;
     }
 
-    for (const [col, side] of [[8, 'Dr'], [9, 'Cr']] as const) {
+    for (const [col, side] of [[CY_CLOSING_DR_COL, 'Dr'], [CY_CLOSING_CR_COL, 'Cr']] as const) {
       const val = toNumber(ws.getRow(rowNum).getCell(col).value);
       if (val <= 0) continue;
       const digits = String(Math.round(val));
@@ -226,7 +229,7 @@ export function validateStandardTemplate(workbook: ExcelJS.Workbook): TbStandard
   }
 
   const headerRow = ws.getRow(HEADER_ROW_INDEX);
-  for (const keyCol of [1, 2, 11, 12]) {
+  for (const keyCol of [1, 2, 12, 13]) {
     if (!cellText(headerRow.getCell(keyCol).value)) {
       issues.push({
         severity: 'error',
@@ -330,8 +333,8 @@ export function validateStandardTemplate(workbook: ExcelJS.Workbook): TbStandard
     const duringCr = toNumber(ws.getRow(rowNum).getCell(5).value);
     const adjDr = toNumber(ws.getRow(rowNum).getCell(6).value);
     const adjCr = toNumber(ws.getRow(rowNum).getCell(7).value);
-    const closingDr = toNumber(ws.getRow(rowNum).getCell(8).value);
-    const closingCr = toNumber(ws.getRow(rowNum).getCell(9).value);
+    const closingDr = toNumber(ws.getRow(rowNum).getCell(CY_CLOSING_DR_COL).value);
+    const closingCr = toNumber(ws.getRow(rowNum).getCell(CY_CLOSING_CR_COL).value);
 
     const hasNumeric =
       openingDr || openingCr || duringDr || duringCr || adjDr || adjCr || closingDr || closingCr;
@@ -347,7 +350,7 @@ export function validateStandardTemplate(workbook: ExcelJS.Workbook): TbStandard
         message: `Row ${rowNum} ('${label}'): Opening + During + Adjustment Dr = ${expectedClosingDr.toLocaleString('en-IN')} but Closing Dr. shows ${closingDr.toLocaleString('en-IN')} — check for a data entry error.`,
         sheetName: ws.name,
         rowNumber: rowNum,
-        columnLetter: colLetter(8),
+        columnLetter: colLetter(CY_CLOSING_DR_COL),
       });
     }
     if (Math.abs(expectedClosingCr - closingCr) > 1) {
@@ -357,7 +360,7 @@ export function validateStandardTemplate(workbook: ExcelJS.Workbook): TbStandard
         message: `Row ${rowNum} ('${label}'): Opening + During + Adjustment Cr = ${expectedClosingCr.toLocaleString('en-IN')} but Closing Cr. shows ${closingCr.toLocaleString('en-IN')} — check for a data entry error.`,
         sheetName: ws.name,
         rowNumber: rowNum,
-        columnLetter: colLetter(9),
+        columnLetter: colLetter(CY_CLOSING_CR_COL),
       });
     }
   }
@@ -365,8 +368,8 @@ export function validateStandardTemplate(workbook: ExcelJS.Workbook): TbStandard
   let sumClosingDr = 0;
   let sumClosingCr = 0;
   for (let rowNum = HEADER_ROW_INDEX + 1; rowNum <= ws.rowCount; rowNum++) {
-    sumClosingDr += toNumber(ws.getRow(rowNum).getCell(8).value);
-    sumClosingCr += toNumber(ws.getRow(rowNum).getCell(9).value);
+    sumClosingDr += toNumber(ws.getRow(rowNum).getCell(CY_CLOSING_DR_COL).value);
+    sumClosingCr += toNumber(ws.getRow(rowNum).getCell(CY_CLOSING_CR_COL).value);
   }
 
   const imbalance = sumClosingDr - sumClosingCr;

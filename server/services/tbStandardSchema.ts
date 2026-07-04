@@ -39,6 +39,7 @@ const AMOUNT_HEADERS = [
   'During Cr.',
   'Adjustment Dr.',
   'Adjustment Cr.',
+  'Adjusted Balance',
   'Closing Dr.',
   'Closing Cr.',
 ] as const;
@@ -46,9 +47,9 @@ const AMOUNT_HEADERS = [
 export const STANDARD_TB_COLUMNS = [
   { col: 1, header: 'Particulars', block: 'cy' as const },
   ...AMOUNT_HEADERS.map((header, i) => ({ col: i + 2, header, block: 'cy' as const })),
-  { col: 10, header: '', block: 'spacer' as const },
-  { col: 11, header: 'Particulars', block: 'py' as const },
-  ...AMOUNT_HEADERS.map((header, i) => ({ col: i + 12, header, block: 'py' as const })),
+  { col: 11, header: '', block: 'spacer' as const },
+  { col: 12, header: 'Particulars', block: 'py' as const },
+  ...AMOUNT_HEADERS.map((header, i) => ({ col: i + 13, header, block: 'py' as const })),
 ] as const;
 
 export const TOTAL_COLS = STANDARD_TB_COLUMNS.length;
@@ -59,7 +60,7 @@ export const CY_AMOUNT_COLS = STANDARD_TB_COLUMNS
   .map((c) => c.col);
 
 export const PY_AMOUNT_COLS = STANDARD_TB_COLUMNS
-  .filter((c) => c.block === 'py' && c.col !== 11)
+  .filter((c) => c.block === 'py' && c.col !== 12)
   .map((c) => c.col);
 
 function resolveSectionHeader(statementLine: string): string | null {

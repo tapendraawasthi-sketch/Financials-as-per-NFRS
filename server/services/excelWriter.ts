@@ -14,9 +14,11 @@ import type {
   AssetItem,
   DepreciationResult,
 } from '../../src/types';
-import { buildMesEnterDetailsFields } from './mesEnterDetailsFields.js';
+import { buildMesEnterDetailsFields, computeDividendCapacityPercent } from './mesEnterDetailsFields.js';
 import { writeMesFormatTrialBalance } from './mesTrialBalanceWriter.js';
 import { fillPlaceholder } from '../../src/utils/fillPlaceholder.js';
+import { computeGeneralDeductionUs13, computeDonationAllowance, buildLossCarryForwardSchedule } from './taxEngine.js';
+import { classifyDebtors } from './subledgerRules.js';
 
 // ---------------------------------------------------------------------------
 // Row-map types for live cross-sheet formulas (Session 24 — Gap C4)
@@ -644,18 +646,43 @@ export function writeWorkings(
 }
 
 function writeInstructions(ws: ExcelJS.Worksheet): void {
-  ws.getRow(1).getCell(1).value = 'NFRS FINANCIAL REPORTER — USER GUIDE';
+  ws.getColumn(1).width = 28;
+  ws.getColumn(2).width = 72;
+  ws.getRow(1).getCell(1).value = 'NFRS FINANCIAL REPORTER — INSTRUCTIONS';
   ws.getRow(1).getCell(1).font = { name: 'Arial', size: 14, bold: true };
 
-  const instructions = [
-    ['Green cells', 'Input cells — enter your values here'],
-    ['Blue headers', 'Automatically calculated — do not edit'],
-    ['Printing', 'Use File → Print → set paper A4, scale to fit'],
-    ['Trial Balance', 'Enter opening and closing balances for each account'],
-    ['Balance Sheet', 'Auto-calculated from Trial Balance'],
-    ['Income Statement', 'Auto-calculated from Trial Balance'],
-    ['Notes', 'Detailed disclosures for each Balance Sheet line'],
-    ['Depreciation', 'See Note 3.1 for full PPE schedule'],
+  const instructions: Array<[string, string]> = [
+    ['Workings', 'Hidden fiscal-year lookup table. Do not edit — all date captions pull from here.'],
+    ['Enter Details', 'Control panel: entity identity, fiscal years, inventory reconciliation, dividend capacity/declared %. Green cells only.'],
+    ['Trial Balance', 'Current and previous year blocks. Adjusted Balance = Opening + During + Adjustments (signed). Verify Profit (TB) = Profit (IS).'],
+    ['Balance Sheet', 'Auto-calculated via live formulas from notes. Note refs 3.1–3.16 must match consolidated notes.'],
+    ['Income Statement', 'Auto-calculated from trial balance. Net profit feeds Change in Equity and TB tie-out.'],
+    ['Change in Equity', 'Opening balance, profit, share issue, reserve transfer, dividends, closing balance.'],
+    ['Cash Flow', 'Indirect method. Closing cash must reconcile to Balance Sheet — difference row must be zero.'],
+    ['Note 3.1 PPE', 'Cost, accumulated depreciation, and carrying amount roll-forwards by asset class. Conditional security/WIP disclosures.'],
+    ['Notes 3.2–3.23', 'Consolidated disclosure block — do not split tabs. Each note number matches Balance Sheet references exactly.'],
+    ['Note 3.2 Investments', 'Listed shares: fair-value roll-forward. Unlisted: cost + impairment provision roll-forwards.'],
+    ['Note 3.3 Receivables', 'Gross receivables, impairment provision movement, net. Credit-balance debtors flow to Advance from Customers.'],
+    ['Note 3.4 Receivables (NCA)', 'Non-current other receivables: deposits, staff advances, related-party receivables.'],
+    ['Note 3.5 Other NCA', 'Biological assets and other non-current assets not elsewhere classified.'],
+    ['Note 3.6 Other CA', 'Guarantee margins, assets held for sale, advances to suppliers, advance tax.'],
+    ['Note 3.9 Share Capital', 'Authorised and issued-and-paid roll-forward for both years. True/False tie to trial balance.'],
+    ['Note 3.11 Borrowings', 'BFI borrowings split secured/unsecured (NC) and OD/CC/WC (current). Related-party loan shown separately.'],
+    ['Note 3.20 Employee Expenses', 'Expense breakdown plus Key Management Personnel compensation sub-table when applicable.'],
+    ['Note 3.24–3.26', 'Related party, contingent liabilities, subsequent events — separate sheets, default text when nil.'],
+    ['Adjustment', 'System-generated year-end journal: depreciation, FV remeasurement, bonus, tax, dividend (5 groups, fixed order).'],
+    ['Tax Calculation', 'u/s 13 general deduction excludes material/direct/interest/depreciation/repair. Donation u/s 12 three-way cap.'],
+    ['Tax Depreciation', 'WDV pools A–E plus SLM for software/leasehold intangibles outside pools.'],
+    ['Tax Profit Reconciliation', 'Must tie to Tax Calculation. Disallowed items routed to income-side or expense-side notes.'],
+    ['Sundry Debtors', 'Party-wise breakdown. Credit balances auto-excluded from trade receivables.'],
+    ['Sundry Creditors', 'Party-wise breakdown — total must match trade payables control account.'],
+    ['Bank Acc.', 'Secured/unsecured term loans, short-term facilities, call/current accounts.'],
+    ['Related Party', 'Receivable/payable balances and transaction amounts per party.'],
+    ['Fair Value Change', 'Per-script tracking. Deduct sold-unit P&L already in trial balance to avoid double-counting.'],
+    ['Disallow for Tax', 'Each item tagged income-side (Note I) or expense-side (Note II) for reconciliation tie-out.'],
+    ['Green cells', 'Input cells — enter values here only.'],
+    ['Blue/grey headers', 'Calculated — do not overwrite formulas.'],
+    ['Before finalising', 'Confirm: BS balances, CF reconciles, TB profit = IS profit, tax recon True/False all zero.'],
   ];
 
   instructions.forEach(([term, desc], i) => {
@@ -663,6 +690,7 @@ function writeInstructions(ws: ExcelJS.Worksheet): void {
     ws.getRow(i + 3).getCell(1).font = { name: 'Arial', size: 10, bold: true };
     ws.getRow(i + 3).getCell(2).value = desc;
     ws.getRow(i + 3).getCell(2).font = { name: 'Arial', size: 10 };
+    ws.getRow(i + 3).getCell(2).alignment = { wrapText: true, vertical: 'top' };
   });
 }
 
@@ -670,6 +698,7 @@ function writeEnterDetails(
   ws: ExcelJS.Worksheet,
   company: CompanyProfile,
   adjustments?: YearEndAdjustments,
+  financials?: { balanceSheet?: BalanceSheet; incomeStatement?: IncomeStatement },
 ): void {
   ws.getColumn(1).width = 4;
   ws.getColumn(2).width = 34;
@@ -681,7 +710,23 @@ function writeEnterDetails(
   title.font = { name: 'Arial', size: 12, bold: true };
   title.alignment = { horizontal: 'center' };
 
-  const fields = buildMesEnterDetailsFields(company, adjustments);
+  const inv = adjustments?.inventoryDetails ?? {
+    rawMaterialsCY: 0, rawMaterialsPY: 0, wipCY: 0, wipPY: 0, finishedGoodsCY: 0, finishedGoodsPY: 0,
+  };
+  const fields = buildMesEnterDetailsFields(
+    company,
+    {
+      inventoryDetails: inv,
+      dividendPayable: adjustments?.dividendPayable,
+      dividendCapacityPercent: computeDividendCapacityPercent(
+        financials?.balanceSheet?.retainedEarnings ?? 0,
+        financials?.incomeStatement?.netProfit ?? 0,
+        financials?.balanceSheet?.shareCapital ?? company.issuedCapitalCY ?? 0,
+      ),
+      balanceSheetInventoryCY: financials?.balanceSheet?.inventories,
+    },
+    financials,
+  );
 
   fields.forEach(({ label, value, isNumeric }, i) => {
     const row = ws.getRow(i + 3);
@@ -1270,25 +1315,59 @@ export function writeNote39_ShareCapital(
   startRow = 1,
 ): NoteWriteResult {
   writeNoteSubTitle(ws, '3.9  Share Capital', startRow);
-  const n39 = note39 as Record<string, unknown>;
-  const ordinary = n39.ordinaryShares as Record<string, number> | undefined;
-  const rows: [string, number][] = ordinary ? [
-    ['Authorised Share Capital (shares)', ordinary.authorizedShares ?? 0],
-    ['Issued and Fully Paid Shares (shares)', ordinary.closingIssuedShares ?? 0],
-    ['Paid-up Capital (NPR)', ordinary.closingPaidUp ?? 0],
-  ] : [
-    ['Authorised Share Capital (shares)', (n39.authorizedShares as number) ?? 0],
-    ['Issued and Fully Paid Shares (shares)', (n39.issuedShares as number) ?? 0],
-    ['Paid-up Capital (NPR)', (n39.paidUpAmount_cy as number) ?? 0],
-  ];
-  const dataStartRow = startRow + 2;
-  rows.forEach(([label, val], i) => {
-    const r = ws.getRow(dataStartRow + i);
-    r.getCell(1).value = label; r.getCell(2).value = val || null; r.getCell(2).numFmt = NUMBER_FORMAT; r.getCell(2).alignment = { horizontal: 'right' };
+  ws.getColumn(1).width = 42;
+  ws.getColumn(2).width = 14;
+  ws.getColumn(3).width = 14;
+  ws.getColumn(4).width = 14;
+
+  const headerRow = startRow + 2;
+  ['Particulars', 'Current Year', 'Previous Year'].forEach((h, i) => {
+    const c = ws.getRow(headerRow).getCell(i + 1);
+    c.value = h;
+    applySubHeaderStyle(c);
+    applyAllBorders(c);
   });
-  const shareCapitalRow = dataStartRow + rows.length - 1;
+
+  const n39 = note39 as Record<string, number>;
+  const ordinary = (note39 as Record<string, unknown>).ordinaryShares as Record<string, number> | undefined;
+  const authShares = n39.authorizedShares ?? ordinary?.authorizedShares ?? 0;
+  const authAmount = n39.authorizedAmount ?? ordinary?.authorizedAmount ?? 0;
+  const issuedCY = n39.issuedSharesCY ?? ordinary?.closingIssuedShares ?? 0;
+  const issuedPY = n39.issuedSharesPY ?? ordinary?.openingIssuedShares ?? 0;
+  const paidCY = n39.issuedAmountCY ?? ordinary?.closingPaidUp ?? 0;
+  const paidPY = n39.issuedAmountPY ?? ordinary?.openingPaidUp ?? 0;
+  const issuedDuring = n39.sharesIssuedDuringYear ?? ordinary?.issuedDuringYear ?? Math.max(0, issuedCY - issuedPY);
+
+  let r = headerRow + 1;
+  const lines: Array<[string, number, number]> = [
+    ['Authorised — Number of Shares', authShares, authShares],
+    ['Authorised — Amount (NPR)', authAmount, authAmount],
+    ['Issued & Fully Paid — Opening Shares', issuedPY, issuedPY],
+    ['Shares Issued During Year', issuedDuring, 0],
+    ['Issued & Fully Paid — Closing Shares', issuedCY, issuedPY],
+    ['Paid-up Capital — Opening (NPR)', paidPY, paidPY],
+    ['Paid-up Capital — Closing (NPR)', paidCY, paidPY],
+  ];
+  lines.forEach(([label, cy, py]) => {
+    const row = ws.getRow(r++);
+    row.getCell(1).value = label;
+    row.getCell(2).value = cy || null;
+    row.getCell(3).value = py || null;
+    [2, 3].forEach((col) => {
+      row.getCell(col).numFmt = NUMBER_FORMAT;
+      row.getCell(col).alignment = { horizontal: 'right' };
+      applyAllBorders(row.getCell(col));
+    });
+    applyAllBorders(row.getCell(1));
+  });
+
+  const checkRow = r;
+  ws.getRow(checkRow).getCell(1).value = 'Ties to Trial Balance Paid-up Capital?';
+  ws.getRow(checkRow).getCell(2).value = paidCY > 0 ? 'TRUE' : 'FALSE';
+
+  const shareCapitalRow = checkRow - 1;
   SHEET_ROW_REGISTRY.shareCapitalRow = shareCapitalRow;
-  return { shareCapitalRow, endRow: shareCapitalRow };
+  return { shareCapitalRow, endRow: checkRow };
 }
 
 export function writeNote311_Borrowings(
@@ -1671,22 +1750,35 @@ export function writeFairValueChangeSheet(
   writeSumTotalRow(ws, totalRow, 1, [10], firstDataRow, lastDataRow, 'Total FV Gain / (Loss)');
 
   const tbFv = options?.trialBalanceFvAdjustment ?? 0;
+  const soldUnitPnl = options?.soldUnitPnlInTrialBalance ?? 0;
   const verifyStart = totalRow + 2;
-  ws.getRow(verifyStart).getCell(1).value = 'Verification';
+  ws.getRow(verifyStart).getCell(1).value = 'Verification (per line vs Trial Balance)';
   ws.getRow(verifyStart).getCell(1).font = FONTS.SUBHEADING;
-  ws.getRow(verifyStart + 1).getCell(1).value = 'Workings total FV change';
-  ws.getRow(verifyStart + 1).getCell(2).value = { formula: `J${totalRow}`, result: 0 };
-  ws.getRow(verifyStart + 1).getCell(2).numFmt = NUMBER_FORMAT;
-  ws.getRow(verifyStart + 2).getCell(1).value = 'Per trial balance / notes';
-  ws.getRow(verifyStart + 2).getCell(2).value = tbFv || null;
-  ws.getRow(verifyStart + 2).getCell(2).numFmt = NUMBER_FORMAT;
-  ws.getRow(verifyStart + 3).getCell(1).value = 'Match?';
-  ws.getRow(verifyStart + 3).getCell(2).value = {
-    formula: `ABS(B${verifyStart + 1}-B${verifyStart + 2})<1`,
-    result: Math.abs(tbFv) < 1,
-  };
 
-  return { totalFvGainLossRow: totalRow, verificationMatchRow: verifyStart + 3 };
+  const checks = ['Opening', 'Addition', 'Deletion', 'Fair Value Change', 'Closing'] as const;
+  checks.forEach((label, idx) => {
+    const vr = ws.getRow(verifyStart + 1 + idx);
+    vr.getCell(1).value = label;
+    vr.getCell(2).value = idx === 4 ? { formula: `J${totalRow}`, result: 0 } : null;
+    if (idx === 4) vr.getCell(2).numFmt = NUMBER_FORMAT;
+    vr.getCell(3).value = idx === 4 ? (tbFv || null) : null;
+    if (idx === 4) vr.getCell(3).numFmt = NUMBER_FORMAT;
+    vr.getCell(4).value = idx === 4
+      ? { formula: `ABS(B${verifyStart + 1 + idx}-C${verifyStart + 1 + idx})<1`, result: true }
+      : 'N/A';
+  });
+
+  if (soldUnitPnl !== 0) {
+    const adjRow = verifyStart + checks.length + 2;
+    ws.getRow(adjRow).getCell(1).value = 'Less: P&L on units sold (already in TB)';
+    ws.getRow(adjRow).getCell(2).value = -soldUnitPnl;
+    ws.getRow(adjRow).getCell(2).numFmt = NUMBER_FORMAT;
+    ws.getRow(adjRow + 1).getCell(1).value = 'Adjusted FV Gain/(Loss)';
+    ws.getRow(adjRow + 1).getCell(2).value = { formula: `J${totalRow}-B${adjRow}`, result: 0 };
+    ws.getRow(adjRow + 1).getCell(2).numFmt = NUMBER_FORMAT;
+  }
+
+  return { totalFvGainLossRow: totalRow, verificationMatchRow: verifyStart + 5 };
 }
 
 export function writeSundryDebtors(
@@ -1707,6 +1799,7 @@ export function writeSundryDebtors(
   });
 
   const rawDebtors = (data.adjustments.debtors ?? []) as Array<Record<string, unknown>>;
+  const classified = classifyDebtors(rawDebtors as Parameters<typeof classifyDebtors>[0]);
   let row = 4;
 
   if (rawDebtors.length === 0) {
@@ -1733,20 +1826,28 @@ export function writeSundryDebtors(
   }
 
   const firstDataRow = row;
-  rawDebtors.forEach((d) => {
-    const partyName = String(d.partyName ?? d.name ?? '');
-    const debitBalance = Number(d.debitBalance ?? d.totalAmount ?? (d.isAdvanceFromCustomer ? 0 : d.balanceCY) ?? 0);
-    const creditBalance = Number(d.creditBalance ?? (d.isAdvanceFromCustomer ? d.balanceCY : 0) ?? 0);
-    const days = debtorAgingDays(d);
+  classified.classifiedDebtors.forEach((d) => {
+    const partyName = String(d.name ?? '');
+    const net = (d.balanceCY ?? 0) - Number(d.creditBalance ?? 0);
+    const debitBalance = net >= 0 ? net : 0;
+    const creditBalance = net < 0 ? Math.abs(net) : Number(d.creditBalance ?? 0);
+    const days = debtorAgingDays(d as Record<string, unknown>);
     const [b0, b1, b2, b3] = agingBucketAmount(debitBalance, days);
 
     const r = ws.getRow(row++);
-    r.getCell(1).value = partyName;
+    r.getCell(1).value = d.isAdvanceFromCustomer ? `${partyName} (→ Adv. from Customer)` : partyName;
     setAmountCell(r.getCell(2), debitBalance || null);
     setAmountCell(r.getCell(3), creditBalance || null);
     [b0, b1, b2, b3].forEach((v, i) => setAmountCell(r.getCell(4 + i), v || null));
     for (let ci = 1; ci <= headers.length; ci++) applyAllBorders(r.getCell(ci));
   });
+
+  if (classified.advanceFromCustomersCY > 0) {
+    const noteRow = ws.getRow(row++);
+    noteRow.getCell(1).value = `Credit balances reclassified to Advance from Customers: NPR ${classified.advanceFromCustomersCY.toLocaleString()}`;
+    noteRow.getCell(1).font = { name: 'Arial', size: 9, italic: true, color: { argb: 'FF64748B' } };
+    ws.mergeCells(row - 1, 1, row - 1, headers.length);
+  }
 
   if (row > firstDataRow) {
     writeSumTotalRow(ws, row, 1, [2, 3, 4, 5, 6, 7], firstDataRow, row - 1, 'Total');
@@ -1823,8 +1924,11 @@ export function writeTrialBalance(
   ws: ExcelJS.Worksheet,
   tb: ParsedTrialBalance,
   company?: CompanyProfile,
+  incomeStatement?: IncomeStatement,
 ): void {
-  writeMesFormatTrialBalance(ws, tb, company);
+  writeMesFormatTrialBalance(ws, tb, company, {
+    incomeStatementNetProfit: incomeStatement?.netProfit,
+  });
 }
 
 export function writeAdjustments(ws: ExcelJS.Worksheet, adj: YearEndAdjustments): void {
@@ -1890,10 +1994,13 @@ export function writeTaxCalculationSheet(
   const repair = taxData.repairExpense ?? 0;
   const interestExp = Number(is.financeCharges ?? is.interestExpenses ?? 0);
   const bookDepn = Number(is.depreciation ?? 0);
-  const generalDeduction = Math.max(
-    0,
-    Number(is.totalExpenses ?? 0) - bookDepn - interestExp - repair,
-  );
+  const generalDeduction = computeGeneralDeductionUs13({
+    employeeBenefitExpenses: Number(is.employeeBenefitExpenses ?? 0),
+    staffBonus: Number(is.staffBonus ?? 0),
+    adminAndOtherExpenses: Number(is.adminAndOtherExpenses ?? 0),
+    repairExpense: repair,
+    impairment: Number(is.impairment ?? 0),
+  });
 
   const inclusionItems: Array<{ label: string; note?: string; books: number; tax: number | 'exempt' }> = [
     {
@@ -2019,13 +2126,21 @@ export function writeTaxCalculationSheet(
   const donationRow = row++;
   const donationR = ws.getRow(donationRow);
   donationR.getCell(1).value = 'Less: Donation u/s 12';
+  const donationInputCell = donationR.getCell(3);
+  donationInputCell.value = taxData.donations ?? 0;
+  donationInputCell.numFmt = NUMBER_FORMAT;
+  donationInputCell.alignment = { horizontal: 'right' };
+  applyInputStyle(donationInputCell);
+  applyAllBorders(donationInputCell);
+  applyAllBorders(donationR.getCell(1));
   const donationCell = donationR.getCell(4);
-  donationCell.value = taxData.donations ?? 0;
+  donationCell.value = {
+    formula: `MIN(C${donationRow},100000,C${assessableIncomeRow}*0.05)`,
+    result: computeDonationAllowance(taxData.donations ?? 0, generalDeduction),
+  };
   donationCell.numFmt = NUMBER_FORMAT;
   donationCell.alignment = { horizontal: 'right' };
-  applyInputStyle(donationCell);
   applyAllBorders(donationCell);
-  applyAllBorders(donationR.getCell(1));
 
   const incomeLossRow = row++;
   const incomeLossR = ws.getRow(incomeLossRow);
@@ -2040,13 +2155,30 @@ export function writeTaxCalculationSheet(
   const lossCarryRow = row++;
   const lossCarryR = ws.getRow(lossCarryRow);
   lossCarryR.getCell(1).value = 'Carry forward of losses u/s 20';
+  const lossSchedule = buildLossCarryForwardSchedule(
+    taxData.priorYearLosses ?? [],
+    generalDeduction,
+  );
   const lossCarryCell = lossCarryR.getCell(4);
-  lossCarryCell.value = taxData.lossCarryForward ?? 0;
+  lossCarryCell.value = lossSchedule.totalAllowable || taxData.lossCarryForward || 0;
   lossCarryCell.numFmt = NUMBER_FORMAT;
   lossCarryCell.alignment = { horizontal: 'right' };
   applyInputStyle(lossCarryCell);
   applyAllBorders(lossCarryCell);
   applyAllBorders(lossCarryR.getCell(1));
+
+  if ((taxData.priorYearLosses ?? []).length > 0) {
+    let lossDetailRow = lossCarryRow + 1;
+    for (const yr of lossSchedule.schedule) {
+      const lr = ws.getRow(lossDetailRow++);
+      lr.getCell(1).value = `  Loss FY ${yr.fiscalYear}`;
+      lr.getCell(1).font = { name: 'Arial', size: 9, italic: true };
+      setAmountCell(lr.getCell(4), yr.utilized || null);
+      applyAllBorders(lr.getCell(1));
+      applyAllBorders(lr.getCell(4));
+    }
+    row = lossDetailRow;
+  }
 
   const taxableIncomeRow = row++;
   const taxableR = ws.getRow(taxableIncomeRow);
@@ -2318,8 +2450,20 @@ function normalizeNotesForExcel(
   bs: BalanceSheet,
 ): NotesData {
   if (notes.note34_otherReceivables || notes.note317_revenue) {
+    const n34 = notes.note34_otherReceivables;
+    const n35 = notes.note35_otherNCA;
+    const n36 = notes.note36_otherCA;
     return {
       ...notes,
+      note34_otherReceivables: n34?.items
+        ? Object.fromEntries(n34.items.map((i) => [i.description, { cy: i.balanceCY, py: i.balancePY }]))
+        : notes.note34_otherReceivables,
+      note35_otherNonCurrentAssets: n35?.items
+        ? Object.fromEntries(n35.items.map((i) => [i.description, { cy: i.balanceCY, py: i.balancePY }]))
+        : notes.note35_otherNonCurrentAssets ?? {},
+      note36_otherCurrentAssets: n36?.items
+        ? Object.fromEntries(n36.items.map((i) => [i.description, { cy: i.balanceCY, py: i.balancePY }]))
+        : notes.note36_otherCurrentAssets ?? {},
       note38_cashAndEquivalents: notes.note38_cashAndEquivalents ?? notes.note38_cashEquivalents ?? {
         cashInHand_cy: 0, cashInHand_py: 0, bankBalances: [], totalCash_cy: 0, totalCash_py: 0,
       },
@@ -2510,15 +2654,19 @@ function normalizeNotesForExcel(
     ...notes,
     note31_ppe,
     note34_otherReceivables: {
-      'Security Deposits': { cy: n34?.securityDeposits ?? 0, py: 0 },
-      'Advance Income Tax': { cy: n34?.advanceIncomeTax ?? 0, py: 0 },
-      'Other Prepaid Expenses': { cy: n34?.otherPrepaidExpenses ?? 0, py: 0 },
+      'Deposits': { cy: n34?.items?.find((i) => i.description === 'Deposits')?.balanceCY ?? 0, py: n34?.items?.find((i) => i.description === 'Deposits')?.balancePY ?? 0 },
+      'Staff Advances': { cy: n34?.items?.find((i) => i.description === 'Staff Advances')?.balanceCY ?? 0, py: n34?.items?.find((i) => i.description === 'Staff Advances')?.balancePY ?? 0 },
+      'Related Party Receivables': { cy: n34?.items?.find((i) => i.description === 'Related Party Receivables')?.balanceCY ?? 0, py: n34?.items?.find((i) => i.description === 'Related Party Receivables')?.balancePY ?? 0 },
+      'Loans & Advances (NCA)': { cy: n34?.items?.find((i) => i.description === 'Loans & Advances (NCA)')?.balanceCY ?? 0, py: n34?.items?.find((i) => i.description === 'Loans & Advances (NCA)')?.balancePY ?? 0 },
     },
     note35_otherNonCurrentAssets: {
-      'Biological Assets': { cy: n35?.closingCarrying ?? 0, py: n35?.openingCarrying ?? 0 },
+      'Biological Assets': { cy: n35?.total?.balanceCY ?? 0, py: n35?.total?.balancePY ?? 0 },
     },
     note36_otherCurrentAssets: {
-      'Held for Sale': { cy: n36?.total ?? 0, py: 0 },
+      'Assets Held for Sale': { cy: n36?.items?.find((i) => i.description === 'Assets Held for Sale')?.balanceCY ?? 0, py: n36?.items?.find((i) => i.description === 'Assets Held for Sale')?.balancePY ?? 0 },
+      'Advance to Suppliers': { cy: n36?.items?.find((i) => i.description === 'Advance to Suppliers')?.balanceCY ?? 0, py: n36?.items?.find((i) => i.description === 'Advance to Suppliers')?.balancePY ?? 0 },
+      'Advance Income Tax': { cy: n36?.items?.find((i) => i.description === 'Advance Income Tax')?.balanceCY ?? 0, py: n36?.items?.find((i) => i.description === 'Advance Income Tax')?.balancePY ?? 0 },
+      'Other Prepaid Expenses': { cy: n36?.items?.find((i) => i.description === 'Other Prepaid Expenses')?.balanceCY ?? 0, py: n36?.items?.find((i) => i.description === 'Other Prepaid Expenses')?.balancePY ?? 0 },
     },
     note37_inventories,
     note38_cashAndEquivalents,
@@ -2546,29 +2694,46 @@ function buildInvestmentsNoteData(
   const data: CyPyRecord = {};
   if (!note32) return data;
 
-  for (const share of note32.listedShares ?? []) {
-    data[`Listed Shares — ${share.companyName}`] = {
-      cy: share.carryingAmount ?? share.marketValue ?? 0,
-      py: share.openingCost ?? 0,
-    };
+  const listed = note32.listedShares as Record<string, unknown> | undefined;
+  if (listed && typeof listed === 'object' && !Array.isArray(listed)) {
+    data['Listed — Opening Balance'] = { cy: Number(listed.openingBalance ?? 0), py: 0 };
+    data['Listed — Additions'] = { cy: Number(listed.additions ?? 0), py: 0 };
+    data['Listed — Disposals'] = { cy: Number(listed.disposals ?? 0), py: 0 };
+    data['Listed — Closing Balance'] = { cy: Number(listed.closingBalance ?? 0), py: 0 };
+    data['Listed — FV Gain/(Loss)'] = { cy: Number(listed.fairValueGainLoss ?? 0), py: 0 };
+    data['Listed — Net Carrying Amount'] = { cy: Number(listed.netCarryingAmount ?? 0), py: 0 };
+  } else {
+    for (const share of (note32.listedShares as Array<Record<string, unknown>>) ?? []) {
+      data[`Listed — ${share.companyName ?? share.name ?? 'Shares'}`] = {
+        cy: Number(share.carryingAmount ?? share.marketValue ?? 0),
+        py: Number(share.openingCost ?? share.openingBalance ?? 0),
+      };
+    }
   }
-  for (const share of note32.unlistedShares ?? []) {
-    data[`Unlisted Shares — ${share.companyName}`] = {
-      cy: share.closingCarrying ?? 0,
-      py: share.openingCost ?? 0,
-    };
+
+  const other = note32.otherInvestments as Record<string, unknown> | undefined;
+  if (other) {
+    data['Unlisted — Cost Opening'] = { cy: Number(other.costOpening ?? 0), py: 0 };
+    data['Unlisted — Additions'] = { cy: Number(other.additions ?? 0), py: 0 };
+    data['Unlisted — Cost Closing'] = { cy: Number(other.costClosing ?? 0), py: 0 };
+    data['Unlisted — Provision Opening'] = { cy: Number(other.provisionOpening ?? 0), py: 0 };
+    data['Unlisted — Provision Movement'] = { cy: Number(other.provisionMovement ?? 0), py: 0 };
+    data['Unlisted — Provision Closing'] = { cy: Number(other.provisionClosing ?? 0), py: 0 };
+    data['Unlisted — Net Carrying Amount'] = { cy: Number(other.netCarryingAmount ?? 0), py: 0 };
+  } else {
+    for (const share of (note32.unlistedShares as Array<Record<string, unknown>>) ?? []) {
+      data[`Unlisted — ${share.companyName ?? share.name ?? 'Investment'}`] = {
+        cy: Number(share.closingCarrying ?? 0),
+        py: Number(share.openingCost ?? 0),
+      };
+    }
   }
+
   if ((note32.fdrNonCurrent ?? 0) !== 0) {
     data['Fixed Deposits (Non-current)'] = { cy: note32.fdrNonCurrent ?? 0, py: 0 };
   }
   if ((note32.fdrCurrent ?? 0) !== 0) {
     data['Fixed Deposits (Current)'] = { cy: note32.fdrCurrent ?? 0, py: 0 };
-  }
-  if ((note32.totalNonCurrent ?? 0) !== 0 && Object.keys(data).length === 0) {
-    data['Investments (Non-current)'] = { cy: note32.totalNonCurrent ?? 0, py: 0 };
-  }
-  if ((note32.totalCurrent ?? 0) !== 0 && Object.keys(data).length === 0) {
-    data['Investments (Current)'] = { cy: note32.totalCurrent ?? 0, py: 0 };
   }
   return data;
 }
@@ -2911,6 +3076,16 @@ function writeConsolidatedNotes(
   SHEET_ROW_REGISTRY.empExpenseTotalRow = empExpMap.cyTotalRow;
   appendSection(empExpMap);
 
+  const kmp = (notes.note320_employeeBenefitExpenses as Record<string, unknown>)?.kmpCompensation as Record<string, number> | undefined;
+  if (kmp && (kmp.total ?? 0) > 0) {
+    appendSection(writeGenericNoteRecord(ws, '3.20  Key Management Personnel Compensation', {
+      'Salary': { cy: kmp.salary ?? 0, py: 0 },
+      'Bonus': { cy: kmp.bonus ?? 0, py: 0 },
+      'Other Long-term Benefits': { cy: kmp.otherBenefits ?? 0, py: 0 },
+      'Total KMP Compensation': { cy: kmp.total ?? 0, py: 0 },
+    }, startRow));
+  }
+
   const impairmentMap = writeGenericNoteRecord(ws, '3.21  Impairment', Object.fromEntries(
     (notes.note321_impairment ?? []).map((item: { description: string; cy: number; py: number }) => [item.description, { cy: item.cy, py: item.py }]),
   ), startRow);
@@ -2974,8 +3149,8 @@ export async function generateNFRSWorkbook(params: {
   // Sheet order exactly as specified
   writeWorkings(addSheet('Workings', COLORS.LIGHT_GRAY), company, wb);
   writeInstructions(addSheet('Instructions', COLORS.LIGHT_GRAY));
-  writeEnterDetails(addSheet('Enter Details', COLORS.GREEN_INPUT), company, adjustments);
-  writeTrialBalance(addSheet('Trial Balance', COLORS.BRAND_BLUE), trialBalance, company);
+  writeEnterDetails(addSheet('Enter Details', COLORS.GREEN_INPUT), company, adjustments, { balanceSheet, incomeStatement });
+  writeTrialBalance(addSheet('Trial Balance', COLORS.BRAND_BLUE), trialBalance, company, incomeStatement);
   const bsRowMap = writeBalanceSheet(addSheet('Balance Sheet', COLORS.BRAND_BLUE), balanceSheet, company);
   const isRowMap = writeIncomeStatement(addSheet('Income Statement', COLORS.BRAND_BLUE), incomeStatement, company);
   const ceRowMap = writeChangesInEquity(addSheet('Change in Equity', COLORS.BRAND_BLUE), changesInEquity, company);
@@ -3139,7 +3314,7 @@ export async function generateNFRSWorkbook(params: {
     taxCalculation: 'Tax Calculation',
   }, isRowMap, noteRowMap);
   applyCashFlowCrossReferences(wb, 'Cash Flow', 'Income Statement', cfRowMap, isRowMap);
-  applyCashFlowReconciliation(wb, 'Cash Flow', 'Balance Sheet', cfRowMap);
+  applyCashFlowReconciliation(wb, 'Cash Flow', 'Balance Sheet', cfRowMap, bsRowMap);
   applyChangesInEquityCrossReferences(wb, 'Change in Equity', 'Income Statement', ceRowMap, isRowMap);
   applyWorkingsValidationRefs(wb, {
     balanceSheet: bsRowMap,
@@ -3428,8 +3603,9 @@ function applyChangesInEquityCrossReferences(
 function applyCashFlowReconciliation(
   wb: import('exceljs').Workbook,
   cfSheetName: string,
-  _bsSheetName: string,
+  bsSheetName: string,
   rowMap: CashFlowRowMap,
+  bsRowMap: BalanceSheetRowMap,
   cyCol = 'C',
 ): void {
   const ws = wb.getWorksheet(cfSheetName);
@@ -3447,7 +3623,27 @@ function applyCashFlowReconciliation(
   applyTotalStyle(cell);
   cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: `FF${COLORS.TOTAL_BG}` } };
 
-  console.log('[excelWriter] Cash flow reconciliation formula applied.');
+  const reconRow = rowMap.closingCashRow + 2;
+  ws.getRow(reconRow).getCell(1).value = 'Cash per Cash Flow Statement';
+  ws.getRow(reconRow).getCell(2).value = { formula: `${cyCol}${rowMap.closingCashRow}`, result: 0 };
+  ws.getRow(reconRow).getCell(2).numFmt = NUMBER_FORMAT;
+
+  ws.getRow(reconRow + 1).getCell(1).value = 'Cash per Balance Sheet';
+  if (bsRowMap.cashRow) {
+    ws.getRow(reconRow + 1).getCell(2).value = {
+      formula: `'${bsSheetName}'!${cyCol}${bsRowMap.cashRow}`,
+      result: 0,
+    };
+  }
+  ws.getRow(reconRow + 1).getCell(2).numFmt = NUMBER_FORMAT;
+
+  ws.getRow(reconRow + 2).getCell(1).value = 'Difference (should be zero)';
+  ws.getRow(reconRow + 2).getCell(2).value = {
+    formula: `B${reconRow}-B${reconRow + 1}`,
+    result: 0,
+  };
+  ws.getRow(reconRow + 2).getCell(2).numFmt = NUMBER_FORMAT;
+  applyTotalStyle(ws.getRow(reconRow + 2).getCell(2));
 }
 
 function applyWorkingsValidationRefs(wb: import('exceljs').Workbook, maps: WorkbookRowMaps): void {

@@ -176,7 +176,17 @@ export interface YearEndAdjustments {
     description: string;
     amount: number;
     section: string;
+    side?: 'income' | 'expense';
+    asPerBooks?: number;
   }>;
+  /** Key Management Personnel compensation (Note 3.20 sub-table). */
+  kmpCompensation?: {
+    salary: number;
+    bonus: number;
+    otherBenefits: number;
+  };
+  /** Prior-year loss balances for u/s 20 carry-forward schedule. */
+  priorYearLosses?: Array<{ fiscalYear: string; amount: number }>;
   assets?: import('./index').AssetItem[];
   depreciationResults?: import('./index').DepreciationResult[];
   journalEntries?: import('./index').JournalEntry[];
