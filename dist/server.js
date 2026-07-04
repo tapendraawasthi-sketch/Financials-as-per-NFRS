@@ -212,7 +212,6 @@ function validateCompanyProfile(data) {
   const errors = [];
   const warnings = [];
   if (!data.companyName?.trim()) errors.push("Company name is required.");
-  if (!data.fiscalYear) errors.push("Fiscal year must be selected.");
   return {
     isValid: errors.length === 0,
     errors,
@@ -407,6 +406,7 @@ var company_default = router;
 
 // server/routes/trialBalance.ts
 import { Router as Router2 } from "express";
+import ExcelJS7 from "exceljs";
 
 // server/middleware/upload.ts
 import multer from "multer";
@@ -1324,13 +1324,19 @@ function parseDualYearMatrix(matrix) {
     "full",
     warnings
   );
-  const previousYear = parseMatrixWithColMap(
-    matrix,
-    dual.pyColMap,
-    dual.headerRowIndex,
-    "full",
-    []
-  ).rows;
+  let previousYear = [];
+  try {
+    previousYear = parseMatrixWithColMap(
+      matrix,
+      dual.pyColMap,
+      dual.headerRowIndex,
+      "full",
+      []
+    ).rows;
+  } catch (err) {
+    const code = err.code;
+    if (code !== "NO_DATA_ROWS") throw err;
+  }
   return { currentYear, previousYear };
 }
 function cellPlainValue(val) {
@@ -3177,6 +3183,22 @@ import ExcelJS3 from "exceljs";
 // server/services/excelWriter.ts
 import ExcelJS2 from "exceljs";
 
+// src/utils/fillPlaceholder.ts
+function fillPlaceholder(label, value) {
+  if (value === null || value === void 0) return `(Fill ${label})`;
+  if (typeof value === "number") {
+    if (Number.isNaN(value)) return `(Fill ${label})`;
+    return String(value);
+  }
+  const trimmed = value.trim();
+  if (!trimmed) return `(Fill ${label})`;
+  return trimmed;
+}
+function fillNumericPlaceholder(label, value) {
+  if (value === null || value === void 0 || Number.isNaN(value)) return `(Fill ${label})`;
+  return value;
+}
+
 // server/services/mesEnterDetailsFields.ts
 function buildMesEnterDetailsFields(company, adjustments) {
   const policies = company.accountingPolicies;
@@ -3188,22 +3210,22 @@ function buildMesEnterDetailsFields(company, adjustments) {
   const dividendCapacity = Math.max(0, 100 - dividendDeclared);
   const fields = [
     { label: "name of entity", value: company.companyName ?? company.name ?? "" },
-    { label: "address", value: company.fullAddress ?? company.address ?? "" },
-    { label: "this year", value: company.fiscalYear?.bsFY ?? company.fiscalYearCurrent ?? "" },
-    { label: "last year", value: company.previousFiscalYear?.bsFY ?? company.fiscalYearPrevious ?? "" },
-    { label: "reporting date (bs)", value: company.fiscalYear?.endDateBS ?? company.reportingDateBS ?? "" },
-    { label: "reporting date (ad)", value: company.fiscalYear?.endDateAD ?? company.reportingDateAD ?? "" },
-    { label: "entity type", value: company.entityType ?? company.typeOfEntity ?? company.companyType ?? "" },
+    { label: "address", value: fillPlaceholder("Address", company.fullAddress ?? company.address) },
+    { label: "this year", value: fillPlaceholder("Fiscal Year", company.fiscalYear?.bsFY ?? company.fiscalYearCurrent) },
+    { label: "last year", value: fillPlaceholder("Previous Fiscal Year", company.previousFiscalYear?.bsFY ?? company.fiscalYearPrevious) },
+    { label: "reporting date (bs)", value: fillPlaceholder("Reporting Date (BS)", company.fiscalYear?.endDateBS ?? company.reportingDateBS) },
+    { label: "reporting date (ad)", value: fillPlaceholder("Reporting Date (AD)", company.fiscalYear?.endDateAD ?? company.reportingDateAD) },
+    { label: "entity type", value: fillPlaceholder("Entity Type", company.entityType ?? company.typeOfEntity ?? company.companyType) },
     { label: "applicable standard", value: company.applicableStandard ?? "NAS for MEs" },
-    { label: "pan / vat number", value: company.panVatNumber ?? company.panNo ?? "" },
-    { label: "registration no.", value: company.registrationNumber ?? company.registrationNo ?? "" },
-    { label: "chairperson", value: company.chairperson ?? "" },
-    { label: "director", value: company.director ?? "" },
-    { label: "accounts head", value: company.accountsHead ?? "" },
-    { label: "auditor", value: company.auditorInfo?.auditorName ?? company.auditor ?? "" },
-    { label: "name of audit firm", value: company.auditorInfo?.auditorFirmName ?? company.auditFirmName ?? "" },
-    { label: "ican registration no.", value: company.auditorInfo?.icanRegNumber ?? "" },
-    { label: "number of employees", value: employees, isNumeric: true },
+    { label: "pan / vat number", value: fillPlaceholder("PAN", company.panVatNumber ?? company.panNo) },
+    { label: "registration no.", value: fillPlaceholder("Registration No.", company.registrationNumber ?? company.registrationNo) },
+    { label: "chairperson", value: fillPlaceholder("Chairperson", company.chairperson) },
+    { label: "director", value: fillPlaceholder("Director", company.director) },
+    { label: "accounts head", value: fillPlaceholder("Accounts Head", company.accountsHead) },
+    { label: "auditor", value: fillPlaceholder("Auditor", company.auditorInfo?.auditorName ?? company.auditor) },
+    { label: "name of audit firm", value: fillPlaceholder("Audit Firm Name", company.auditorInfo?.auditorFirmName ?? company.auditFirmName) },
+    { label: "ican registration no.", value: fillPlaceholder("ICAN Registration No.", company.auditorInfo?.icanRegNumber) },
+    { label: "number of employees", value: fillNumericPlaceholder("Number of Employees", employees), isNumeric: true },
     { label: "income tax rate (%)", value: taxRate, isNumeric: true },
     { label: "bonus rate (%)", value: typeof bonusRate === "number" && bonusRate <= 1 ? bonusRate * 100 : bonusRate, isNumeric: true },
     { label: "rounding level (npr)", value: policies?.roundingLevel ?? 100, isNumeric: true },
@@ -3226,30 +3248,7 @@ function buildMesEnterDetailsFields(company, adjustments) {
   return fields;
 }
 
-// server/services/mesTrialBalanceWriter.ts
-var NUMBER_FORMAT = "#,##0.00";
-var SUBHEADER_BG = "E2EFDA";
-var THIN_BORDER = {
-  top: { style: "thin", color: { argb: "FFD1D5DB" } },
-  left: { style: "thin", color: { argb: "FFD1D5DB" } },
-  bottom: { style: "thin", color: { argb: "FFD1D5DB" } },
-  right: { style: "thin", color: { argb: "FFD1D5DB" } }
-};
-function applyHeaderStyle(cell) {
-  cell.font = { name: "Arial", size: 11, bold: true, color: { argb: "FF1E3A5F" } };
-  cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFD6E4F0" } };
-}
-function applySubHeaderStyle(cell) {
-  cell.font = { name: "Arial", size: 10, bold: true };
-  cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: `FF${SUBHEADER_BG}` } };
-  cell.border = THIN_BORDER;
-}
-function applyInputStyle(cell) {
-  cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE8F5E9" } };
-}
-var MES_TB_TOTAL_COLS = 19;
-var MES_TB_CY_COLS = [2, 3, 4, 5, 6, 7, 8, 9];
-var MES_TB_PY_COLS = [12, 13, 14, 15, 16, 17, 18, 19];
+// server/services/tbStandardSchema.ts
 var SECTION_MAP = [
   { prefixes: ["BS Equity"], header: "CAPITAL ACCOUNT & RESERVES" },
   { prefixes: ["BS NCL Borrowings"], header: "NON-CURRENT LIABILITIES - LOANS & BORROWINGS" },
@@ -3281,6 +3280,74 @@ var SECTION_MAP = [
   { prefixes: ["IS Admin"], header: "ADMINISTRATIVE EXPENSES" },
   { prefixes: ["IS Tax"], header: "INCOME TAX EXPENSE" }
 ];
+var AMOUNT_HEADERS = [
+  "Opening Dr.",
+  "Opening Cr.",
+  "During Dr.",
+  "During Cr.",
+  "Adjustment Dr.",
+  "Adjustment Cr.",
+  "Closing Dr.",
+  "Closing Cr."
+];
+var STANDARD_TB_COLUMNS = [
+  { col: 1, header: "Particulars", block: "cy" },
+  ...AMOUNT_HEADERS.map((header, i) => ({ col: i + 2, header, block: "cy" })),
+  { col: 10, header: "", block: "spacer" },
+  { col: 11, header: "Particulars", block: "py" },
+  ...AMOUNT_HEADERS.map((header, i) => ({ col: i + 12, header, block: "py" }))
+];
+var TOTAL_COLS = STANDARD_TB_COLUMNS.length;
+var HEADER_ROW_INDEX = 5;
+var CY_AMOUNT_COLS = STANDARD_TB_COLUMNS.filter((c) => c.block === "cy" && c.col !== 1).map((c) => c.col);
+var PY_AMOUNT_COLS = STANDARD_TB_COLUMNS.filter((c) => c.block === "py" && c.col !== 11).map((c) => c.col);
+function resolveSectionHeader(statementLine) {
+  for (const { prefixes, header } of SECTION_MAP) {
+    for (const prefix of prefixes) {
+      if (statementLine.startsWith(prefix)) return header;
+    }
+  }
+  return null;
+}
+function buildSectionAccounts() {
+  const sectionAccounts = /* @__PURE__ */ new Map();
+  for (const entry of CHART_OF_ACCOUNTS) {
+    if (entry.isGroup || entry.statementLine === "N/A") continue;
+    const header = resolveSectionHeader(entry.statementLine);
+    if (!header) continue;
+    if (!sectionAccounts.has(header)) sectionAccounts.set(header, []);
+    sectionAccounts.get(header).push({ displayLabel: entry.displayLabel, category: entry.category });
+  }
+  return SECTION_MAP.map(({ header }) => header).filter((header) => sectionAccounts.has(header)).map((header) => ({ header, accounts: sectionAccounts.get(header) }));
+}
+function getExpectedSectionOrder() {
+  return buildSectionAccounts().map(({ header }) => header);
+}
+
+// server/services/mesTrialBalanceWriter.ts
+var NUMBER_FORMAT = "#,##0.00";
+var SUBHEADER_BG = "E2EFDA";
+var THIN_BORDER = {
+  top: { style: "thin", color: { argb: "FFD1D5DB" } },
+  left: { style: "thin", color: { argb: "FFD1D5DB" } },
+  bottom: { style: "thin", color: { argb: "FFD1D5DB" } },
+  right: { style: "thin", color: { argb: "FFD1D5DB" } }
+};
+function applyHeaderStyle(cell) {
+  cell.font = { name: "Arial", size: 11, bold: true, color: { argb: "FF1E3A5F" } };
+  cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFD6E4F0" } };
+}
+function applySubHeaderStyle(cell) {
+  cell.font = { name: "Arial", size: 10, bold: true };
+  cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: `FF${SUBHEADER_BG}` } };
+  cell.border = THIN_BORDER;
+}
+function applyInputStyle(cell) {
+  cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE8F5E9" } };
+}
+var MES_TB_TOTAL_COLS = TOTAL_COLS;
+var MES_TB_CY_COLS = CY_AMOUNT_COLS;
+var MES_TB_PY_COLS = PY_AMOUNT_COLS;
 function colLetter(col) {
   let letter = "";
   let n = col;
@@ -3293,23 +3360,6 @@ function colLetter(col) {
 }
 function normLabel(s) {
   return s.toLowerCase().trim().replace(/\s+/g, " ");
-}
-function buildSectionAccounts() {
-  const sectionAccounts = /* @__PURE__ */ new Map();
-  for (const entry of CHART_OF_ACCOUNTS) {
-    if (entry.isGroup || entry.statementLine === "N/A") continue;
-    let header = null;
-    for (const { prefixes, header: h } of SECTION_MAP) {
-      if (prefixes.some((p) => entry.statementLine.startsWith(p))) {
-        header = h;
-        break;
-      }
-    }
-    if (!header) continue;
-    if (!sectionAccounts.has(header)) sectionAccounts.set(header, []);
-    sectionAccounts.get(header).push({ displayLabel: entry.displayLabel, category: entry.category });
-  }
-  return SECTION_MAP.map(({ header }) => header).filter((header) => sectionAccounts.has(header)).map((header) => ({ header, accounts: sectionAccounts.get(header) }));
 }
 function indexRows(rows) {
   const map = /* @__PURE__ */ new Map();
@@ -3590,8 +3640,8 @@ function writeSumTotalRow(ws, row, labelCol, sumCols, fromRow, toRow, label = "T
   exRow.getCell(labelCol).font = FONTS.TOTAL;
   sumCols.forEach((col) => {
     const cell = exRow.getCell(col);
-    const colLetter3 = ws.getColumn(col).letter ?? String.fromCharCode(64 + col);
-    cell.value = { formula: `SUM(${colLetter3}${fromRow}:${colLetter3}${toRow})`, result: 0 };
+    const colLetter4 = ws.getColumn(col).letter ?? String.fromCharCode(64 + col);
+    cell.value = { formula: `SUM(${colLetter4}${fromRow}:${colLetter4}${toRow})`, result: 0 };
     cell.numFmt = NUMBER_FORMAT2;
     cell.alignment = { horizontal: "right" };
     cell.font = FONTS.TOTAL;
@@ -3715,12 +3765,12 @@ function writeSignatureLine(ws, startRow, company) {
   ws.getRow(sigRow).getCell(1).value = "For and on behalf of the Board of Directors";
   ws.getRow(sigRow).getCell(1).font = { name: "Arial", size: 9 };
   const nameRow = sigRow + 3;
-  ws.getRow(nameRow).getCell(1).value = company.chairperson ?? "Chairperson";
-  ws.getRow(nameRow).getCell(3).value = company.director ?? "Director";
+  ws.getRow(nameRow).getCell(1).value = fillPlaceholder("Chairperson", company.chairperson);
+  ws.getRow(nameRow).getCell(3).value = fillPlaceholder("Director", company.director);
   const audRow = nameRow + 2;
-  ws.getRow(audRow).getCell(1).value = `For ${company.auditorInfo?.auditorFirmName ?? "Audit Firm"}`;
-  ws.getRow(audRow + 1).getCell(1).value = company.auditorInfo?.auditorName ?? "Auditor";
-  ws.getRow(audRow + 2).getCell(1).value = company.auditorInfo?.position ?? "Engagement Partner";
+  ws.getRow(audRow).getCell(1).value = `For ${fillPlaceholder("Audit Firm Name", company.auditorInfo?.auditorFirmName)}`;
+  ws.getRow(audRow + 1).getCell(1).value = fillPlaceholder("Auditor", company.auditorInfo?.auditorName);
+  ws.getRow(audRow + 2).getCell(1).value = fillPlaceholder("Auditor Position", company.auditorInfo?.position);
 }
 function writeWorkings(ws, company, wb) {
   ws.state = "veryHidden";
@@ -3769,16 +3819,16 @@ function writeWorkings(ws, company, wb) {
   const paramStart = 30;
   const params = [
     { label: "Company Name", value: company.companyName ?? "", name: "CompanyName" },
-    { label: "Fiscal Year", value: company.fiscalYear?.bsFY ?? "", name: "FiscalYear" },
-    { label: "End Date BS", value: company.fiscalYear?.endDateBS ?? "", name: "YearEndDateBS" },
-    { label: "End Date AD", value: company.fiscalYear?.endDateAD ?? "", name: "YearEndDateAD" },
-    { label: "Start Date BS", value: company.fiscalYear?.startDateBS ?? "", name: "YearStartDateBS" },
-    { label: "Start Date AD", value: company.fiscalYear?.startDateAD ?? "", name: "YearStartDateAD" },
+    { label: "Fiscal Year", value: fillPlaceholder("Fiscal Year", company.fiscalYear?.bsFY), name: "FiscalYear" },
+    { label: "End Date BS", value: fillPlaceholder("End Date (BS)", company.fiscalYear?.endDateBS), name: "YearEndDateBS" },
+    { label: "End Date AD", value: fillPlaceholder("End Date (AD)", company.fiscalYear?.endDateAD), name: "YearEndDateAD" },
+    { label: "Start Date BS", value: fillPlaceholder("Start Date (BS)", company.fiscalYear?.startDateBS), name: "YearStartDateBS" },
+    { label: "Start Date AD", value: fillPlaceholder("Start Date (AD)", company.fiscalYear?.startDateAD), name: "YearStartDateAD" },
     { label: "Rounding Level (NPR)", value: company.accountingPolicies?.roundingLevel ?? 1, name: "RoundingLevel" },
     { label: "Income Tax Rate %", value: company.accountingPolicies?.incomeTaxRatePercent ?? 25, name: "TaxRate" },
     { label: "Staff Bonus Rate %", value: 10, name: "BonusRate" },
-    { label: "PAN/VAT Number", value: company.panVatNumber ?? "" },
-    { label: "Registration No.", value: company.registrationNumber ?? "" }
+    { label: "PAN/VAT Number", value: fillPlaceholder("PAN", company.panVatNumber ?? company.panNo) },
+    { label: "Registration No.", value: fillPlaceholder("Registration No.", company.registrationNumber ?? company.registrationNo) }
   ];
   const paramSectionHeader = ws.getRow(paramStart - 1);
   paramSectionHeader.getCell(1).value = "\u25B6 Company Parameters";
@@ -5888,7 +5938,7 @@ async function generateNFRSWorkbook(params) {
       addSheet("Tax Calculation", COLORS.LIGHT_GRAY),
       {
         companyName: company.companyName ?? "",
-        address: company.address ?? "",
+        address: fillPlaceholder("Address", company.fullAddress ?? company.address),
         incomeStatement,
         otherIncome: notes.note319_otherIncome,
         repairExpense,
@@ -6443,7 +6493,7 @@ function appendComplianceStatement(ws, params, startRow) {
   addRow("");
   addRow("3. AUTHORIZATION FOR ISSUE", true);
   addRow(
-    `These financial statements for the fiscal year ${params.fiscalYear} were authorized for issue by the Board of Directors of ${params.companyName} on ${params.authorizationDate ?? "[Board Meeting Date]"}.`,
+    `These financial statements for the fiscal year ${params.fiscalYear} were authorized for issue by the Board of Directors of ${params.companyName} on ${params.authorizationDate ?? "(Fill Board Meeting Date)"}.`,
     false,
     false,
     1
@@ -6458,63 +6508,6 @@ function appendComplianceStatement(ws, params, startRow) {
 }
 
 // server/services/tbTemplateWriter.ts
-var TOTAL_COLS = 19;
-var CY_AMOUNT_COLS = [2, 3, 4, 5, 6, 7, 8, 9];
-var PY_AMOUNT_COLS = [12, 13, 14, 15, 16, 17, 18, 19];
-var SECTION_MAP2 = [
-  { prefixes: ["BS Equity"], header: "CAPITAL ACCOUNT & RESERVES" },
-  { prefixes: ["BS NCL Borrowings"], header: "NON-CURRENT LIABILITIES - LOANS & BORROWINGS" },
-  { prefixes: ["BS NCL Employee Benefits"], header: "NON-CURRENT LIABILITIES - EMPLOYEE BENEFITS" },
-  { prefixes: ["BS NCL Provisions"], header: "NON-CURRENT LIABILITIES - PROVISIONS" },
-  { prefixes: ["BS NCL"], header: "NON-CURRENT LIABILITIES - OTHER" },
-  { prefixes: ["BS CL Trade Payables"], header: "CURRENT LIABILITIES - TRADE PAYABLES" },
-  { prefixes: ["BS CL Borrowings"], header: "CURRENT LIABILITIES - LOANS & BORROWINGS" },
-  { prefixes: ["BS CL Tax"], header: "CURRENT LIABILITIES - TAX PAYABLE" },
-  { prefixes: ["BS CL Employee"], header: "CURRENT LIABILITIES - EMPLOYEE PAYABLES" },
-  { prefixes: ["BS CL Provisions"], header: "CURRENT LIABILITIES - PROVISIONS" },
-  { prefixes: ["BS CL Other"], header: "CURRENT LIABILITIES - OTHER" },
-  { prefixes: ["BS CA Tax"], header: "CURRENT ASSETS - ADVANCE TAX" },
-  { prefixes: ["BS NCA PPE"], header: "PROPERTY, PLANT & EQUIPMENT" },
-  { prefixes: ["BS NCA/CA Investments", "BS NCA Investments"], header: "INVESTMENTS" },
-  { prefixes: ["BS NCA"], header: "OTHER NON-CURRENT ASSETS" },
-  { prefixes: ["BS CA Inventory"], header: "CURRENT ASSETS - INVENTORY" },
-  { prefixes: ["BS CA Receivables"], header: "CURRENT ASSETS - TRADE RECEIVABLES" },
-  { prefixes: ["BS CA Other Receivables"], header: "CURRENT ASSETS - OTHER RECEIVABLES" },
-  { prefixes: ["BS CA Cash"], header: "CURRENT ASSETS - CASH & BANK" },
-  { prefixes: ["BS CA"], header: "CURRENT ASSETS - OTHER" },
-  { prefixes: ["IS Revenue"], header: "DIRECT INCOME" },
-  { prefixes: ["IS Other Income"], header: "INDIRECT INCOME" },
-  { prefixes: ["IS COGS"], header: "DIRECT EXPENSES" },
-  { prefixes: ["IS Employee Benefits"], header: "EMPLOYEE BENEFIT EXPENSES" },
-  { prefixes: ["IS Finance Costs"], header: "FINANCE COSTS" },
-  { prefixes: ["IS Depreciation"], header: "DEPRECIATION" },
-  { prefixes: ["IS Impairment"], header: "IMPAIRMENT EXPENSES" },
-  { prefixes: ["IS Admin"], header: "ADMINISTRATIVE EXPENSES" },
-  { prefixes: ["IS Tax"], header: "INCOME TAX EXPENSE" }
-];
-function resolveSectionHeader(statementLine) {
-  for (const { prefixes, header } of SECTION_MAP2) {
-    for (const prefix of prefixes) {
-      if (statementLine.startsWith(prefix)) return header;
-    }
-  }
-  return null;
-}
-function buildSectionAccounts2() {
-  const sectionAccounts = /* @__PURE__ */ new Map();
-  const sectionOrder = [];
-  for (const entry of CHART_OF_ACCOUNTS) {
-    if (entry.isGroup || entry.statementLine === "N/A") continue;
-    const header = resolveSectionHeader(entry.statementLine);
-    if (!header) continue;
-    if (!sectionAccounts.has(header)) {
-      sectionAccounts.set(header, []);
-      sectionOrder.push(header);
-    }
-    sectionAccounts.get(header).push({ displayLabel: entry.displayLabel });
-  }
-  return SECTION_MAP2.map(({ header }) => header).filter((header) => sectionAccounts.has(header)).map((header) => ({ header, accounts: sectionAccounts.get(header) }));
-}
 function colLetter2(col) {
   let letter = "";
   let n = col;
@@ -6577,7 +6570,7 @@ async function generateTrialBalanceTemplate() {
       c.alignment = { horizontal: i === 0 ? "left" : "center", vertical: "middle" };
     });
     let currentRow = 6;
-    const sections = buildSectionAccounts2();
+    const sections = buildSectionAccounts();
     for (const { header, accounts } of sections) {
       ws.mergeCells(currentRow, 1, currentRow, TOTAL_COLS);
       const sectionCell = ws.getRow(currentRow).getCell(1);
@@ -6957,8 +6950,539 @@ ${JSON.stringify(chunk)}`
   };
 }
 
-// server/services/normalizedTbWriter.ts
+// server/services/localTbConverter.ts
 import ExcelJS5 from "exceljs";
+
+// server/services/pdfTableExtractor.ts
+var ROW_Y_TOLERANCE = 3;
+var COLUMN_GAP_THRESHOLD = 15;
+var MIN_TEXT_CHARS = 20;
+function clusterColumnBoundaries(items) {
+  const xStarts = [...new Set(items.map((i) => Math.round(i.x)))].sort((a, b) => a - b);
+  if (xStarts.length === 0) return [];
+  const boundaries = [xStarts[0]];
+  for (let i = 1; i < xStarts.length; i++) {
+    if (xStarts[i] - xStarts[i - 1] > COLUMN_GAP_THRESHOLD) {
+      boundaries.push(xStarts[i]);
+    }
+  }
+  return boundaries;
+}
+function columnIndexForX(x, boundaries) {
+  let col = 0;
+  for (let i = boundaries.length - 1; i >= 0; i--) {
+    if (x >= boundaries[i] - ROW_Y_TOLERANCE) {
+      col = i;
+      break;
+    }
+  }
+  return col;
+}
+function groupItemsIntoRows(items) {
+  if (items.length === 0) return [];
+  const sorted = [...items].sort((a, b) => b.y - a.y || a.x - b.x);
+  const rows = [];
+  let currentRow = [sorted[0]];
+  let currentY = sorted[0].y;
+  for (let i = 1; i < sorted.length; i++) {
+    const item = sorted[i];
+    if (Math.abs(item.y - currentY) <= ROW_Y_TOLERANCE) {
+      currentRow.push(item);
+    } else {
+      rows.push(currentRow);
+      currentRow = [item];
+      currentY = item.y;
+    }
+  }
+  rows.push(currentRow);
+  return rows;
+}
+function buildPageMatrix(items) {
+  if (items.length === 0) return [];
+  const boundaries = clusterColumnBoundaries(items);
+  const colCount = Math.max(boundaries.length, 1);
+  const rowGroups = groupItemsIntoRows(items);
+  return rowGroups.map((rowItems) => {
+    const row = new Array(colCount).fill("");
+    const sorted = [...rowItems].sort((a, b) => a.x - b.x);
+    for (const item of sorted) {
+      const col = columnIndexForX(item.x, boundaries);
+      const existing = String(row[col] ?? "").trim();
+      row[col] = existing ? `${existing} ${item.str}`.trim() : item.str;
+    }
+    return row;
+  });
+}
+async function extractTableMatrixFromPdf(buffer) {
+  const warnings = [];
+  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  const loadingTask = pdfjs.getDocument({
+    data: new Uint8Array(buffer),
+    useWorkerFetch: false,
+    isEvalSupported: false,
+    useSystemFonts: true,
+    disableFontFace: true
+  });
+  const pdf = await loadingTask.promise;
+  const pageCount = pdf.numPages;
+  let totalChars = 0;
+  const pageMatrices = [];
+  for (let pageNum = 1; pageNum <= pageCount; pageNum++) {
+    const page = await pdf.getPage(pageNum);
+    const textContent = await page.getTextContent();
+    const items = [];
+    for (const item of textContent.items) {
+      if (!("str" in item) || typeof item.str !== "string") continue;
+      const transform = item.transform;
+      const x = transform[4];
+      const y = transform[5];
+      items.push({ str: item.str, x, y });
+      totalChars += item.str.trim().length;
+    }
+    pageMatrices.push(buildPageMatrix(items));
+  }
+  if (totalChars < MIN_TEXT_CHARS) {
+    return {
+      matrix: [],
+      pageCount,
+      hasExtractableText: false,
+      warnings: [
+        "This PDF appears to be a scanned image with no embedded text layer. Extractable-text PDFs only are supported \u2014 please export a text-based trial balance instead."
+      ]
+    };
+  }
+  const matrix = pageMatrices.flat();
+  const colCounts = pageMatrices.map((m) => Math.max(0, ...m.map((r) => r.length)));
+  const majorityColCount = colCounts.length ? colCounts.sort(
+    (a, b) => colCounts.filter((c) => c === b).length - colCounts.filter((c) => c === a).length
+  )[0] : 0;
+  pageMatrices.forEach((pageMatrix, idx) => {
+    const pageCols = Math.max(0, ...pageMatrix.map((r) => r.length));
+    if (majorityColCount > 0 && Math.abs(pageCols - majorityColCount) >= 3) {
+      warnings.push(
+        `Page ${idx + 1} reconstructed ${pageCols} columns vs ${majorityColCount} on most pages \u2014 column alignment on this page may be incorrect.`
+      );
+    }
+  });
+  return {
+    matrix,
+    pageCount,
+    hasExtractableText: true,
+    warnings
+  };
+}
+
+// server/services/localTbConverter.ts
+var IMAGE_EXTENSIONS = /* @__PURE__ */ new Set([".png", ".jpg", ".jpeg", ".webp"]);
+function isRowEmpty2(row) {
+  return row.every((cell) => cell === null || cell === void 0 || String(cell).trim() === "");
+}
+function heuristicFallbackClassify(rows) {
+  return rows.map((row) => {
+    if (row.isGroupRow || row.nfrsCategory !== "unclassified") return row;
+    const netDr = row.closingDr - row.closingCr;
+    const category = netDr >= 0 ? "other_current_assets" : "other_current_liabilities";
+    return {
+      ...row,
+      nfrsCategory: category,
+      confidence: 20,
+      needsReview: true,
+      matchMethod: "unmatched"
+    };
+  });
+}
+async function loadMatrixFromBuffer(buffer, filename) {
+  const ext = filename.toLowerCase().slice(filename.lastIndexOf("."));
+  if (ext === ".csv") {
+    return { matrix: parseCSVText(buffer.toString("utf-8")) };
+  }
+  if (ext === ".pdf") {
+    const pdfResult = await extractTableMatrixFromPdf(buffer);
+    if (!pdfResult.hasExtractableText) {
+      throw Object.assign(new Error(pdfResult.warnings[0] ?? "PDF has no extractable text."), { status: 422 });
+    }
+    return {
+      matrix: pdfResult.matrix,
+      pdfMeta: { pageCount: pdfResult.pageCount, warnings: pdfResult.warnings }
+    };
+  }
+  const workbook = new ExcelJS5.Workbook();
+  await workbook.xlsx.load(buffer);
+  const primaryWs = workbook.getWorksheet("Trial Balance") ?? workbook.getWorksheet("TB") ?? workbook.worksheets[0];
+  if (!primaryWs) {
+    throw new Error("The uploaded workbook has no worksheets.");
+  }
+  return { matrix: worksheetToMatrix(primaryWs) };
+}
+async function convertTrialBalanceLocally(buffer, filename) {
+  const ext = filename.toLowerCase().slice(filename.lastIndexOf("."));
+  if (IMAGE_EXTENSIONS.has(ext)) {
+    throw Object.assign(
+      new Error("Image-based scans require AI OCR. Please upload a PDF with a text layer, or export to Excel/CSV."),
+      { status: 415 }
+    );
+  }
+  const { matrix, pdfMeta } = await loadMatrixFromBuffer(buffer, filename);
+  const nonEmptyRows = matrix.filter((row) => !isRowEmpty2(row));
+  if (nonEmptyRows.length === 0) {
+    throw Object.assign(new Error("No data rows found in the uploaded file."), { status: 422 });
+  }
+  const dualYear = parseDualYearMatrix(matrix);
+  let parsed;
+  let previousYearData = null;
+  if (dualYear) {
+    parsed = dualYear.currentYear;
+    previousYearData = dualYear.previousYear;
+  } else {
+    parsed = parseMatrix(matrix);
+  }
+  const finalized = finalizeRawTBRows(parsed.rows);
+  const classified = heuristicFallbackClassify(classifyAll(finalized.rows));
+  const leafRows = classified.filter((r) => !r.isGroupRow);
+  const highConfidence = leafRows.filter((r) => (r.confidence ?? 0) >= 80).length;
+  const needsReview = leafRows.filter((r) => r.needsReview).length;
+  const warnings = [
+    ...parsed.warnings,
+    ...finalized.warnings,
+    `${highConfidence} of ${leafRows.length} accounts auto-classified with high confidence (\u226580%).`,
+    `${needsReview} account(s) flagged for review.`
+  ];
+  if (pdfMeta) {
+    warnings.push(`PDF text extracted from ${pdfMeta.pageCount} page(s).`);
+    warnings.push(...pdfMeta.warnings);
+  }
+  return {
+    rows: finalized.rows,
+    ...finalized.totals,
+    warnings,
+    detectedColumns: parsed.detectedColumns,
+    headerRowIndex: parsed.headerRowIndex,
+    detectedFormat: "local_intelligent",
+    previousYearData
+  };
+}
+
+// server/services/tbStandardValidator.ts
+var ROUNDING_TOLERANCE = 1e3;
+function colLetter3(col) {
+  let letter = "";
+  let n = col;
+  while (n > 0) {
+    const rem = (n - 1) % 26;
+    letter = String.fromCharCode(65 + rem) + letter;
+    n = Math.floor((n - 1) / 26);
+  }
+  return letter;
+}
+function cellText(val) {
+  if (val === null || val === void 0) return "";
+  if (typeof val === "object" && val !== null && "formula" in val) {
+    const result = val.result;
+    return result === null || result === void 0 ? "" : String(result).trim();
+  }
+  return String(val).trim();
+}
+function normLabel2(s) {
+  return s.toLowerCase().trim().replace(/\s+/g, " ");
+}
+function getWorksheet(workbook) {
+  return workbook.getWorksheet("Trial Balance") ?? workbook.getWorksheet("TB") ?? workbook.worksheets[0] ?? null;
+}
+function parseMergeRef(ref) {
+  const parts = ref.split(":");
+  if (parts.length !== 2) return null;
+  const parseCell = (cell) => {
+    const match = cell.match(/^([A-Z]+)(\d+)$/i);
+    if (!match) return null;
+    const letters = match[1].toUpperCase();
+    let col = 0;
+    for (let i = 0; i < letters.length; i++) {
+      col = col * 26 + (letters.charCodeAt(i) - 64);
+    }
+    return { row: parseInt(match[2], 10), col };
+  };
+  const start = parseCell(parts[0]);
+  const end = parseCell(parts[1]);
+  if (!start || !end) return null;
+  return { top: start.row, left: start.col, bottom: end.row, right: end.col };
+}
+function getMergedRanges(ws) {
+  const merges = ws.model?.merges ?? [];
+  return merges.map(parseMergeRef).filter((r) => r !== null);
+}
+function isSectionHeaderRow(ws, rowNum, merges) {
+  const label = cellText(ws.getRow(rowNum).getCell(1).value);
+  if (!label || label.toUpperCase() === "GRAND TOTAL") return false;
+  const hasWideMerge = merges.some(
+    (m) => m.top <= rowNum && m.bottom >= rowNum && m.left === 1 && m.right >= 10
+  );
+  if (hasWideMerge) return true;
+  const hasAmounts = [...CY_AMOUNT_COLS, ...PY_AMOUNT_COLS].some((col) => {
+    const v = ws.getRow(rowNum).getCell(col).value;
+    return v !== null && v !== void 0 && cellText(v) !== "" && toNumber(v) !== 0;
+  });
+  return !hasAmounts && label === label.toUpperCase() && label.length > 3;
+}
+function collectSectionHeaders(ws) {
+  const merges = getMergedRanges(ws);
+  const sections = [];
+  const lastRow = ws.rowCount;
+  for (let rowNum = HEADER_ROW_INDEX + 1; rowNum <= lastRow; rowNum++) {
+    if (!isSectionHeaderRow(ws, rowNum, merges)) continue;
+    const header = cellText(ws.getRow(rowNum).getCell(1).value);
+    if (header.toUpperCase() === "OTHER ACCOUNTS") continue;
+    sections.push({ header, rowNumber: rowNum });
+  }
+  return sections;
+}
+function collectAccountLabels(ws) {
+  const merges = getMergedRanges(ws);
+  const labels = /* @__PURE__ */ new Set();
+  const lastRow = ws.rowCount;
+  for (let rowNum = HEADER_ROW_INDEX + 1; rowNum <= lastRow; rowNum++) {
+    const label = cellText(ws.getRow(rowNum).getCell(1).value);
+    if (!label || label.toUpperCase() === "GRAND TOTAL") continue;
+    if (isSectionHeaderRow(ws, rowNum, merges)) continue;
+    labels.add(normLabel2(label));
+  }
+  return labels;
+}
+function findLikelyMistypedRow(ws, imbalance) {
+  const merges = getMergedRanges(ws);
+  const target = Math.abs(imbalance);
+  let best = null;
+  for (let rowNum = HEADER_ROW_INDEX + 1; rowNum <= ws.rowCount; rowNum++) {
+    const label = cellText(ws.getRow(rowNum).getCell(1).value);
+    if (!label || isSectionHeaderRow(ws, rowNum, merges)) continue;
+    const closingDr = toNumber(ws.getRow(rowNum).getCell(8).value);
+    const closingCr = toNumber(ws.getRow(rowNum).getCell(9).value);
+    const swapImbalance = Math.abs(
+      closingCr - closingDr - target * Math.sign(imbalance)
+    );
+    const swapImprovement = target - swapImbalance;
+    if (swapImprovement >= target * 0.9) {
+      const candidate = {
+        label,
+        rowNumber: rowNum,
+        suggestedFix: `Try swapping Closing Dr and Closing Cr on row ${rowNum} ('${label}').`,
+        improvement: swapImprovement
+      };
+      if (!best || candidate.improvement > best.improvement) best = candidate;
+    }
+    for (const [col, side] of [[8, "Dr"], [9, "Cr"]]) {
+      const val = toNumber(ws.getRow(rowNum).getCell(col).value);
+      if (val <= 0) continue;
+      const digits = String(Math.round(val));
+      for (let i = 0; i < digits.length; i++) {
+        const shortened = parseInt(digits.slice(0, i) + digits.slice(i + 1), 10) || 0;
+        const delta = val - shortened;
+        if (Math.abs(Math.abs(delta) - target) <= target * 0.1) {
+          const candidate = {
+            label,
+            rowNumber: rowNum,
+            suggestedFix: `Row ${rowNum} ('${label}'): removing one digit from Closing ${side} (${val.toLocaleString("en-IN")}) may fix most of the imbalance.`,
+            improvement: target * 0.9
+          };
+          if (!best || candidate.improvement > best.improvement) best = candidate;
+        }
+      }
+    }
+  }
+  return best ? { label: best.label, rowNumber: best.rowNumber, suggestedFix: best.suggestedFix } : null;
+}
+function validateStandardTemplate(workbook) {
+  const issues = [];
+  const ws = getWorksheet(workbook);
+  const sheetName = ws?.name ?? "unknown";
+  if (!ws) {
+    issues.push({
+      severity: "error",
+      category: "structure",
+      message: "Workbook has no worksheets."
+    });
+    return {
+      isStandardFormat: false,
+      issues,
+      matchedAccountCount: 0,
+      totalExpectedAccounts: buildSectionAccounts().reduce((n, s) => n + s.accounts.length, 0),
+      detectedSections: [],
+      missingSections: getExpectedSectionOrder(),
+      unexpectedSections: []
+    };
+  }
+  const expectedSheetName = "Trial Balance";
+  if (ws.name !== expectedSheetName && workbook.worksheets[0]?.name !== ws.name) {
+    issues.push({
+      severity: "error",
+      category: "structure",
+      message: `Expected worksheet named '${expectedSheetName}' or the first sheet; found '${ws.name}'.`,
+      sheetName: ws.name
+    });
+  }
+  const actualColCount = ws.columnCount || TOTAL_COLS;
+  if (actualColCount < TOTAL_COLS) {
+    issues.push({
+      severity: "error",
+      category: "structure",
+      message: `Worksheet has ${actualColCount} columns but the standard template requires at least ${TOTAL_COLS}.`,
+      sheetName: ws.name
+    });
+  }
+  const headerRow = ws.getRow(HEADER_ROW_INDEX);
+  for (const keyCol of [1, 2, 11, 12]) {
+    if (!cellText(headerRow.getCell(keyCol).value)) {
+      issues.push({
+        severity: "error",
+        category: "structure",
+        message: `Header row (row ${HEADER_ROW_INDEX}) is empty in column ${colLetter3(keyCol)}.`,
+        sheetName: ws.name,
+        rowNumber: HEADER_ROW_INDEX,
+        columnLetter: colLetter3(keyCol)
+      });
+    }
+  }
+  for (const colDef of STANDARD_TB_COLUMNS) {
+    if (colDef.block === "spacer" || !colDef.header) continue;
+    const actual = cellText(headerRow.getCell(colDef.col).value);
+    const expected = colDef.header;
+    if (normLabel2(actual) !== normLabel2(expected)) {
+      issues.push({
+        severity: "error",
+        category: "headers",
+        message: `Column ${colLetter3(colDef.col)} header is '${actual || "(empty)"}' but the standard template expects '${expected}' in this position \u2014 your columns may be shifted or renamed.`,
+        sheetName: ws.name,
+        rowNumber: HEADER_ROW_INDEX,
+        columnLetter: colLetter3(colDef.col),
+        suggestedFix: `Rename column ${colLetter3(colDef.col)} to '${expected}'.`
+      });
+    }
+  }
+  const expectedSections = getExpectedSectionOrder();
+  const detectedSectionEntries = collectSectionHeaders(ws);
+  const detectedSections = detectedSectionEntries.map((s) => s.header);
+  const detectedSet = new Set(detectedSections);
+  const expectedSet = new Set(expectedSections);
+  const missingSections = [];
+  let lastMatchedRow = HEADER_ROW_INDEX;
+  for (const expected of expectedSections) {
+    if (detectedSet.has(expected)) {
+      const found = detectedSectionEntries.find((s) => s.header === expected);
+      if (found) lastMatchedRow = found.rowNumber;
+      continue;
+    }
+    missingSections.push(expected);
+    issues.push({
+      severity: "error",
+      category: "sections",
+      message: `Missing section '${expected}' \u2014 it should appear after row ${lastMatchedRow}.`,
+      sheetName: ws.name,
+      rowNumber: lastMatchedRow + 1,
+      suggestedFix: `Add the section header '${expected}' in the expected order.`
+    });
+  }
+  const unexpectedSections = [];
+  for (const detected of detectedSections) {
+    if (!expectedSet.has(detected)) {
+      unexpectedSections.push(detected);
+      const entry = detectedSectionEntries.find((s) => s.header === detected);
+      issues.push({
+        severity: "warning",
+        category: "sections",
+        message: `Unexpected section header '${detected}' \u2014 custom accounts should be placed under 'OTHER ACCOUNTS' instead of as a new section.`,
+        sheetName: ws.name,
+        rowNumber: entry?.rowNumber,
+        suggestedFix: `Move accounts under '${detected}' into the 'OTHER ACCOUNTS' section or an appropriate standard section.`
+      });
+    }
+  }
+  const sheetLabels = collectAccountLabels(ws);
+  const sectionAccounts = buildSectionAccounts();
+  let matchedAccountCount = 0;
+  let totalExpectedAccounts = 0;
+  for (const section of sectionAccounts) {
+    for (const account of section.accounts) {
+      totalExpectedAccounts++;
+      if (sheetLabels.has(normLabel2(account.displayLabel))) {
+        matchedAccountCount++;
+      } else {
+        issues.push({
+          severity: "warning",
+          category: "accounts",
+          message: `Expected account '${account.displayLabel}' from section '${section.header}' was not found \u2014 leave the row blank if not applicable, but do not delete it.`,
+          sheetName: ws.name,
+          suggestedFix: `Ensure the row label '${account.displayLabel}' exists under section '${section.header}'.`
+        });
+      }
+    }
+  }
+  const merges = getMergedRanges(ws);
+  for (let rowNum = HEADER_ROW_INDEX + 1; rowNum <= ws.rowCount; rowNum++) {
+    const label = cellText(ws.getRow(rowNum).getCell(1).value);
+    if (!label || isSectionHeaderRow(ws, rowNum, merges) || label.toUpperCase() === "GRAND TOTAL") continue;
+    const openingDr = toNumber(ws.getRow(rowNum).getCell(2).value);
+    const openingCr = toNumber(ws.getRow(rowNum).getCell(3).value);
+    const duringDr = toNumber(ws.getRow(rowNum).getCell(4).value);
+    const duringCr = toNumber(ws.getRow(rowNum).getCell(5).value);
+    const adjDr = toNumber(ws.getRow(rowNum).getCell(6).value);
+    const adjCr = toNumber(ws.getRow(rowNum).getCell(7).value);
+    const closingDr = toNumber(ws.getRow(rowNum).getCell(8).value);
+    const closingCr = toNumber(ws.getRow(rowNum).getCell(9).value);
+    const hasNumeric = openingDr || openingCr || duringDr || duringCr || adjDr || adjCr || closingDr || closingCr;
+    if (!hasNumeric) continue;
+    const expectedClosingDr = openingDr + duringDr + adjDr;
+    const expectedClosingCr = openingCr + duringCr + adjCr;
+    if (Math.abs(expectedClosingDr - closingDr) > 1) {
+      issues.push({
+        severity: "warning",
+        category: "arithmetic",
+        message: `Row ${rowNum} ('${label}'): Opening + During + Adjustment Dr = ${expectedClosingDr.toLocaleString("en-IN")} but Closing Dr. shows ${closingDr.toLocaleString("en-IN")} \u2014 check for a data entry error.`,
+        sheetName: ws.name,
+        rowNumber: rowNum,
+        columnLetter: colLetter3(8)
+      });
+    }
+    if (Math.abs(expectedClosingCr - closingCr) > 1) {
+      issues.push({
+        severity: "warning",
+        category: "arithmetic",
+        message: `Row ${rowNum} ('${label}'): Opening + During + Adjustment Cr = ${expectedClosingCr.toLocaleString("en-IN")} but Closing Cr. shows ${closingCr.toLocaleString("en-IN")} \u2014 check for a data entry error.`,
+        sheetName: ws.name,
+        rowNumber: rowNum,
+        columnLetter: colLetter3(9)
+      });
+    }
+  }
+  let sumClosingDr = 0;
+  let sumClosingCr = 0;
+  for (let rowNum = HEADER_ROW_INDEX + 1; rowNum <= ws.rowCount; rowNum++) {
+    sumClosingDr += toNumber(ws.getRow(rowNum).getCell(8).value);
+    sumClosingCr += toNumber(ws.getRow(rowNum).getCell(9).value);
+  }
+  const imbalance = sumClosingDr - sumClosingCr;
+  if (Math.abs(imbalance) > ROUNDING_TOLERANCE) {
+    const likely = findLikelyMistypedRow(ws, imbalance);
+    issues.push({
+      severity: "error",
+      category: "balances",
+      message: `Closing Dr total (${sumClosingDr.toLocaleString("en-IN")}) and Closing Cr total (${sumClosingCr.toLocaleString("en-IN")}) differ by NPR ${Math.abs(imbalance).toLocaleString("en-IN")}.`,
+      sheetName: ws.name,
+      suggestedFix: likely?.suggestedFix ?? "No single obviously mistyped row was found \u2014 please review manually."
+    });
+  }
+  const isStandardFormat = !issues.some((i) => i.severity === "error");
+  return {
+    isStandardFormat,
+    issues,
+    matchedAccountCount,
+    totalExpectedAccounts,
+    detectedSections,
+    missingSections,
+    unexpectedSections
+  };
+}
+
+// server/services/normalizedTbWriter.ts
+import ExcelJS6 from "exceljs";
 var HEADERS = [
   "Account Name",
   "Opening Dr",
@@ -6972,7 +7496,7 @@ var HEADERS = [
   "Parent Group"
 ];
 async function writeNormalizedTrialBalance(rows, meta) {
-  const wb = new ExcelJS5.Workbook();
+  const wb = new ExcelJS6.Workbook();
   const ws = wb.addWorksheet("Trial Balance");
   if (meta?.companyName) {
     ws.addRow([meta.companyName]);
@@ -7057,6 +7581,9 @@ async function classifyAndBuildTB(companyId, parsed, options) {
   const leafRows = parsed.rows.filter((r) => !r.isGroupRow);
   const profileHitCount = countMappingProfileHits(parsed.rows, session.mappingProfile);
   let rows = classifyAll(parsed.rows);
+  if (parsed.detectedFormat === "local_intelligent") {
+    rows = heuristicFallbackClassify(rows);
+  }
   rows = applyMappingProfile(rows, session.mappingProfile);
   if (options.useAI && options.apiKey) {
     try {
@@ -7152,15 +7679,39 @@ router2.post("/:companyId/upload", tbUploadMiddleware, async (req, res, next) =>
       });
     }
     let parsed;
+    let standardFormatWarnings;
     if (isDocument) {
-      const apiKey = process.env.ANTHROPIC_API_KEY;
-      if (!apiKey) {
-        return res.status(503).json({
+      const imageExts = /* @__PURE__ */ new Set(["png", "jpg", "jpeg", "webp"]);
+      if (ext === "pdf") {
+        parsed = await convertTrialBalanceLocally(req.file.buffer, req.file.originalname);
+      } else if (imageExts.has(ext ?? "")) {
+        const apiKey = process.env.ANTHROPIC_API_KEY;
+        if (!apiKey) {
+          return res.status(503).json({
+            success: false,
+            error: "Image-based scans require AI OCR (not configured on this server). Please upload a PDF with a text layer instead, or export to Excel/CSV \u2014 both are supported without any API key."
+          });
+        }
+        parsed = await convertRoughTrialBalance(req.file.buffer, req.file.originalname, apiKey);
+      } else {
+        parsed = await convertTrialBalanceLocally(req.file.buffer, req.file.originalname);
+      }
+    } else if (ext === "xlsx" || ext === "xls") {
+      const validationWorkbook = new ExcelJS7.Workbook();
+      await validationWorkbook.xlsx.load(req.file.buffer);
+      const validationResult = validateStandardTemplate(validationWorkbook);
+      if (!validationResult.isStandardFormat) {
+        return res.status(422).json({
           success: false,
-          error: "PDF/image OCR import requires AI configuration. Export to Excel/CSV or enable ANTHROPIC_API_KEY."
+          code: "NOT_STANDARD_FORMAT",
+          error: "This file does not match the standard trial balance template.",
+          diagnostics: validationResult
         });
       }
-      parsed = await convertRoughTrialBalance(req.file.buffer, req.file.originalname, apiKey);
+      if (validationResult.issues.some((i) => i.severity === "warning")) {
+        standardFormatWarnings = validationResult.issues.filter((i) => i.severity === "warning");
+      }
+      parsed = await parseTrialBalance(req.file.buffer, req.file.originalname);
     } else {
       parsed = await parseTrialBalance(req.file.buffer, req.file.originalname);
     }
@@ -7192,11 +7743,14 @@ router2.post("/:companyId/upload", tbUploadMiddleware, async (req, res, next) =>
       });
     }
     const tb = await classifyAndBuildTB(req.params.companyId, parsed, {
-      useAI: isDocument || req.query.useAI === "true",
+      useAI: isDocument && ext !== "pdf" || req.query.useAI === "true",
       uploadedFileName: req.file.originalname,
       importMode: isDocument ? "ai" : "manual",
       apiKey: process.env.ANTHROPIC_API_KEY
     });
+    if (standardFormatWarnings?.length) {
+      tb.standardFormatWarnings = standardFormatWarnings;
+    }
     const validation = tb.validation;
     const diff = Math.abs(validation.totalClosingDr - validation.totalClosingCr);
     if (diff > 1e3) {
@@ -7217,10 +7771,6 @@ router2.post("/:companyId/ai-convert", tbUploadMiddleware, async (req, res, next
     if (!req.file) {
       return res.status(400).json({ success: false, error: "No file uploaded. Please select a file and try again." });
     }
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) {
-      return res.status(503).json({ success: false, error: "AI import is not configured on this server. Please use Manual Upload (Standard Format) instead." });
-    }
     let session = sessionStore.get(req.params.companyId);
     if (!session) {
       const companyRaw = req.body?.company;
@@ -7240,12 +7790,32 @@ router2.post("/:companyId/ai-convert", tbUploadMiddleware, async (req, res, next
         code: "SESSION_NOT_FOUND"
       });
     }
-    const parsed = await convertRoughTrialBalance(req.file.buffer, req.file.originalname, apiKey);
+    const ext = (req.file.originalname ?? "").split(".").pop()?.toLowerCase() ?? "";
+    const imageExts = /* @__PURE__ */ new Set(["png", "jpg", "jpeg", "webp"]);
+    const localExts = /* @__PURE__ */ new Set(["xlsx", "xls", "csv", "pdf"]);
+    let parsed;
+    if (localExts.has(ext)) {
+      parsed = await convertTrialBalanceLocally(req.file.buffer, req.file.originalname);
+    } else if (imageExts.has(ext)) {
+      const apiKey = process.env.ANTHROPIC_API_KEY;
+      if (!apiKey) {
+        return res.status(415).json({
+          success: false,
+          error: "Image-based scans require AI OCR (not configured on this server). Supported formats: .xlsx, .xls, .csv, .pdf."
+        });
+      }
+      parsed = await convertRoughTrialBalance(req.file.buffer, req.file.originalname, apiKey);
+    } else {
+      return res.status(415).json({
+        success: false,
+        error: "Unsupported format. Supported formats: .xlsx, .xls, .csv, .pdf (and images when AI OCR is configured)."
+      });
+    }
     const tb = await classifyAndBuildTB(req.params.companyId, parsed, {
-      useAI: true,
+      useAI: imageExts.has(ext),
       uploadedFileName: req.file.originalname,
       importMode: "ai",
-      apiKey
+      apiKey: process.env.ANTHROPIC_API_KEY
     });
     sessionStore.set(req.params.companyId, { trialBalance: tb });
     res.json({ success: true, data: tb });
@@ -7268,16 +7838,40 @@ router2.post("/:companyId/parse-preview", tbUploadMiddleware, async (req, res, n
     }
     const mode = req.query.mode === "ai" ? "ai" : "manual";
     let parsed;
+    let standardFormatWarnings;
     if (mode === "ai") {
-      const apiKey = process.env.ANTHROPIC_API_KEY;
-      if (!apiKey) {
-        return res.status(503).json({
-          success: false,
-          error: "AI import is not configured. Use manual upload instead."
-        });
+      const ext = (req.file.originalname ?? "").split(".").pop()?.toLowerCase() ?? "";
+      const imageExts = /* @__PURE__ */ new Set(["png", "jpg", "jpeg", "webp"]);
+      if (imageExts.has(ext)) {
+        const apiKey = process.env.ANTHROPIC_API_KEY;
+        if (!apiKey) {
+          return res.status(415).json({
+            success: false,
+            error: "Image-based scans require AI OCR (not configured on this server). Please upload a PDF with a text layer instead, or export to Excel/CSV."
+          });
+        }
+        parsed = await convertRoughTrialBalance(req.file.buffer, req.file.originalname, apiKey);
+      } else {
+        parsed = await convertTrialBalanceLocally(req.file.buffer, req.file.originalname);
       }
-      parsed = await convertRoughTrialBalance(req.file.buffer, req.file.originalname, apiKey);
     } else {
+      const ext = (req.file.originalname ?? "").split(".").pop()?.toLowerCase() ?? "";
+      if (ext === "xlsx" || ext === "xls") {
+        const validationWorkbook = new ExcelJS7.Workbook();
+        await validationWorkbook.xlsx.load(req.file.buffer);
+        const validationResult = validateStandardTemplate(validationWorkbook);
+        if (!validationResult.isStandardFormat) {
+          return res.status(422).json({
+            success: false,
+            code: "NOT_STANDARD_FORMAT",
+            error: "This file does not match the standard trial balance template.",
+            diagnostics: validationResult
+          });
+        }
+        if (validationResult.issues.some((i) => i.severity === "warning")) {
+          standardFormatWarnings = validationResult.issues.filter((i) => i.severity === "warning");
+        }
+      }
       parsed = await parseTrialBalance(req.file.buffer, req.file.originalname);
       if (!parsed.rows?.length) {
         return res.status(422).json({ success: false, error: "No data rows found in the uploaded file." });
@@ -7291,7 +7885,8 @@ router2.post("/:companyId/parse-preview", tbUploadMiddleware, async (req, res, n
       uploadedFileName: req.file.originalname,
       importMode: mode,
       mappingProfileAppliedCount: profileHitCount,
-      mappingProfileTotalAccounts: parsed.rows.filter((r) => !r.isGroupRow).length
+      mappingProfileTotalAccounts: parsed.rows.filter((r) => !r.isGroupRow).length,
+      ...standardFormatWarnings?.length ? { standardFormatWarnings } : {}
     };
     sessionStore.set(req.params.companyId, { rawTrialBalance: preview });
     res.json({ success: true, data: preview });
@@ -7330,6 +7925,10 @@ router2.post("/:companyId/confirm-normalized", asyncHandler(async (req, res) => 
     importMode,
     apiKey: process.env.ANTHROPIC_API_KEY
   });
+  const storedStandardWarnings = stored?.standardFormatWarnings;
+  if (storedStandardWarnings?.length) {
+    tb.standardFormatWarnings = storedStandardWarnings;
+  }
   const validation = tb.validation;
   const diff = Math.abs(validation.totalClosingDr - validation.totalClosingCr);
   if (importMode === "manual" && diff > 1e3) {
