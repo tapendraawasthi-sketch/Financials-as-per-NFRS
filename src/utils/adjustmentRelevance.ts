@@ -1,5 +1,16 @@
 import type { CompanyProfile, MappedTBRow } from '../types';
 
+export interface AdjustmentSectionVisibility {
+  ppe: boolean;
+  inventory: boolean;
+  investments: boolean;
+  provisions: boolean;
+  disallowedTax: boolean;
+  advanceTax: boolean;
+  relatedPartyLoan: boolean;
+  journal: boolean;
+}
+
 export interface AdjustmentRelevance {
   hasPPE: boolean;
   hasInventory: boolean;
@@ -9,6 +20,8 @@ export interface AdjustmentRelevance {
   hasEmployeeBenefits: boolean;
   hasAuditFeePayable: boolean;
   hasDisposalIndicators: boolean;
+  hasRelatedParty: boolean;
+  hasAdvanceTaxAccounts: boolean;
   ppeAccountCount: number;
   provisionApplicability: {
     gratuity: boolean;
@@ -24,6 +37,10 @@ export interface AdjustmentRelevance {
     contingentLiabilities: boolean;
     eventsAfterDate: boolean;
   };
+  /** Which adjustment wizard panels to show (rule-based from TB + company profile). */
+  sectionVisibility: AdjustmentSectionVisibility;
+  /** Human-readable labels for the relevance banner. */
+  activeSectionLabels: string[];
 }
 
 const PPE_PREFIXES = ['ppe_', 'property_plant_equipment'];
@@ -55,6 +72,12 @@ const BORROWING_CATEGORIES = new Set([
   'borrowings_current_portion_lt',
   'borrowings_related_current',
 ]);
+const RELATED_PARTY_CATEGORIES = new Set([
+  'related_party_receivable',
+  'related_party_payable',
+  'borrowings_noncurrent_related',
+  'borrowings_related_current',
+]);
 
 function rowHasBalance(row: MappedTBRow): boolean {
   if (row.isGroupRow) return false;
@@ -66,6 +89,10 @@ function sumCategory(rows: MappedTBRow[], categories: Set<string> | string): num
   return rows
     .filter((r) => !r.isGroupRow && cats.has(String(r.nfrsCategory ?? '')))
     .reduce((s, r) => s + Math.max(r.closingDr ?? 0, r.closingCr ?? 0), 0);
+}
+
+export function defaultAdjustmentsTab(relevance: Pick<AdjustmentRelevance, 'hasPPE'>): 'assets' | 'provisions' {
+  return relevance.hasPPE ? 'assets' : 'provisions';
 }
 
 export function detectAdjustmentRelevance(
@@ -80,6 +107,8 @@ export function detectAdjustmentRelevance(
   let hasEmployeeBenefits = false;
   let hasAuditFeePayable = false;
   let hasDisposalIndicators = false;
+  let hasRelatedParty = false;
+  let hasAdvanceTaxAccounts = false;
   let ppeAccountCount = 0;
 
   for (const row of rows) {
@@ -97,6 +126,8 @@ export function detectAdjustmentRelevance(
     if (EMPLOYEE_CATEGORIES.has(cat)) hasEmployeeBenefits = true;
     if (cat === 'audit_fee_payable') hasAuditFeePayable = true;
     if (cat === 'other_income_disposal_gain') hasDisposalIndicators = true;
+    if (RELATED_PARTY_CATEGORIES.has(cat)) hasRelatedParty = true;
+    if (cat === 'advance_tax_paid' || cat === 'income_tax_expense') hasAdvanceTaxAccounts = true;
   }
 
   const nas = company?.nasCompliance ?? {};
@@ -105,6 +136,27 @@ export function detectAdjustmentRelevance(
     || company?.auditorInfo?.auditorName
     || company?.auditFirmName,
   );
+
+  const sectionVisibility: AdjustmentSectionVisibility = {
+    ppe: hasPPE,
+    inventory: hasInventory,
+    investments: hasInvestments,
+    provisions: true,
+    disallowedTax: true,
+    advanceTax: true,
+    relatedPartyLoan: hasRelatedParty || hasBorrowings,
+    journal: true,
+  };
+
+  const activeSectionLabels: string[] = [];
+  if (sectionVisibility.ppe) activeSectionLabels.push('PPE / Depreciation');
+  if (sectionVisibility.inventory) activeSectionLabels.push('Inventory NRV');
+  if (sectionVisibility.investments) activeSectionLabels.push('Investment FV');
+  activeSectionLabels.push('Provisions');
+  activeSectionLabels.push('Disallowed expenses (Tax Notes I/II)');
+  activeSectionLabels.push('Advance tax (u/s 118/119)');
+  if (sectionVisibility.relatedPartyLoan) activeSectionLabels.push('Related-party loan (Note 3.11)');
+  activeSectionLabels.push('Adjustment journal');
 
   return {
     hasPPE,
@@ -115,6 +167,8 @@ export function detectAdjustmentRelevance(
     hasEmployeeBenefits,
     hasAuditFeePayable,
     hasDisposalIndicators,
+    hasRelatedParty,
+    hasAdvanceTaxAccounts,
     ppeAccountCount,
     provisionApplicability: {
       gratuity: hasEmployeeBenefits,
@@ -130,6 +184,8 @@ export function detectAdjustmentRelevance(
       contingentLiabilities: Boolean(nas.contingentLiabilities),
       eventsAfterDate: Boolean(nas.eventsAfterDate),
     },
+    sectionVisibility,
+    activeSectionLabels,
   };
 }
 

@@ -81,12 +81,22 @@ describe('adjustmentRelevance', () => {
         closingDr: 0,
         closingCr: 15_000,
       },
+      {
+        ...baseRow,
+        rowIndex: 4,
+        rawLabel: 'Director Loan',
+        nfrsCategory: 'borrowings_related_current',
+        closingDr: 0,
+        closingCr: 80_000,
+      },
     ]);
 
     assert.equal(relevance.hasBorrowings, true);
     assert.equal(relevance.hasTradeReceivables, true);
     assert.equal(relevance.hasEmployeeBenefits, true);
     assert.equal(relevance.hasDisposalIndicators, true);
+    assert.equal(relevance.hasRelatedParty, true);
+    assert.equal(relevance.sectionVisibility.relatedPartyLoan, true);
     assert.equal(relevance.provisionApplicability.gratuity, true);
     assert.equal(relevance.provisionApplicability.doubtful, true);
   });

@@ -410,6 +410,12 @@ export const adjustmentsApi = {
   ): Promise<{ saved: boolean }> =>
     apiRequest('POST', `/api/adjustments/${companyId}/advance-tax`, data),
 
+  saveAdjustmentSettings: (
+    companyId: string,
+    data: Pick<YearEndAdjustments, 'relatedPartyLoanCurrent'>,
+  ): Promise<{ saved: boolean }> =>
+    apiRequest('POST', `/api/adjustments/${companyId}/settings`, data),
+
   saveDisallowedForTax: (
     companyId: string,
     disallowedForTax: YearEndAdjustments['disallowedForTax'],

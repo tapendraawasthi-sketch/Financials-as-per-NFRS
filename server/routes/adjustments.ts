@@ -281,6 +281,21 @@ router.post('/:companyId/inventory', asyncHandler(async (req: Request, res: Resp
   return res.json({ message: 'Inventory adjustments saved.', totalImpairment: totalInventoryImpairment });
 }));
 
+// POST /:companyId/settings — misc adjustment flags (Note 3.11 RP loan, etc.)
+router.post('/:companyId/settings', asyncHandler(async (req: Request, res: Response) => {
+  const session = sessionStore.get(req.params.companyId);
+  if (!session) return res.status(404).json({ error: 'Company not found.' });
+  const adj = session.adjustments ?? emptyAdj(req.params.companyId, session.company?.fiscalYear?.bsFY ?? '');
+  const { relatedPartyLoanCurrent } = req.body as { relatedPartyLoanCurrent?: boolean };
+  sessionStore.set(req.params.companyId, {
+    adjustments: {
+      ...adj,
+      ...(relatedPartyLoanCurrent !== undefined ? { relatedPartyLoanCurrent } : {}),
+    },
+  });
+  return res.json({ message: 'Adjustment settings saved.' });
+}));
+
 // POST /:companyId/advance-tax
 router.post('/:companyId/advance-tax', asyncHandler(async (req: Request, res: Response) => {
   const session = sessionStore.get(req.params.companyId);

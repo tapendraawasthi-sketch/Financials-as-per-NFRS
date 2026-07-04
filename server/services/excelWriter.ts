@@ -20,6 +20,7 @@ import { fillPlaceholder } from '../../src/utils/fillPlaceholder.js';
 import { computeGeneralDeductionUs13, computeDonationAllowance, buildLossCarryForwardSchedule } from './taxEngine.js';
 import { classifyDebtors } from './subledgerRules.js';
 import { buildTaxNotesData, defaultAdvanceTaxPayments } from './taxNotesBuilder.js';
+import { ADVANCE_TAX_CHECKPOINTS } from '../../src/data/advanceTaxCheckpoints.js';
 
 // ---------------------------------------------------------------------------
 // Row-map types for live cross-sheet formulas (Session 24 — Gap C4)
@@ -84,6 +85,7 @@ export interface TaxCalculationSheetData {
   advanceTax1?: number;
   advanceTax2?: number;
   advanceTax3?: number;
+  advanceTaxDaysLate?: number[];
   priorYearLosses?: Array<{ fiscalYear: string; amount: number }>;
   taxDepSheetName?: string;
   taxDepTotalRow?: number;
@@ -2327,21 +2329,24 @@ export function writeTaxCalculationSheet(
   ws.getRow(scheduleHeaderRow).getCell(1).value = 'Advance Tax Installment Schedule (u/s 118)';
   ws.getRow(scheduleHeaderRow).getCell(1).font = FONTS.SUBHEADING;
   const instHeaderRow = row++;
-  ['Checkpoint', 'Cumulative %', 'Required Tax', 'Tax Paid', 'Shortfall', 'Interest @15%'].forEach((h, i) => {
+  ['Checkpoint', 'Cumulative %', 'Required Tax', 'Tax Paid', 'Shortfall', 'Days Late', 'Interest @15%'].forEach((h, i) => {
     const c = ws.getRow(instHeaderRow).getCell(i + 1);
     c.value = h;
     applySubHeaderStyle(c);
     applyAllBorders(c);
   });
 
+  const defaultDaysLate = ADVANCE_TAX_CHECKPOINTS.map((cp) => cp.defaultDaysLate);
+  const daysLateValues = taxData.advanceTaxDaysLate ?? defaultDaysLate;
+
   const checkpoints = [
-    { label: 'End of Poush', pct: 0.40, paid: taxData.advanceTaxPayments?.[0] ?? taxData.advanceTax1 ?? 0 },
-    { label: 'End of Chaitra', pct: 0.70, paid: taxData.advanceTaxPayments?.[1] ?? taxData.advanceTax2 ?? 0 },
-    { label: 'End of Ashadh', pct: 0.90, paid: taxData.advanceTaxPayments?.[2] ?? taxData.advanceTax3 ?? 0 },
+    { label: 'End of Poush', pct: 0.40, paid: taxData.advanceTaxPayments?.[0] ?? taxData.advanceTax1 ?? 0, daysLate: daysLateValues[0] ?? defaultDaysLate[0] },
+    { label: 'End of Chaitra', pct: 0.70, paid: taxData.advanceTaxPayments?.[1] ?? taxData.advanceTax2 ?? 0, daysLate: daysLateValues[1] ?? defaultDaysLate[1] },
+    { label: 'End of Ashadh', pct: 0.90, paid: taxData.advanceTaxPayments?.[2] ?? taxData.advanceTax3 ?? 0, daysLate: daysLateValues[2] ?? defaultDaysLate[2] },
   ];
   const instDataStart = row;
   const liabilityRef = `D${incomeTaxLiabilityRow}`;
-  checkpoints.forEach((cp, idx) => {
+  checkpoints.forEach((cp) => {
     const r = ws.getRow(row);
     const rowNum = row;
     r.getCell(1).value = cp.label;
@@ -2355,18 +2360,21 @@ export function writeTaxCalculationSheet(
     applyInputStyle(paidCell);
     r.getCell(5).value = { formula: `MAX(0,C${rowNum}-D${rowNum})`, result: 0 };
     r.getCell(5).numFmt = NUMBER_FORMAT;
-    r.getCell(6).value = { formula: `E${rowNum}*0.15`, result: 0 };
-    r.getCell(6).numFmt = NUMBER_FORMAT;
-    for (let ci = 1; ci <= 6; ci++) applyAllBorders(r.getCell(ci));
+    const daysCell = r.getCell(6);
+    daysCell.value = cp.daysLate ?? 0;
+    daysCell.numFmt = '0';
+    applyInputStyle(daysCell);
+    r.getCell(7).value = { formula: `IF(E${rowNum}>0,E${rowNum}*0.15*F${rowNum}/365,0)`, result: 0 };
+    r.getCell(7).numFmt = NUMBER_FORMAT;
+    for (let ci = 1; ci <= 7; ci++) applyAllBorders(r.getCell(ci));
     row++;
-    void idx;
   });
   const instDataEnd = row - 1;
 
   const interest118Row = row++;
   const int118R = ws.getRow(interest118Row);
   int118R.getCell(1).value = 'Interest u/s 118 (total)';
-  int118R.getCell(4).value = { formula: `SUM(F${instDataStart}:F${instDataEnd})`, result: 0 };
+  int118R.getCell(4).value = { formula: `SUM(G${instDataStart}:G${instDataEnd})`, result: 0 };
   int118R.getCell(4).numFmt = NUMBER_FORMAT;
   int118R.getCell(4).alignment = { horizontal: 'right' };
   applyAllBorders(int118R.getCell(1));
@@ -3327,6 +3335,11 @@ export async function generateNFRSWorkbook(params: {
     ?.lineItems?.find((li) => /repair/i.test(li.label))?.cy ?? 0;
 
   const advanceTaxPayments = defaultAdvanceTaxPayments(adjustments);
+  const advanceTaxDaysLate = [
+    adjustments.advanceTaxDaysLate1 ?? ADVANCE_TAX_CHECKPOINTS[0].defaultDaysLate,
+    adjustments.advanceTaxDaysLate2 ?? ADVANCE_TAX_CHECKPOINTS[1].defaultDaysLate,
+    adjustments.advanceTaxDaysLate3 ?? ADVANCE_TAX_CHECKPOINTS[2].defaultDaysLate,
+  ];
   const adminLineItems = (notes.note322_adminExpenses as { lineItems?: Array<{ label: string; cy: number }> } | undefined)?.lineItems ?? [];
   const employeeLineItems = (notes.note320_employeeExpenses as Record<string, { cy: number }> | undefined)
     ? Object.entries(notes.note320_employeeExpenses as Record<string, { cy: number }>).map(([label, v]) => ({
@@ -3350,6 +3363,7 @@ export async function generateNFRSWorkbook(params: {
       advanceTax1: adjustments.advanceTax1,
       advanceTax2: adjustments.advanceTax2,
       advanceTax3: adjustments.advanceTax3,
+      advanceTaxDaysLate,
       priorYearLosses: adjustments.priorYearLosses,
     },
     fiscalYearLabel,

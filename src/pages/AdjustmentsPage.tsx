@@ -15,6 +15,8 @@ import AdvanceTaxInstallmentsPanel from '../components/adjustments/AdvanceTaxIns
 import AdjustmentJournalView from '../components/adjustments/AdjustmentJournalView';
 import AdjustmentJournalUploadPanel from '../components/adjustments/AdjustmentJournalUploadPanel';
 import DisallowedExpensesPanel from '../components/adjustments/DisallowedExpensesPanel';
+import AdjustmentRelevanceBanner from '../components/adjustments/AdjustmentRelevanceBanner';
+import RelatedPartyLoanPanel from '../components/adjustments/RelatedPartyLoanPanel';
 import NasComplianceAdjustmentsPanel from '../components/adjustments/NasComplianceAdjustmentsPanel';
 import { useToast } from '../components/ui/Toast';
 import { detectAdjustmentRelevance } from '../utils/adjustmentRelevance';
@@ -41,6 +43,12 @@ export default function AdjustmentsPage() {
     () => detectAdjustmentRelevance(state.trialBalance?.rows ?? [], state.company),
     [state.trialBalance?.rows, state.company],
   );
+
+  useEffect(() => {
+    if (!relevance.hasPPE && activeTab === 'assets') {
+      setActiveTab('provisions');
+    }
+  }, [relevance.hasPPE, activeTab]);
 
   const roundingLevel = state.company?.accountingPolicies?.roundingLevel ?? 100;
   const fiscalYear = state.company?.fiscalYear?.bsFY ?? '2081/82';
@@ -291,6 +299,7 @@ export default function AdjustmentsPage() {
       />
 
       <div className="page-enter space-y-5">
+        <AdjustmentRelevanceBanner relevance={relevance} />
         <NasComplianceAdjustmentsPanel nasFlags={relevance.nasFlags} />
 
         {effectiveTab === 'assets' && relevance.hasPPE && (
@@ -352,46 +361,64 @@ export default function AdjustmentsPage() {
                 ]),
               )}
             />
-            <div className="card">
-              <div className="card-header">
-                <h3 className="text-xs font-bold uppercase tracking-wider" style={{ color: 'var(--ink-700)' }}>
-                  Disallowed Expenses (Section 21 ITA)
-                </h3>
+            {relevance.sectionVisibility.relatedPartyLoan && (
+              <RelatedPartyLoanPanel
+                isCurrent={state.adjustments?.relatedPartyLoanCurrent === true}
+                onSave={async (relatedPartyLoanCurrent) => {
+                  if (!state.company?.id) return;
+                  await adjustmentsApi.saveAdjustmentSettings(state.company.id, { relatedPartyLoanCurrent });
+                  dispatch({
+                    type: 'SET_ADJUSTMENTS',
+                    payload: { ...(state.adjustments ?? {}), relatedPartyLoanCurrent } as YearEndAdjustments,
+                  });
+                  showToast('Related-party loan classification saved', 'success');
+                }}
+              />
+            )}
+            {relevance.sectionVisibility.disallowedTax && (
+              <div className="card">
+                <div className="card-header">
+                  <h3 className="text-xs font-bold uppercase tracking-wider" style={{ color: 'var(--ink-700)' }}>
+                    Disallowed Expenses (Section 21 ITA)
+                  </h3>
+                </div>
+                <div className="card-body">
+                  <DisallowedExpensesPanel
+                    items={state.adjustments?.disallowedForTax ?? []}
+                    onChange={(items) => {
+                      dispatch({
+                        type: 'SET_ADJUSTMENTS',
+                        payload: { ...(state.adjustments ?? {}), disallowedForTax: items } as YearEndAdjustments,
+                      });
+                    }}
+                    onSave={async (items) => {
+                      if (!state.company?.id) return;
+                      await adjustmentsApi.saveDisallowedForTax(state.company.id, items);
+                      dispatch({
+                        type: 'SET_ADJUSTMENTS',
+                        payload: { ...(state.adjustments ?? {}), disallowedForTax: items } as YearEndAdjustments,
+                      });
+                      showToast('Disallowed tax items saved', 'success');
+                    }}
+                  />
+                </div>
               </div>
-              <div className="card-body">
-            <DisallowedExpensesPanel
-              items={state.adjustments?.disallowedForTax ?? []}
-              onChange={(items) => {
-                dispatch({
-                  type: 'SET_ADJUSTMENTS',
-                  payload: { ...(state.adjustments ?? {}), disallowedForTax: items } as YearEndAdjustments,
-                });
-              }}
-              onSave={async (items) => {
-                if (!state.company?.id) return;
-                await adjustmentsApi.saveDisallowedForTax(state.company.id, items);
-                dispatch({
-                  type: 'SET_ADJUSTMENTS',
-                  payload: { ...(state.adjustments ?? {}), disallowedForTax: items } as YearEndAdjustments,
-                });
-                showToast('Disallowed tax items saved', 'success');
-              }}
-            />
-            <AdvanceTaxInstallmentsPanel
-              initialData={state.adjustments ?? undefined}
-              estimatedTaxLiability={state.adjustments?.currentTaxExpense ?? state.adjustments?.incomeTaxProvision ?? 0}
-              onSave={async (data) => {
-                if (!state.company?.id) return;
-                await adjustmentsApi.saveAdvanceTax(state.company.id, data);
-                dispatch({
-                  type: 'SET_ADJUSTMENTS',
-                  payload: { ...(state.adjustments ?? {}), ...data } as YearEndAdjustments,
-                });
-                showToast('Advance tax installments saved', 'success');
-              }}
-            />
-              </div>
-            </div>
+            )}
+            {relevance.sectionVisibility.advanceTax && (
+              <AdvanceTaxInstallmentsPanel
+                initialData={state.adjustments ?? undefined}
+                estimatedTaxLiability={state.adjustments?.currentTaxExpense ?? state.adjustments?.incomeTaxProvision ?? 0}
+                onSave={async (data) => {
+                  if (!state.company?.id) return;
+                  await adjustmentsApi.saveAdvanceTax(state.company.id, data);
+                  dispatch({
+                    type: 'SET_ADJUSTMENTS',
+                    payload: { ...(state.adjustments ?? {}), ...data } as YearEndAdjustments,
+                  });
+                  showToast('Advance tax installments saved', 'success');
+                }}
+              />
+            )}
           </div>
         )}
 
@@ -490,6 +517,7 @@ export default function AdjustmentsPage() {
                 });
               }}
             />
+            )}
           </div>
         )}
       </div>
