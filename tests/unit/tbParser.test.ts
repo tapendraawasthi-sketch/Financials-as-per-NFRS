@@ -91,13 +91,16 @@ describe('tbParser', () => {
 
   it('parses Tally/Busy grouped Dummy Trial export with Dr/Cr balance strings', async () => {
     const fs = await import('fs');
-    const path = '/home/ubuntu/.cursor/projects/workspace/uploads/Dummy_Trial_34f5.xlsx';
+    const path = '/home/ubuntu/.cursor/projects/workspace/uploads/Dummy_Trial_bd48.xlsx';
     if (!fs.existsSync(path)) return;
 
     const result = await parseTrialBalance(fs.readFileSync(path), 'Dummy Trial.xlsx');
     assert.equal(result.detectedFormat, 'tally_grouped');
     assert.ok(result.workbookMetadata?.companyName?.includes('Satyam Techno Packs'));
     assert.equal(result.workbookMetadata?.fiscalYear, '2081/82');
+    assert.ok(result.isBalanced, `Expected balanced TB, during diff ${result.totalDuringDr - result.totalDuringCr}`);
+    assert.ok(result.grandTotalDuring);
+    assert.equal(result.grandTotalDuring!.dr, result.grandTotalDuring!.cr);
 
     const leafRows = result.rows.filter((r) => !r.isGroupRow);
     assert.ok(leafRows.length > 50, `Expected many leaf rows, got ${leafRows.length}`);
@@ -109,6 +112,9 @@ describe('tbParser', () => {
 
     const purchase = result.rows.find((r) => r.rawLabel === 'Purchase');
     assert.ok(purchase?.isGroupRow, 'Aggregate "Purchase" row should be excluded from leaf totals');
+
+    const incomeTaxSalary = leafRows.find((r) => r.rawLabel.includes('Income Tax salary- Sandhya'));
+    assert.ok(incomeTaxSalary, 'Income Tax salary rows should be leaf accounts, not group headers');
 
     const pettyCash = leafRows.find((r) => r.rawLabel === 'Petty Cash');
     assert.ok(pettyCash);

@@ -12,6 +12,7 @@
 
 import ExcelJS from 'exceljs';
 import type { RawTBRow, RawTBParseResult } from '../../src/types/trialBalance.js';
+import { computeRawTBTotals, postProcessHierarchy } from './tbHierarchy.js';
 
 export type { RawTBRow, RawTBParseResult };
 
@@ -156,7 +157,7 @@ function detectRowLevel(
 // ---------------------------------------------------------------------------
 const MAX_HEADER_SCAN = 25;
 
-const KNOWN_GROUP_NAMES = /^(capital account|non.?current liabilities?|current liabilities?|property.? plant|direct income|indirect income|employee benefit|administrative expenses?|sundry debtors?|sundry creditors?|fixed assets?|current assets?|equity|expenses?|income|loans?|investments?|provisions?)/i;
+const KNOWN_GROUP_NAMES = /^(capital account|non.?current liabilities?|current liabilities?|property.? plant|direct income|indirect income|employee benefit|administrative expenses?|sundry debtors?|sundry creditors?|fixed assets?|current assets?|equity|investments?|provisions?)(\s|\(|$)/i;
 
 /** Map bare "debit"/"credit" or "dr"/"cr" headers to closing columns in simple layouts. */
 function resolveAmbiguousClosingColumns(
@@ -315,51 +316,6 @@ function detectTallyGroupedExport(
     }
   }
   return { isGrouped: false, headerRowIndex: -1, colMap: {} };
-}
-
-/** Rows with a deeper-indented descendant are group headers — exclude from TB totals. */
-function markGroupRowsByIndentation(rows: RawTBRow[]): RawTBRow[] {
-  return rows.map((row, i) => {
-    let hasDeeperDescendant = false;
-    for (let j = i + 1; j < rows.length; j++) {
-      if (rows[j].rawIndentSpaces <= row.rawIndentSpaces) break;
-      hasDeeperDescendant = true;
-      break;
-    }
-    return {
-      ...row,
-      isGroupRow: hasDeeperDescendant,
-      rowLevel: hasDeeperDescendant ? 0 : (row.rawIndentSpaces > 4 ? 2 : 1),
-    };
-  });
-}
-
-/**
- * Tally exports often place aggregate labels ("Purchase", "Sale") as siblings of
- * detailed accounts ("Purchase: IMPORT") at the same indent — exclude the shorthand.
- */
-function markTallyShorthandAggregates(rows: RawTBRow[]): RawTBRow[] {
-  return rows.map((row, i) => {
-    if (row.isGroupRow) return row;
-    const peers: string[] = [];
-    for (let j = i + 1; j < rows.length; j++) {
-      if (rows[j].rawIndentSpaces < row.rawIndentSpaces) break;
-      if (rows[j].rawIndentSpaces === row.rawIndentSpaces) {
-        peers.push(rows[j].rawLabel.trim());
-      }
-    }
-    const isShorthandAggregate = peers.some(
-      (peer) =>
-        (peer.startsWith(`${row.rawLabel.trim()}:`)
-          || peer.startsWith(`${row.rawLabel.trim()} `))
-        && peer.length > row.rawLabel.trim().length,
-    );
-    return { ...row, isGroupRow: isShorthandAggregate };
-  });
-}
-
-function postProcessTallyGroupedRows(rows: RawTBRow[]): RawTBRow[] {
-  return markTallyShorthandAggregates(markGroupRowsByIndentation(rows));
 }
 
 // ---------------------------------------------------------------------------
@@ -928,6 +884,24 @@ function detectDualYearColumns(
   return null;
 }
 
+function extractTallyGrandTotalDuring(
+  matrix: unknown[][],
+  colMap: Record<string, number>,
+  headerRowIndex: number,
+): { dr: number; cr: number } | null {
+  for (let r = headerRowIndex + 1; r < matrix.length; r++) {
+    const matRow = matrix[r] ?? [];
+    const label = String(matRow[colMap['label'] ?? 0] ?? '').trim();
+    if (!/^total$/i.test(label) && !/^grand total$/i.test(label)) continue;
+    const duringDr = toNumber(matRow[colMap['duringDr']]);
+    const duringCr = toNumber(matRow[colMap['duringCr']]);
+    if (duringDr > 0 || duringCr > 0) {
+      return { dr: duringDr, cr: duringCr };
+    }
+  }
+  return null;
+}
+
 function parseMatrixWithColMap(
   matrix: unknown[][],
   colMap: Record<string, number>,
@@ -950,15 +924,6 @@ function parseMatrixWithColMap(
     }
     const row = extractRow(matRow, r, colMap, mode);
     if (!row.rawLabel) continue;
-    if (
-      !row.isGroupRow &&
-      row.closingDr === 0 &&
-      row.closingCr === 0 &&
-      row.openingDr === 0 &&
-      row.openingCr === 0
-    ) {
-      warnings.push(`Zero-amount leaf row skipped or flagged: "${row.rawLabel}"`);
-    }
     rows.push(row);
   }
 
@@ -966,46 +931,52 @@ function parseMatrixWithColMap(
     warnings.push(`${skippedSubtotals.length} subtotal row(s) skipped.`);
   }
 
-  const rowsWithParents = assignParentGroups(
-    mode === 'tally_grouped' ? postProcessTallyGroupedRows(rows) : rows,
-  );
+  const grandTotalDuring =
+    mode === 'tally_grouped'
+      ? extractTallyGrandTotalDuring(matrix, colMap, headerRowIndex)
+      : null;
+
+  const rowsWithParents =
+    mode === 'tally_grouped' ? postProcessHierarchy(rows) : assignParentGroups(rows);
+
+  if (mode === 'tally_grouped') {
+    const zeroAmountLeaves = rowsWithParents.filter(
+      (row) =>
+        !row.isGroupRow &&
+        row.closingDr === 0 &&
+        row.closingCr === 0 &&
+        row.openingDr === 0 &&
+        row.openingCr === 0 &&
+        row.duringDr === 0 &&
+        row.duringCr === 0,
+    ).length;
+    if (zeroAmountLeaves > 0) {
+      warnings.push(
+        `${zeroAmountLeaves} zero-balance ledger row${zeroAmountLeaves === 1 ? '' : 's'} present (common in Tally/Busy grouped exports).`,
+      );
+    }
+  }
+
   const leafRows = rowsWithParents.filter((r) => !r.isGroupRow);
 
   if (leafRows.length === 0) {
     throw Object.assign(new Error('No data rows found.'), { status: 400, code: 'NO_DATA_ROWS' });
   }
 
-  let totalOpeningDr = 0,
-    totalOpeningCr = 0,
-    totalDuringDr = 0,
-    totalDuringCr = 0;
-  let totalClosingDr = 0,
-    totalClosingCr = 0;
-  for (const row of rowsWithParents) {
-    if (row.isGroupRow) continue;
-    totalOpeningDr += row.openingDr;
-    totalOpeningCr += row.openingCr;
-    totalDuringDr += row.duringDr;
-    totalDuringCr += row.duringCr;
-    totalClosingDr += row.closingDr;
-    totalClosingCr += row.closingCr;
-  }
+  const totals = computeRawTBTotals(rowsWithParents, {
+    format: mode,
+    grandTotalDuring: grandTotalDuring ?? undefined,
+  });
 
-  const round2 = (n: number) => Math.round(n * 100) / 100;
-  totalClosingDr = round2(totalClosingDr);
-  totalClosingCr = round2(totalClosingCr);
-  const difference = round2(totalClosingDr - totalClosingCr);
-  const isBalanced = Math.abs(difference) < 1.0;
-
-  if (!isBalanced) {
+  if (!totals.isBalanced) {
     warnings.push(
-      `Trial Balance not balanced. Difference: ${Math.abs(difference).toLocaleString('en-IN')}.`,
+      `Trial Balance not balanced. Difference: ${Math.abs(totals.difference).toLocaleString('en-IN')}.`,
     );
   }
 
   if (mode === 'tally_grouped') {
-    const duringDiff = Math.abs(round2(totalDuringDr) - round2(totalDuringCr));
-    if (!isBalanced && duringDiff < 1000) {
+    const duringDiff = Math.abs(totals.totalDuringDr - totals.totalDuringCr);
+    if (!totals.isBalanced && duringDiff < 1000) {
       warnings.push(
         'Closing totals differ but during-period movement is balanced (common in Tally/Busy grouped exports).',
       );
@@ -1014,18 +985,12 @@ function parseMatrixWithColMap(
 
   return {
     rows: rowsWithParents,
-    totalOpeningDr: round2(totalOpeningDr),
-    totalOpeningCr: round2(totalOpeningCr),
-    totalDuringDr: round2(totalDuringDr),
-    totalDuringCr: round2(totalDuringCr),
-    totalClosingDr,
-    totalClosingCr,
-    isBalanced,
-    difference,
+    ...totals,
     warnings,
     detectedColumns: colMap,
     headerRowIndex,
     detectedFormat: mode,
+    grandTotalDuring: grandTotalDuring ?? undefined,
   };
 }
 
