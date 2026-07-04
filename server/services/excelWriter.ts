@@ -1775,7 +1775,7 @@ export function writeAdjustments(ws: ExcelJS.Worksheet, adj: YearEndAdjustments)
   ['#', 'Description', 'Dr Account', 'Cr Account', 'Amount', 'Note Ref', 'Source'].forEach((h, i) => {
     const c = hRow.getCell(i + 1); c.value = h; applySubHeaderStyle(c); applyAllBorders(c);
   });
-  adj.journalEntries.forEach((je, i) => {
+  (adj.journalEntries ?? adj.manualJournals ?? []).forEach((je, i) => {
     const r = ws.getRow(4 + i);
     [i + 1, je.description, je.debitAccount, je.creditAccount, je.amount, je.linkedNoteRef ?? '', je.isSystemGenerated ? 'System' : 'Manual'].forEach((v, ci) => {
       const c = r.getCell(ci + 1); c.value = v || null;

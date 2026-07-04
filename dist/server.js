@@ -469,6 +469,7 @@ var uploadMiddleware = multer({
   fileFilter
 });
 var tbUploadMiddleware = uploadMiddleware.single("trialbalance");
+var journalUploadMiddleware = uploadMiddleware.single("journalentries");
 
 // server/services/tbParser.ts
 import ExcelJS from "exceljs";
@@ -3994,8 +3995,8 @@ function writeSumTotalRow(ws, row, labelCol, sumCols, fromRow, toRow, label = "T
   exRow.getCell(labelCol).font = FONTS.TOTAL;
   sumCols.forEach((col) => {
     const cell = exRow.getCell(col);
-    const colLetter4 = ws.getColumn(col).letter ?? String.fromCharCode(64 + col);
-    cell.value = { formula: `SUM(${colLetter4}${fromRow}:${colLetter4}${toRow})`, result: 0 };
+    const colLetter5 = ws.getColumn(col).letter ?? String.fromCharCode(64 + col);
+    cell.value = { formula: `SUM(${colLetter5}${fromRow}:${colLetter5}${toRow})`, result: 0 };
     cell.numFmt = NUMBER_FORMAT2;
     cell.alignment = { horizontal: "right" };
     cell.font = FONTS.TOTAL;
@@ -5394,7 +5395,7 @@ function writeAdjustments(ws, adj) {
     applySubHeaderStyle2(c);
     applyAllBorders(c);
   });
-  adj.journalEntries.forEach((je, i) => {
+  (adj.journalEntries ?? adj.manualJournals ?? []).forEach((je, i) => {
     const r = ws.getRow(4 + i);
     [i + 1, je.description, je.debitAccount, je.creditAccount, je.amount, je.linkedNoteRef ?? "", je.isSystemGenerated ? "System" : "Manual"].forEach((v, ci) => {
       const c = r.getCell(ci + 1);
@@ -8312,6 +8313,320 @@ var trialBalance_default = router2;
 // server/routes/adjustments.ts
 import { Router as Router3 } from "express";
 
+// server/services/journalTemplateWriter.ts
+import ExcelJS8 from "exceljs";
+
+// server/services/journalStandardSchema.ts
+var JOURNAL_HEADERS = [
+  "#",
+  "Description",
+  "Dr Account",
+  "Cr Account",
+  "Amount (NPR)",
+  "Type"
+];
+var JOURNAL_DATA_START_ROW = 6;
+var JOURNAL_HEADER_ROW = 5;
+var JOURNAL_TEMPLATE_ROWS = 25;
+var JOURNAL_COL = {
+  rowNum: 1,
+  description: 2,
+  debitAccount: 3,
+  creditAccount: 4,
+  amount: 5,
+  type: 6
+};
+var JOURNAL_HEADER_ALIASES = {
+  "#": "rowNum",
+  "no": "rowNum",
+  "no.": "rowNum",
+  "s.no": "rowNum",
+  "s.no.": "rowNum",
+  "sr": "rowNum",
+  "sr.": "rowNum",
+  "description": "description",
+  "particulars": "description",
+  "narration": "description",
+  "details": "description",
+  "dr account": "debitAccount",
+  "debit account": "debitAccount",
+  "debit": "debitAccount",
+  "dr": "debitAccount",
+  "debit a/c": "debitAccount",
+  "cr account": "creditAccount",
+  "credit account": "creditAccount",
+  "credit": "creditAccount",
+  "cr": "creditAccount",
+  "credit a/c": "creditAccount",
+  "amount": "amount",
+  "amount (npr)": "amount",
+  "amount npr": "amount",
+  "npr": "amount",
+  "value": "amount",
+  "type": "type",
+  "entry type": "type",
+  "adj type": "type"
+};
+
+// server/services/journalTemplateWriter.ts
+function colLetter4(col) {
+  let letter = "";
+  let n = col;
+  while (n > 0) {
+    const rem = (n - 1) % 26;
+    letter = String.fromCharCode(65 + rem) + letter;
+    n = Math.floor((n - 1) / 26);
+  }
+  return letter;
+}
+async function generateJournalEntryTemplate(companyName) {
+  const wb = new ExcelJS8.Workbook();
+  wb.creator = "NFRS Reporter";
+  wb.created = /* @__PURE__ */ new Date();
+  const ws = wb.addWorksheet("Adjustment Journal");
+  ws.getColumn(JOURNAL_COL.rowNum).width = 6;
+  ws.getColumn(JOURNAL_COL.description).width = 36;
+  ws.getColumn(JOURNAL_COL.debitAccount).width = 28;
+  ws.getColumn(JOURNAL_COL.creditAccount).width = 28;
+  ws.getColumn(JOURNAL_COL.amount).width = 16;
+  ws.getColumn(JOURNAL_COL.type).width = 12;
+  const totalCols = JOURNAL_HEADERS.length;
+  ws.mergeCells(1, 1, 1, totalCols);
+  const titleCell = ws.getCell(1, 1);
+  titleCell.value = companyName?.trim() || "[COMPANY NAME]";
+  titleCell.alignment = { horizontal: "center", vertical: "middle" };
+  applyHeaderStyle2(titleCell);
+  ws.getRow(1).height = 26;
+  ws.mergeCells(2, 1, 2, totalCols);
+  const subtitleCell = ws.getCell(2, 1);
+  subtitleCell.value = "YEAR-END ADJUSTMENT JOURNAL ENTRIES";
+  subtitleCell.alignment = { horizontal: "center", vertical: "middle" };
+  applyHeaderStyle2(subtitleCell);
+  ws.mergeCells(3, 1, 3, totalCols);
+  const noteCell = ws.getCell(3, 1);
+  noteCell.value = "Fill in GREEN cells only \u2014 one journal entry per row. Each entry must have equal Dr and Cr amounts. Leave unused rows blank. Type is optional (DEPN, PROV, INV, INV-FV, TAX, OTHER).";
+  noteCell.font = { name: "Arial", size: 10, italic: true };
+  noteCell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
+  ws.getRow(3).height = 40;
+  const headerRow = ws.getRow(JOURNAL_HEADER_ROW);
+  JOURNAL_HEADERS.forEach((h, i) => {
+    const c = headerRow.getCell(i + 1);
+    c.value = h;
+    applySubHeaderStyle2(c);
+    c.alignment = { horizontal: i === 0 ? "center" : "left", vertical: "middle" };
+  });
+  const exampleRow = ws.getRow(JOURNAL_DATA_START_ROW);
+  exampleRow.getCell(JOURNAL_COL.rowNum).value = 1;
+  exampleRow.getCell(JOURNAL_COL.description).value = "e.g. Audit fee accrual for the year";
+  exampleRow.getCell(JOURNAL_COL.debitAccount).value = "Audit Fee Expense";
+  exampleRow.getCell(JOURNAL_COL.creditAccount).value = "Audit Fee Payable";
+  exampleRow.getCell(JOURNAL_COL.amount).value = 5e4;
+  exampleRow.getCell(JOURNAL_COL.type).value = "OTHER";
+  for (let col = JOURNAL_COL.description; col <= JOURNAL_COL.type; col++) {
+    applyInputStyle2(exampleRow.getCell(col));
+  }
+  exampleRow.getCell(JOURNAL_COL.amount).numFmt = NUMBER_FORMAT2;
+  exampleRow.getCell(JOURNAL_COL.amount).alignment = { horizontal: "right" };
+  for (let r = JOURNAL_DATA_START_ROW + 1; r < JOURNAL_DATA_START_ROW + JOURNAL_TEMPLATE_ROWS; r++) {
+    const row = ws.getRow(r);
+    row.getCell(JOURNAL_COL.rowNum).value = r - JOURNAL_DATA_START_ROW + 1;
+    for (let col = JOURNAL_COL.description; col <= JOURNAL_COL.type; col++) {
+      applyInputStyle2(row.getCell(col));
+    }
+    row.getCell(JOURNAL_COL.amount).numFmt = NUMBER_FORMAT2;
+    row.getCell(JOURNAL_COL.amount).alignment = { horizontal: "right" };
+  }
+  const totalRow = JOURNAL_DATA_START_ROW + JOURNAL_TEMPLATE_ROWS;
+  const firstDataRow = JOURNAL_DATA_START_ROW;
+  const lastDataRow = totalRow - 1;
+  const amountCol = colLetter4(JOURNAL_COL.amount);
+  ws.getRow(totalRow).getCell(JOURNAL_COL.description).value = "TOTAL (Dr must equal Cr)";
+  ws.getRow(totalRow).getCell(JOURNAL_COL.description).font = { name: "Arial", size: 10, bold: true };
+  ws.getRow(totalRow).getCell(JOURNAL_COL.debitAccount).value = "Total Dr / Cr:";
+  ws.getRow(totalRow).getCell(JOURNAL_COL.debitAccount).font = { name: "Arial", size: 10, bold: true };
+  ws.getRow(totalRow).getCell(JOURNAL_COL.amount).value = {
+    formula: `SUM(${amountCol}${firstDataRow}:${amountCol}${lastDataRow})`
+  };
+  ws.getRow(totalRow).getCell(JOURNAL_COL.amount).numFmt = NUMBER_FORMAT2;
+  ws.getRow(totalRow).getCell(JOURNAL_COL.amount).font = { name: "Arial", size: 10, bold: true };
+  ws.getRow(totalRow).getCell(JOURNAL_COL.amount).fill = {
+    type: "pattern",
+    pattern: "solid",
+    fgColor: { argb: `FF${COLORS.TOTAL_BG}` }
+  };
+  ws.views = [{ state: "frozen", ySplit: JOURNAL_HEADER_ROW, activeCell: "B6" }];
+  const buffer = await wb.xlsx.writeBuffer();
+  return Buffer.from(buffer);
+}
+
+// server/services/journalParser.ts
+import ExcelJS9 from "exceljs";
+function normalizeHeader(value) {
+  return String(value ?? "").trim().toLowerCase().replace(/\s+/g, " ").replace(/[^\w\s()./]/g, "");
+}
+function parseAmount(value) {
+  if (value == null || value === "") return null;
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  const cleaned = String(value).replace(/[,₨\s]/g, "").replace(/[^\d.-]/g, "");
+  if (!cleaned) return null;
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? n : null;
+}
+function isRowEmpty3(values) {
+  return !values.description && !values.debitAccount && !values.creditAccount && (values.amount == null || values.amount === 0);
+}
+function detectHeaderRow(ws) {
+  for (let r = 1; r <= Math.min(15, ws.rowCount); r++) {
+    const row = ws.getRow(r);
+    const colMap = {};
+    row.eachCell({ includeEmpty: false }, (cell, colNumber) => {
+      const key = JOURNAL_HEADER_ALIASES[normalizeHeader(cell.value)];
+      if (key && key !== "rowNum") {
+        colMap[key] = colNumber;
+      }
+    });
+    if (colMap.description && colMap.debitAccount && colMap.creditAccount && colMap.amount) {
+      return { row: r, colMap };
+    }
+  }
+  return null;
+}
+function useStandardTemplateLayout(ws) {
+  const headerCell = ws.getRow(JOURNAL_HEADER_ROW).getCell(JOURNAL_COL.description).value;
+  return normalizeHeader(headerCell) === "description";
+}
+function parseFromStandardTemplate(ws) {
+  const entries = [];
+  const warnings = [];
+  let rowNum = JOURNAL_DATA_START_ROW;
+  while (rowNum <= ws.rowCount) {
+    const row = ws.getRow(rowNum);
+    const description = String(row.getCell(JOURNAL_COL.description).value ?? "").trim();
+    const debitAccount = String(row.getCell(JOURNAL_COL.debitAccount).value ?? "").trim();
+    const creditAccount = String(row.getCell(JOURNAL_COL.creditAccount).value ?? "").trim();
+    const amount = parseAmount(row.getCell(JOURNAL_COL.amount).value);
+    const typeRaw = String(row.getCell(JOURNAL_COL.type).value ?? "").trim().toUpperCase();
+    if (description.toLowerCase().startsWith("e.g.") || description.toLowerCase().startsWith("eg.") || description.toLowerCase().startsWith("example")) {
+      rowNum++;
+      continue;
+    }
+    if (description.toLowerCase().startsWith("total") || description.toLowerCase().includes("dr must equal cr")) {
+      break;
+    }
+    if (isRowEmpty3({ description, debitAccount, creditAccount, amount })) {
+      rowNum++;
+      continue;
+    }
+    if (!description) warnings.push(`Row ${rowNum}: missing description \u2014 skipped.`);
+    if (!debitAccount) warnings.push(`Row ${rowNum}: missing Dr Account \u2014 skipped.`);
+    if (!creditAccount) warnings.push(`Row ${rowNum}: missing Cr Account \u2014 skipped.`);
+    if (amount == null || amount <= 0) warnings.push(`Row ${rowNum}: invalid amount \u2014 skipped.`);
+    if (description && debitAccount && creditAccount && amount != null && amount > 0) {
+      entries.push({
+        id: `upload-${rowNum}`,
+        description,
+        debitAccount,
+        creditAccount,
+        amount,
+        ...typeRaw ? { type: typeRaw } : {}
+      });
+    }
+    rowNum++;
+  }
+  const totalDebit = entries.reduce((s, e) => s + e.amount, 0);
+  const totalCredit = totalDebit;
+  return {
+    entries,
+    totalDebit,
+    totalCredit,
+    isBalanced: true,
+    warnings
+  };
+}
+function parseFromDetectedHeaders(ws, headerRow, colMap) {
+  const entries = [];
+  const warnings = [];
+  for (let r = headerRow + 1; r <= ws.rowCount; r++) {
+    const row = ws.getRow(r);
+    const description = String(row.getCell(colMap.description).value ?? "").trim();
+    const debitAccount = String(row.getCell(colMap.debitAccount).value ?? "").trim();
+    const creditAccount = String(row.getCell(colMap.creditAccount).value ?? "").trim();
+    const amount = parseAmount(row.getCell(colMap.amount).value);
+    const typeCol = colMap.type;
+    const typeRaw = typeCol ? String(row.getCell(typeCol).value ?? "").trim().toUpperCase() : "";
+    if (isRowEmpty3({ description, debitAccount, creditAccount, amount })) continue;
+    if (description.toLowerCase().startsWith("total")) break;
+    if (!description || !debitAccount || !creditAccount || amount == null || amount <= 0) {
+      warnings.push(`Row ${r}: incomplete entry \u2014 skipped.`);
+      continue;
+    }
+    entries.push({
+      id: `upload-${r}`,
+      description,
+      debitAccount,
+      creditAccount,
+      amount,
+      ...typeRaw ? { type: typeRaw } : {}
+    });
+  }
+  const totalDebit = entries.reduce((s, e) => s + e.amount, 0);
+  return {
+    entries,
+    totalDebit,
+    totalCredit: totalDebit,
+    isBalanced: true,
+    warnings
+  };
+}
+async function parseJournalEntries(buffer) {
+  const wb = new ExcelJS9.Workbook();
+  await wb.xlsx.load(buffer);
+  const ws = wb.getWorksheet("Adjustment Journal") ?? wb.worksheets.find((sheet) => {
+    for (let r = 1; r <= Math.min(10, sheet.rowCount); r++) {
+      const row = sheet.getRow(r);
+      let foundDesc = false;
+      let foundDr = false;
+      row.eachCell({ includeEmpty: false }, (cell) => {
+        const key = JOURNAL_HEADER_ALIASES[normalizeHeader(cell.value)];
+        if (key === "description") foundDesc = true;
+        if (key === "debitAccount") foundDr = true;
+      });
+      if (foundDesc && foundDr) return true;
+    }
+    return false;
+  }) ?? wb.worksheets[0];
+  if (!ws) {
+    throw { code: "NO_SHEET", message: "The uploaded file contains no worksheets." };
+  }
+  if (useStandardTemplateLayout(ws)) {
+    return parseFromStandardTemplate(ws);
+  }
+  const detected = detectHeaderRow(ws);
+  if (!detected) {
+    throw {
+      code: "INVALID_FORMAT",
+      message: "Could not find journal entry columns. Use the downloaded template or ensure columns: Description, Dr Account, Cr Account, Amount."
+    };
+  }
+  return parseFromDetectedHeaders(ws, detected.row, detected.colMap);
+}
+function validateJournalEntries(result, tolerance = 1) {
+  if (result.entries.length === 0) {
+    return {
+      code: "NO_ENTRIES",
+      message: 'No journal entries found. Fill at least one row in the template or click "No adjustment entries to upload".'
+    };
+  }
+  const imbalance = Math.abs(result.totalDebit - result.totalCredit);
+  if (imbalance > tolerance) {
+    return {
+      code: "NOT_BALANCED",
+      message: `Journal entries are not balanced. Total Dr/Cr difference: NPR ${imbalance.toLocaleString("en-IN")}.`
+    };
+  }
+  return null;
+}
+
 // server/store/subledgerStore.ts
 import crypto2 from "crypto";
 
@@ -8871,7 +9186,9 @@ var emptyAdj = (companyId, fiscalYear) => ({
   investmentAdjustments: [],
   provisions: [],
   journalEntries: [],
+  manualJournals: [],
   disallowedForTax: [],
+  journalEntriesSkipped: false,
   totalDepreciationExpense: 0,
   totalInventoryImpairment: 0,
   totalInvestmentFVAdjustment: 0,
@@ -8879,6 +9196,109 @@ var emptyAdj = (companyId, fiscalYear) => ({
   gainOnDisposals: 0,
   lossOnDisposals: 0
 });
+router3.get("/journal-template/download", asyncHandler(async (req, res) => {
+  const companyName = typeof req.query.companyName === "string" ? req.query.companyName : void 0;
+  const buffer = await generateJournalEntryTemplate(companyName);
+  res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  res.setHeader("Content-Disposition", 'attachment; filename="Year_End_Adjustment_Journal_Template.xlsx"');
+  return res.send(buffer);
+}));
+router3.post("/:companyId/journals/upload", journalUploadMiddleware, asyncHandler(async (req, res) => {
+  const session = sessionStore.get(req.params.companyId);
+  if (!session) return res.status(404).json({ success: false, error: "Company not found." });
+  if (!req.file) {
+    return res.status(400).json({ success: false, error: "No file uploaded. Please select an Excel file and try again." });
+  }
+  const ext = (req.file.originalname ?? "").split(".").pop()?.toLowerCase();
+  if (!["xlsx", "xls"].includes(ext ?? "")) {
+    return res.status(400).json({
+      success: false,
+      error: "Only Excel files (.xlsx, .xls) are accepted for journal entry upload. Please use the downloaded template."
+    });
+  }
+  let parsed;
+  try {
+    parsed = await parseJournalEntries(req.file.buffer);
+  } catch (err) {
+    const parseErr = err;
+    return res.status(422).json({
+      success: false,
+      error: parseErr.message ?? "Failed to parse journal entries.",
+      code: parseErr.code ?? "PARSE_ERROR"
+    });
+  }
+  const validationError = validateJournalEntries(parsed);
+  if (validationError) {
+    return res.status(422).json({ success: false, ...validationError });
+  }
+  const entries = parsed.entries.map((e, i) => ({
+    ...e,
+    id: e.id ?? `upload-${i + 1}`,
+    source: "Upload"
+  }));
+  const adj = session.adjustments ?? emptyAdj(req.params.companyId, session.company?.fiscalYear?.bsFY ?? "");
+  const updatedAdj = {
+    ...adj,
+    journalEntries: entries,
+    manualJournals: entries.map((e) => ({
+      id: e.id ?? `upload-${Date.now()}`,
+      description: e.description,
+      debitAccount: e.debitAccount,
+      creditAccount: e.creditAccount,
+      amount: e.amount,
+      type: e.type,
+      source: "Upload"
+    })),
+    journalEntriesSkipped: false
+  };
+  sessionStore.set(req.params.companyId, { adjustments: updatedAdj });
+  return res.json({
+    success: true,
+    message: `${entries.length} journal ${entries.length === 1 ? "entry" : "entries"} imported.`,
+    entries,
+    entryCount: entries.length,
+    totalDebitCredit: parsed.totalDebit,
+    warnings: parsed.warnings
+  });
+}));
+router3.post("/:companyId/journals/skip", asyncHandler(async (req, res) => {
+  const session = sessionStore.get(req.params.companyId);
+  if (!session) return res.status(404).json({ error: "Company not found." });
+  const adj = session.adjustments ?? emptyAdj(req.params.companyId, session.company?.fiscalYear?.bsFY ?? "");
+  const updatedAdj = {
+    ...adj,
+    journalEntries: [],
+    manualJournals: [],
+    journalEntriesSkipped: true
+  };
+  sessionStore.set(req.params.companyId, { adjustments: updatedAdj });
+  return res.json({
+    message: "Adjustment journal entries skipped. Processing will continue with trial balance and other inputs only.",
+    journalEntriesSkipped: true
+  });
+}));
+router3.post("/:companyId/journals", asyncHandler(async (req, res) => {
+  const session = sessionStore.get(req.params.companyId);
+  if (!session) return res.status(404).json({ error: "Company not found." });
+  const entries = req.body.entries ?? [];
+  const adj = session.adjustments ?? emptyAdj(req.params.companyId, session.company?.fiscalYear?.bsFY ?? "");
+  const updatedAdj = {
+    ...adj,
+    journalEntries: entries,
+    manualJournals: entries.map((e) => ({
+      id: e.id ?? `manual-${Date.now()}`,
+      description: e.description,
+      debitAccount: e.debitAccount,
+      creditAccount: e.creditAccount,
+      amount: e.amount,
+      type: e.type,
+      source: e.source ?? "Manual"
+    })),
+    journalEntriesSkipped: entries.length === 0 ? adj.journalEntriesSkipped : false
+  };
+  sessionStore.set(req.params.companyId, { adjustments: updatedAdj });
+  return res.json({ message: "Journal entries saved.", count: entries.length });
+}));
 router3.post("/:companyId/assets", asyncHandler(async (req, res) => {
   const session = sessionStore.get(req.params.companyId);
   if (!session) return res.status(404).json({ error: "Company not found." });
@@ -8983,8 +9403,14 @@ router3.post("/:companyId/calculate-all", asyncHandler(async (req, res) => {
   const session = sessionStore.get(req.params.companyId);
   if (!session?.adjustments) return res.status(400).json({ error: "No adjustments data found. Add assets, provisions, and inventory first." });
   const adj = session.adjustments;
-  const journalTotal = adj.journalEntries.reduce((s, j) => s + j.amount, 0);
-  return res.json({ adjustments: adj, journalEntryCount: adj.journalEntries.length, totalDebitCredit: journalTotal });
+  const journals = adj.journalEntries ?? adj.manualJournals ?? [];
+  const journalTotal = journals.reduce((s, j) => s + (j.amount ?? 0), 0);
+  return res.json({
+    adjustments: adj,
+    journalEntryCount: journals.length,
+    totalDebitCredit: journalTotal,
+    journalEntriesSkipped: adj.journalEntriesSkipped ?? false
+  });
 }));
 router3.get("/subledger/:companyId", asyncHandler(async (req, res) => {
   const { companyId } = req.params;

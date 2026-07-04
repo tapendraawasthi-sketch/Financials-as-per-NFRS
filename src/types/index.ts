@@ -183,6 +183,8 @@ export interface JournalEntry {
   debitAccount: string;
   creditAccount: string;
   amount: number;
+  type?: 'DEPN' | 'PROV' | 'INV' | 'INV-FV' | 'TAX' | 'OTHER';
+  source?: 'System' | 'Manual' | 'Upload';
 }
 
 export enum DepreciationMethod {

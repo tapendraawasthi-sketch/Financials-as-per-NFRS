@@ -58,3 +58,9 @@ export const uploadMiddleware = multer({
  * Expects the file to be posted under the form field name "trialbalance".
  */
 export const tbUploadMiddleware = uploadMiddleware.single('trialbalance');
+
+/**
+ * Pre-configured single-file upload handler for adjustment journal entries.
+ * Expects the file to be posted under the form field name "journalentries".
+ */
+export const journalUploadMiddleware = uploadMiddleware.single('journalentries');

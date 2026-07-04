@@ -144,7 +144,11 @@ export interface YearEndAdjustments {
     debitAccount: string;
     creditAccount: string;
     amount: number;
+    type?: string;
+    source?: string;
   }>;
+  /** User chose to skip uploading adjustment journal entries. */
+  journalEntriesSkipped?: boolean;
   // Disallowed expenses for tax
   disallowedForTax: Array<{
     description: string;

@@ -12,6 +12,7 @@ import ProvisionInputs from '../components/adjustments/ProvisionInputs';
 import InventoryInputPanel from '../components/adjustments/InventoryInputPanel';
 import InvestmentInputPanel from '../components/adjustments/InvestmentInputPanel';
 import AdjustmentJournalView from '../components/adjustments/AdjustmentJournalView';
+import AdjustmentJournalUploadPanel from '../components/adjustments/AdjustmentJournalUploadPanel';
 import DisallowedExpensesPanel from '../components/adjustments/DisallowedExpensesPanel';
 import NasComplianceAdjustmentsPanel from '../components/adjustments/NasComplianceAdjustmentsPanel';
 import { useToast } from '../components/ui/Toast';
@@ -219,7 +220,26 @@ export default function AdjustmentsPage() {
   };
 
   const handleProceed = async () => {
+    const journals = state.adjustments?.manualJournals ?? state.adjustments?.journalEntries ?? [];
+    const skipped = state.adjustments?.journalEntriesSkipped ?? false;
+    if (journals.length === 0 && !skipped) {
+      showToast('Upload your adjustment journal Excel or click "No adjustment entries to upload" to continue.', 'error');
+      setActiveTab('journal');
+      return;
+    }
+
     try {
+      if (state.company?.id && journals.length > 0) {
+        await adjustmentsApi.saveJournals(state.company.id, journals.map((j) => ({
+          id: j.id,
+          description: j.description,
+          debitAccount: j.debitAccount,
+          creditAccount: j.creditAccount,
+          amount: j.amount,
+          type: j.type as import('../types').JournalEntry['type'],
+          source: j.id?.startsWith('auto-') ? 'System' : j.source === 'Upload' ? 'Upload' : 'Manual',
+        })));
+      }
       await finalizeAdjustments();
       showToast('Adjustments saved', 'success');
     } catch (err: unknown) {
@@ -254,7 +274,7 @@ export default function AdjustmentsPage() {
           Year-End Adjustments
         </h2>
         <p className="text-sm max-w-2xl" style={{ color: 'var(--ink-500)', lineHeight: 1.6 }}>
-          Enter depreciation, provisions, and adjusting journal entries before generating financial statements.
+          Enter depreciation and provisions, then download the journal entry template, fill your adjusting entries, and upload — or skip if none apply.
         </p>
       </div>
 
@@ -359,36 +379,92 @@ export default function AdjustmentsPage() {
         )}
 
         {effectiveTab === 'journal' && (
-          <AdjustmentJournalView
-            entries={(state.adjustments?.manualJournals ?? state.adjustments?.journalEntries ?? []).map((j) => ({
-              id: j.id,
-              description: j.description,
-              drAccount: j.debitAccount,
-              crAccount: j.creditAccount,
-              amount: j.amount,
-              type: j.debitAccount.includes('Tax') ? 'TAX' as const
-                : j.debitAccount.includes('Bonus') ? 'PROV' as const
-                : j.debitAccount.includes('Depreciation') ? 'DEPN' as const
-                : 'OTHER' as const,
-              source: j.id?.startsWith('auto-') ? 'System' as const : 'Manual' as const,
-            }))}
-            onAddManual={(entry) => {
-              const adj = state.adjustments;
-              if (!adj) return;
-              const newEntry = {
-                id: `manual-${Date.now()}`,
-                description: entry.description,
-                debitAccount: entry.drAccount,
-                creditAccount: entry.crAccount,
-                amount: entry.amount,
-              };
-              const manualJournals = [...(adj.manualJournals ?? []), newEntry];
-              dispatch({
-                type: 'SET_ADJUSTMENTS',
-                payload: { ...adj, manualJournals, journalEntries: manualJournals } as YearEndAdjustments,
-              });
-            }}
-          />
+          <div className="space-y-5">
+            {state.company?.id && (
+              <AdjustmentJournalUploadPanel
+                companyId={state.company.id}
+                companyName={state.company.companyName}
+                skipped={state.adjustments?.journalEntriesSkipped ?? false}
+                hasEntries={(state.adjustments?.manualJournals ?? state.adjustments?.journalEntries ?? []).length > 0}
+                onUploadComplete={(entries) => {
+                  const adj = state.adjustments;
+                  if (!adj) return;
+                  dispatch({
+                    type: 'SET_ADJUSTMENTS',
+                    payload: {
+                      ...adj,
+                      manualJournals: entries.map((e) => ({
+                        id: e.id ?? `upload-${Date.now()}`,
+                        description: e.description,
+                        debitAccount: e.debitAccount,
+                        creditAccount: e.creditAccount,
+                        amount: e.amount,
+                        type: e.type,
+                        source: e.source ?? 'Upload',
+                      })),
+                      journalEntries: entries,
+                      journalEntriesSkipped: false,
+                    } as YearEndAdjustments,
+                  });
+                  showToast(`${entries.length} journal entries imported`, 'success');
+                }}
+                onSkip={() => {
+                  dispatch({
+                    type: 'SET_ADJUSTMENTS',
+                    payload: {
+                      ...(state.adjustments ?? {}),
+                      manualJournals: [],
+                      journalEntries: [],
+                      journalEntriesSkipped: true,
+                    } as YearEndAdjustments,
+                  });
+                  showToast('Adjustment journal entries skipped', 'success');
+                }}
+                onError={(msg) => showToast(msg, 'error')}
+              />
+            )}
+            <AdjustmentJournalView
+              entries={(state.adjustments?.manualJournals ?? state.adjustments?.journalEntries ?? []).map((j) => ({
+                id: j.id,
+                description: j.description,
+                drAccount: j.debitAccount,
+                crAccount: j.creditAccount,
+                amount: j.amount,
+                type: (j.type as 'DEPN' | 'PROV' | 'INV' | 'INV-FV' | 'TAX' | 'OTHER' | undefined)
+                  ?? (j.debitAccount.includes('Tax') ? 'TAX' as const
+                    : j.debitAccount.includes('Bonus') ? 'PROV' as const
+                    : j.debitAccount.includes('Depreciation') ? 'DEPN' as const
+                    : 'OTHER' as const),
+                source: j.id?.startsWith('auto-') ? 'System' as const
+                  : j.source === 'Upload' ? 'Upload' as const
+                  : 'Manual' as const,
+              }))}
+              readOnly={state.adjustments?.journalEntriesSkipped ?? false}
+              onAddManual={(entry) => {
+                const adj = state.adjustments;
+                if (!adj) return;
+                const newEntry = {
+                  id: `manual-${Date.now()}`,
+                  description: entry.description,
+                  debitAccount: entry.drAccount,
+                  creditAccount: entry.crAccount,
+                  amount: entry.amount,
+                  type: entry.type,
+                  source: 'Manual',
+                };
+                const manualJournals = [...(adj.manualJournals ?? []), newEntry];
+                dispatch({
+                  type: 'SET_ADJUSTMENTS',
+                  payload: {
+                    ...adj,
+                    manualJournals,
+                    journalEntries: manualJournals,
+                    journalEntriesSkipped: false,
+                  } as YearEndAdjustments,
+                });
+              }}
+            />
+          </div>
         )}
       </div>
 

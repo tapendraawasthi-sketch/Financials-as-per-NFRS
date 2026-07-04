@@ -10,6 +10,7 @@ import {
   InventoryAdjustment,
   InvestmentAdjustment,
   YearEndAdjustments,
+  JournalEntry,
   BalanceSheet,
   IncomeStatement,
   ChangesInEquity,
@@ -409,6 +410,75 @@ export const adjustmentsApi = {
 
   calculateAll: (companyId: string): Promise<YearEndAdjustments> =>
     apiRequest<YearEndAdjustments>('POST', `/api/adjustments/${companyId}/calculate-all`),
+
+  downloadJournalTemplate: async (companyName?: string): Promise<Blob> => {
+    const qs = companyName ? `?companyName=${encodeURIComponent(companyName)}` : '';
+    const response = await fetch(`/api/adjustments/journal-template/download${qs}`);
+    if (!response.ok) {
+      throw new Error(`Failed to download journal template: ${response.status}`);
+    }
+    const blob = await response.blob();
+    if (blob.size === 0) throw new Error('Downloaded journal template is empty.');
+    return blob;
+  },
+
+  uploadJournalEntries: (
+    companyId: string,
+    file: File,
+    onProgress?: (pct: number) => void,
+  ): Promise<{
+    entries: JournalEntry[];
+    entryCount: number;
+    totalDebitCredit: number;
+    warnings: string[];
+  }> =>
+    new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      const formData = new FormData();
+      formData.append('journalentries', file);
+
+      xhr.upload.onprogress = (e: ProgressEvent) => {
+        if (e.lengthComputable && onProgress) {
+          onProgress(Math.round((e.loaded / e.total) * 90));
+        }
+      };
+      xhr.upload.onloadend = () => { if (onProgress) onProgress(95); };
+
+      xhr.onload = () => {
+        if (onProgress) onProgress(100);
+        try {
+          const data = JSON.parse(xhr.responseText) as {
+            success?: boolean;
+            entries?: JournalEntry[];
+            entryCount?: number;
+            totalDebitCredit?: number;
+            warnings?: string[];
+            error?: string;
+          };
+          if (xhr.status >= 200 && xhr.status < 300 && data.success !== false) {
+            resolve({
+              entries: data.entries ?? [],
+              entryCount: data.entryCount ?? data.entries?.length ?? 0,
+              totalDebitCredit: data.totalDebitCredit ?? 0,
+              warnings: data.warnings ?? [],
+            });
+          } else {
+            reject(new Error(data.error || `Upload failed with status ${xhr.status}`));
+          }
+        } catch {
+          reject(new Error(`Failed to parse server response: ${xhr.responseText.slice(0, 200)}`));
+        }
+      };
+      xhr.onerror = () => reject(new Error('Network error during journal upload.'));
+      xhr.open('POST', `/api/adjustments/${companyId}/journals/upload`);
+      xhr.send(formData);
+    }),
+
+  skipJournalEntries: (companyId: string): Promise<{ journalEntriesSkipped: boolean }> =>
+    apiRequest('POST', `/api/adjustments/${companyId}/journals/skip`),
+
+  saveJournals: (companyId: string, entries: JournalEntry[]): Promise<{ count: number }> =>
+    apiRequest('POST', `/api/adjustments/${companyId}/journals`, { entries }),
 };
 
 // ── Financials API ─────────────────────────────────────────────────────────────

@@ -8,7 +8,7 @@ import NumberInput    from '../ui/NumberInput';
 import SelectDropdown from '../ui/SelectDropdown';
 
 type AdjType = 'DEPN' | 'PROV' | 'INV' | 'INV-FV' | 'TAX' | 'OTHER';
-type Source  = 'System' | 'Manual';
+type Source  = 'System' | 'Manual' | 'Upload';
 
 interface JournalEntry {
   id:          string;
@@ -24,6 +24,7 @@ interface AdjustmentJournalViewProps {
   entries:      JournalEntry[];
   onAddManual:  (entry: Omit<JournalEntry, 'id' | 'source'>) => void;
   roundingLevel?: number;
+  readOnly?: boolean;
 }
 
 const TYPE_OPTIONS = [
@@ -52,6 +53,7 @@ export default function AdjustmentJournalView({
   entries,
   onAddManual,
   roundingLevel = 100,
+  readOnly = false,
 }: AdjustmentJournalViewProps) {
   const [modalOpen, setModalOpen] = useState(false);
   const [form,      setForm]      = useState({ ...BLANK_FORM });
@@ -118,7 +120,7 @@ export default function AdjustmentJournalView({
               {entries.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="text-center py-8 text-xs" style={{ color: 'var(--ink-400)' }}>
-                    No adjustment entries yet. Click "Calculate Depreciation" or add manually.
+                    No adjustment entries yet. Download the template, upload your Excel file, or click &quot;No adjustment entries to upload&quot;.
                   </td>
                 </tr>
               ) : (
@@ -189,13 +191,15 @@ export default function AdjustmentJournalView({
             {systemCount} system {systemCount === 1 ? 'entry' : 'entries'},&nbsp;
             {manualCount} manual {manualCount === 1 ? 'entry' : 'entries'}
           </p>
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => setModalOpen(true)}
-          >
-            + Add Manual Entry
-          </Button>
+          {!readOnly && (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setModalOpen(true)}
+            >
+              + Add Manual Entry
+            </Button>
+          )}
         </div>
       </Card>
 

@@ -1,6 +1,10 @@
 // ===== server/routes/adjustments.ts =====
 import { Router, Request, Response } from 'express';
 import { asyncHandler } from '../middleware/errorHandler';
+import { journalUploadMiddleware } from '../middleware/upload.js';
+import { generateJournalEntryTemplate } from '../services/journalTemplateWriter.js';
+import { parseJournalEntries, validateJournalEntries } from '../services/journalParser.js';
+import type { JournalEntry } from '../../src/types/index.js';
 import {
   subledgerStore,
   type DebtorEntry,
@@ -39,10 +43,134 @@ const emptyAdj = (companyId: string, fiscalYear: string): YearEndAdjustments => 
   companyId, fiscalYear,
   assets: [], depreciationResults: [], depreciationSummary: [], taxDepreciationPools: [],
   inventoryAdjustments: [], investmentAdjustments: [], provisions: [], journalEntries: [],
+  manualJournals: [],
   disallowedForTax: [],
+  journalEntriesSkipped: false,
   totalDepreciationExpense: 0, totalInventoryImpairment: 0, totalInvestmentFVAdjustment: 0,
   totalProvisions: 0, gainOnDisposals: 0, lossOnDisposals: 0,
 });
+
+// GET /journal-template/download
+router.get('/journal-template/download', asyncHandler(async (req: Request, res: Response) => {
+  const companyName = typeof req.query.companyName === 'string' ? req.query.companyName : undefined;
+  const buffer = await generateJournalEntryTemplate(companyName);
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', 'attachment; filename="Year_End_Adjustment_Journal_Template.xlsx"');
+  return res.send(buffer);
+}));
+
+// POST /:companyId/journals/upload
+router.post('/:companyId/journals/upload', journalUploadMiddleware, asyncHandler(async (req: Request, res: Response) => {
+  const session = sessionStore.get(req.params.companyId);
+  if (!session) return res.status(404).json({ success: false, error: 'Company not found.' });
+
+  if (!req.file) {
+    return res.status(400).json({ success: false, error: 'No file uploaded. Please select an Excel file and try again.' });
+  }
+
+  const ext = (req.file.originalname ?? '').split('.').pop()?.toLowerCase();
+  if (!['xlsx', 'xls'].includes(ext ?? '')) {
+    return res.status(400).json({
+      success: false,
+      error: 'Only Excel files (.xlsx, .xls) are accepted for journal entry upload. Please use the downloaded template.',
+    });
+  }
+
+  let parsed;
+  try {
+    parsed = await parseJournalEntries(req.file.buffer);
+  } catch (err: unknown) {
+    const parseErr = err as { code?: string; message?: string };
+    return res.status(422).json({
+      success: false,
+      error: parseErr.message ?? 'Failed to parse journal entries.',
+      code: parseErr.code ?? 'PARSE_ERROR',
+    });
+  }
+
+  const validationError = validateJournalEntries(parsed);
+  if (validationError) {
+    return res.status(422).json({ success: false, ...validationError });
+  }
+
+  const entries: JournalEntry[] = parsed.entries.map((e, i) => ({
+    ...e,
+    id: e.id ?? `upload-${i + 1}`,
+    source: 'Upload' as const,
+  }));
+
+  const adj = session.adjustments ?? emptyAdj(req.params.companyId, session.company?.fiscalYear?.bsFY ?? '');
+  const updatedAdj: YearEndAdjustments = {
+    ...adj,
+    journalEntries: entries,
+    manualJournals: entries.map((e) => ({
+      id: e.id ?? `upload-${Date.now()}`,
+      description: e.description,
+      debitAccount: e.debitAccount,
+      creditAccount: e.creditAccount,
+      amount: e.amount,
+      type: e.type,
+      source: 'Upload',
+    })),
+    journalEntriesSkipped: false,
+  };
+  sessionStore.set(req.params.companyId, { adjustments: updatedAdj });
+
+  return res.json({
+    success: true,
+    message: `${entries.length} journal ${entries.length === 1 ? 'entry' : 'entries'} imported.`,
+    entries,
+    entryCount: entries.length,
+    totalDebitCredit: parsed.totalDebit,
+    warnings: parsed.warnings,
+  });
+}));
+
+// POST /:companyId/journals/skip
+router.post('/:companyId/journals/skip', asyncHandler(async (req: Request, res: Response) => {
+  const session = sessionStore.get(req.params.companyId);
+  if (!session) return res.status(404).json({ error: 'Company not found.' });
+
+  const adj = session.adjustments ?? emptyAdj(req.params.companyId, session.company?.fiscalYear?.bsFY ?? '');
+  const updatedAdj: YearEndAdjustments = {
+    ...adj,
+    journalEntries: [],
+    manualJournals: [],
+    journalEntriesSkipped: true,
+  };
+  sessionStore.set(req.params.companyId, { adjustments: updatedAdj });
+
+  return res.json({
+    message: 'Adjustment journal entries skipped. Processing will continue with trial balance and other inputs only.',
+    journalEntriesSkipped: true,
+  });
+}));
+
+// POST /:companyId/journals
+router.post('/:companyId/journals', asyncHandler(async (req: Request, res: Response) => {
+  const session = sessionStore.get(req.params.companyId);
+  if (!session) return res.status(404).json({ error: 'Company not found.' });
+
+  const entries: JournalEntry[] = req.body.entries ?? [];
+  const adj = session.adjustments ?? emptyAdj(req.params.companyId, session.company?.fiscalYear?.bsFY ?? '');
+  const updatedAdj: YearEndAdjustments = {
+    ...adj,
+    journalEntries: entries,
+    manualJournals: entries.map((e) => ({
+      id: e.id ?? `manual-${Date.now()}`,
+      description: e.description,
+      debitAccount: e.debitAccount,
+      creditAccount: e.creditAccount,
+      amount: e.amount,
+      type: e.type,
+      source: e.source ?? 'Manual',
+    })),
+    journalEntriesSkipped: entries.length === 0 ? adj.journalEntriesSkipped : false,
+  };
+  sessionStore.set(req.params.companyId, { adjustments: updatedAdj });
+
+  return res.json({ message: 'Journal entries saved.', count: entries.length });
+}));
 
 // POST /:companyId/assets
 router.post('/:companyId/assets', asyncHandler(async (req: Request, res: Response) => {
@@ -170,8 +298,14 @@ router.post('/:companyId/calculate-all', asyncHandler(async (req: Request, res: 
   const session = sessionStore.get(req.params.companyId);
   if (!session?.adjustments) return res.status(400).json({ error: 'No adjustments data found. Add assets, provisions, and inventory first.' });
   const adj = session.adjustments;
-  const journalTotal = adj.journalEntries.reduce((s: number, j: any) => s + j.amount, 0);
-  return res.json({ adjustments: adj, journalEntryCount: adj.journalEntries.length, totalDebitCredit: journalTotal });
+  const journals = adj.journalEntries ?? adj.manualJournals ?? [];
+  const journalTotal = journals.reduce((s: number, j: { amount?: number }) => s + (j.amount ?? 0), 0);
+  return res.json({
+    adjustments: adj,
+    journalEntryCount: journals.length,
+    totalDebitCredit: journalTotal,
+    journalEntriesSkipped: adj.journalEntriesSkipped ?? false,
+  });
 }));
 
 // ─────────────────────────────────────────────────────────────────────────────
