@@ -16,6 +16,7 @@ import type {
 } from '../../src/types';
 import { buildMesEnterDetailsFields } from './mesEnterDetailsFields.js';
 import { writeMesFormatTrialBalance } from './mesTrialBalanceWriter.js';
+import { fillPlaceholder } from '../../src/utils/fillPlaceholder.js';
 
 // ---------------------------------------------------------------------------
 // Row-map types for live cross-sheet formulas (Session 24 — Gap C4)
@@ -438,13 +439,13 @@ function writeSignatureLine(ws: ExcelJS.Worksheet, startRow: number, company: Co
   ws.getRow(sigRow).getCell(1).font = { name: 'Arial', size: 9 };
 
   const nameRow = sigRow + 3;
-  ws.getRow(nameRow).getCell(1).value = company.chairperson ?? 'Chairperson';
-  ws.getRow(nameRow).getCell(3).value = company.director ?? 'Director';
+  ws.getRow(nameRow).getCell(1).value = fillPlaceholder('Chairperson', company.chairperson);
+  ws.getRow(nameRow).getCell(3).value = fillPlaceholder('Director', company.director);
 
   const audRow = nameRow + 2;
-  ws.getRow(audRow).getCell(1).value = `For ${company.auditorInfo?.auditorFirmName ?? 'Audit Firm'}`;
-  ws.getRow(audRow + 1).getCell(1).value = company.auditorInfo?.auditorName ?? 'Auditor';
-  ws.getRow(audRow + 2).getCell(1).value = company.auditorInfo?.position ?? 'Engagement Partner';
+  ws.getRow(audRow).getCell(1).value = `For ${fillPlaceholder('Audit Firm Name', company.auditorInfo?.auditorFirmName)}`;
+  ws.getRow(audRow + 1).getCell(1).value = fillPlaceholder('Auditor', company.auditorInfo?.auditorName);
+  ws.getRow(audRow + 2).getCell(1).value = fillPlaceholder('Auditor Position', company.auditorInfo?.position);
 }
 
 // ---------------------------------------------------------------------------
@@ -512,16 +513,16 @@ export function writeWorkings(
   const paramStart = 30;
   const params: Array<{ label: string; value: string | number; name?: string }> = [
     { label: 'Company Name', value: company.companyName ?? '', name: 'CompanyName' },
-    { label: 'Fiscal Year', value: company.fiscalYear?.bsFY ?? '', name: 'FiscalYear' },
-    { label: 'End Date BS', value: company.fiscalYear?.endDateBS ?? '', name: 'YearEndDateBS' },
-    { label: 'End Date AD', value: company.fiscalYear?.endDateAD ?? '', name: 'YearEndDateAD' },
-    { label: 'Start Date BS', value: company.fiscalYear?.startDateBS ?? '', name: 'YearStartDateBS' },
-    { label: 'Start Date AD', value: company.fiscalYear?.startDateAD ?? '', name: 'YearStartDateAD' },
+    { label: 'Fiscal Year', value: fillPlaceholder('Fiscal Year', company.fiscalYear?.bsFY), name: 'FiscalYear' },
+    { label: 'End Date BS', value: fillPlaceholder('End Date (BS)', company.fiscalYear?.endDateBS), name: 'YearEndDateBS' },
+    { label: 'End Date AD', value: fillPlaceholder('End Date (AD)', company.fiscalYear?.endDateAD), name: 'YearEndDateAD' },
+    { label: 'Start Date BS', value: fillPlaceholder('Start Date (BS)', company.fiscalYear?.startDateBS), name: 'YearStartDateBS' },
+    { label: 'Start Date AD', value: fillPlaceholder('Start Date (AD)', company.fiscalYear?.startDateAD), name: 'YearStartDateAD' },
     { label: 'Rounding Level (NPR)', value: company.accountingPolicies?.roundingLevel ?? 1, name: 'RoundingLevel' },
     { label: 'Income Tax Rate %', value: company.accountingPolicies?.incomeTaxRatePercent ?? 25, name: 'TaxRate' },
     { label: 'Staff Bonus Rate %', value: 10, name: 'BonusRate' },
-    { label: 'PAN/VAT Number', value: company.panVatNumber ?? '' },
-    { label: 'Registration No.', value: company.registrationNumber ?? '' },
+    { label: 'PAN/VAT Number', value: fillPlaceholder('PAN', company.panVatNumber ?? company.panNo) },
+    { label: 'Registration No.', value: fillPlaceholder('Registration No.', company.registrationNumber ?? company.registrationNo) },
   ];
 
   const paramSectionHeader = ws.getRow(paramStart - 1);
@@ -2872,7 +2873,7 @@ export async function generateNFRSWorkbook(params: {
     addSheet('Tax Calculation', COLORS.LIGHT_GRAY),
     {
       companyName: company.companyName ?? '',
-      address: company.address ?? '',
+      address: fillPlaceholder('Address', company.fullAddress ?? company.address),
       incomeStatement,
       otherIncome: notes.note319_otherIncome as TaxCalculationSheetData['otherIncome'],
       repairExpense,
@@ -3666,7 +3667,7 @@ export function appendComplianceStatement(
 
   addRow('3. AUTHORIZATION FOR ISSUE', true);
   addRow(
-    `These financial statements for the fiscal year ${params.fiscalYear} were authorized for issue by the Board of Directors of ${params.companyName} on ${params.authorizationDate ?? '[Board Meeting Date]'}.`,
+    `These financial statements for the fiscal year ${params.fiscalYear} were authorized for issue by the Board of Directors of ${params.companyName} on ${params.authorizationDate ?? '(Fill Board Meeting Date)'}.`,
     false, false, 1
   );
   addRow('');

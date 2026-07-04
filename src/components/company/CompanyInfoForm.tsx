@@ -137,25 +137,19 @@ function validate(v: FormValues): FormErrors {
   const e: FormErrors = {};
   if (!v.companyName.trim())
     e.companyName = 'Company name is required';
-  if (!v.panVatNumber.trim())
-    e.panVatNumber = 'PAN / VAT number is required';
-  else if (!/^\d{9}$/.test(v.panVatNumber.trim()))
-    e.panVatNumber = 'Must be exactly 9 digits';
-  if (!v.registrationNumber.trim())
-    e.registrationNumber = 'Registration number is required';
-  if (!v.companyType)
-    e.companyType = 'Select a company type';
+  if (v.panVatNumber.trim() && !/^\d{9}$/.test(v.panVatNumber.trim()))
+    e.panVatNumber = 'Must be exactly 9 digits when provided';
   if (v.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.email))
     e.email = 'Enter a valid email address';
   return e;
 }
 
-// ── Required fields note component ────────────────────────────────────────
-// item 50: "Fields marked * are required" note at top of each section
 function RequiredNote() {
   return (
     <p className="text-xs text-slate-400 mb-4">
-      Fields marked <span className="text-red-500">*</span> are required
+      Only <span className="text-red-500">Company Name</span> is required to continue.
+      Other fields can be completed later — missing details will appear as
+      {' '}(Fill …) placeholders in the downloaded Excel file.
     </p>
   );
 }
@@ -349,7 +343,6 @@ export default function CompanyInfoForm({
               value={values.panVatNumber}
               onChange={e => set('panVatNumber', e.target.value.replace(/\D/g, '').slice(0, 9))}
               error={errors.panVatNumber}
-              required
               placeholder="123456789"
               helperText="9-digit PAN registered with IRD"
               inputMode="numeric"
@@ -363,7 +356,6 @@ export default function CompanyInfoForm({
               value={values.registrationNumber}
               onChange={e => set('registrationNumber', e.target.value)}
               error={errors.registrationNumber}
-              required
               placeholder="e.g. 12345/074/075"
             />
           </div>
@@ -375,7 +367,6 @@ export default function CompanyInfoForm({
               onChange={e => set('companyType', e.target.value)}
               options={COMPANY_TYPE_OPTIONS}
               error={errors.companyType}
-              required
               placeholder="Select type…"
             />
           </div>
@@ -737,7 +728,7 @@ export default function CompanyInfoForm({
       {/* ── Footer ────────────────────────────────────── */}
       <div className="flex items-center justify-between pt-1">
         <p className="text-xs text-slate-400">
-          All fields marked <span className="text-red-500">*</span> are required
+          Only company name is required — other details can be filled in the Excel output later
         </p>
         <div className="flex gap-2">
           <Button type="button" variant="secondary" size="md" onClick={loadDummyData}>
