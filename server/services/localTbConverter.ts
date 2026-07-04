@@ -94,7 +94,10 @@ export async function convertTrialBalanceLocally(
     parsed = parseMatrix(matrix);
   }
 
-  const finalized = finalizeRawTBRows(parsed.rows);
+  const finalized = finalizeRawTBRows(parsed.rows, {
+    format: parsed.detectedFormat,
+    grandTotalDuring: parsed.grandTotalDuring,
+  });
   const classified = heuristicFallbackClassify(classifyAll(finalized.rows));
 
   const leafRows = classified.filter((r) => !r.isGroupRow);

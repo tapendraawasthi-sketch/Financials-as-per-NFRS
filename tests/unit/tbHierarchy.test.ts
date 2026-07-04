@@ -4,6 +4,8 @@ import {
   deriveClosingBalances,
   assignParentGroups,
   finalizeRawTBRows,
+  markGroupRowsByIndentation,
+  shouldIncludeRowInTotals,
 } from '../../server/services/tbHierarchy.js';
 import type { RawTBRow } from '../../src/types/trialBalance.js';
 
@@ -57,6 +59,50 @@ describe('tbHierarchy', () => {
     assert.equal(result.totals.totalClosingDr, 100);
     assert.equal(result.totals.totalClosingCr, 100);
     assert.equal(result.totals.isBalanced, true);
+  });
+
+  it('markGroupRowsByIndentation scans past same-indent siblings for deeper descendants', () => {
+    const rows: RawTBRow[] = [
+      { ...leaf({ rawLabel: 'Sundry Creditors' }), rawIndentSpaces: 4, duringDr: 100, duringCr: 100 },
+      { ...leaf({ rawLabel: 'Business And Other Payable' }), rawIndentSpaces: 4, duringDr: 100, duringCr: 100 },
+      { ...leaf({ rawLabel: 'A.N. Tech Solution' }), rawIndentSpaces: 8, duringDr: 50, duringCr: 50 },
+    ];
+    const marked = markGroupRowsByIndentation(rows);
+    assert.equal(marked[0].isGroupRow, true);
+    assert.equal(marked[1].isGroupRow, true);
+    assert.equal(marked[2].isGroupRow, false);
+  });
+
+  it('shouldIncludeRowInTotals includes Tally shorthand headers with leaf breakdown peers', () => {
+    const rows: RawTBRow[] = [
+      {
+        ...leaf({ rawLabel: 'Printing & Stationary' }),
+        isGroupRow: true,
+        isShorthandAggregate: true,
+        rawIndentSpaces: 6,
+        duringDr: 43010,
+      },
+      {
+        ...leaf({ rawLabel: 'Printing & Stationary (VAT)' }),
+        rawIndentSpaces: 6,
+        duringDr: 34901.72,
+      },
+      {
+        ...leaf({ rawLabel: 'Purchase' }),
+        isGroupRow: true,
+        isShorthandAggregate: true,
+        rawIndentSpaces: 4,
+        duringDr: 80000,
+      },
+      {
+        ...leaf({ rawLabel: 'Purchase: IMPORT' }),
+        isGroupRow: true,
+        rawIndentSpaces: 4,
+        duringDr: 50000,
+      },
+    ];
+    assert.equal(shouldIncludeRowInTotals(rows[0], rows), true);
+    assert.equal(shouldIncludeRowInTotals(rows[2], rows), false);
   });
 });
 

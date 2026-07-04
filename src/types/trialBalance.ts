@@ -12,6 +12,8 @@ export interface RawTBRow {
   closingCr: number;
   rowLevel: number;          // 0=group header, 1=subgroup, 2=leaf ledger
   isGroupRow: boolean;
+  /** Tally shorthand header (e.g. "Printing & Stationary" with "Printing & Stationary (VAT)" peers). */
+  isShorthandAggregate?: boolean;
   parentGroup: string;
   rawIndentSpaces: number;
 }
@@ -28,6 +30,8 @@ export interface RawTBParseResult {
   detectedColumns: Record<string, number>;
   headerRowIndex: number;
   detectedFormat: 'full' | '3col' | '2col' | '1col' | 'tally_prime' | 'tally_grouped' | 'ai_converted' | 'local_intelligent';
+  /** During-period totals from Tally/Busy Grand Total row, when present. */
+  grandTotalDuring?: { dr: number; cr: number };
   previousYearData?: RawTBRow[] | null;
 }
 
