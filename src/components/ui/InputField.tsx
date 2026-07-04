@@ -9,6 +9,13 @@ interface InputFieldProps extends React.InputHTMLAttributes<HTMLInputElement> {
   required?:   boolean;
 }
 
+const fieldBaseStyle: React.CSSProperties = {
+  fontSize: '13px',
+  borderRadius: 'var(--radius-sm)',
+  height: '38px',
+  background: 'var(--surface)',
+};
+
 export default function InputField({
   label,
   error,
@@ -24,63 +31,72 @@ export default function InputField({
   const helpId      = `${inputId}-help`;
 
   return (
-    <div className="flex flex-col gap-1.5">
-      <label
-        htmlFor={inputId}
-        className="leading-none"
-        style={{
-          fontSize: '10.5px',
-          fontWeight: 700,
-          textTransform: 'uppercase',
-          letterSpacing: '0.10em',
-          color: '#64748b',
-        }}
-      >
-        {label}
-        {required && (
-          <span className="text-indigo-400 ml-0.5" aria-hidden="true">*</span>
-        )}
-      </label>
-
-      <input
-        id={inputId}
-        className={[
-          'h-11 w-full rounded-xl px-3.5 bg-white outline-none transition-all duration-150',
-          'placeholder:text-slate-300',
-          error
-            ? 'border-2 border-red-400 bg-red-50/40 focus:ring-0'
-            : 'border border-slate-200 hover:border-slate-300 focus:border-indigo-400 focus:ring-4 focus:ring-indigo-50',
-          props.disabled ? 'bg-slate-50 text-slate-400 cursor-not-allowed opacity-60' : 'text-slate-800',
-          className,
-        ].filter(Boolean).join(' ')}
-        style={{
-          fontSize: '13px',
-          boxShadow: error
-            ? 'none'
-            : '0 1px 3px rgba(0,0,0,0.06), inset 0 1px 2px rgba(0,0,0,0.02)',
-        }}
-        aria-invalid={error ? 'true' : undefined}
-        aria-describedby={error ? errorId : helperText ? helpId : undefined}
-        aria-required={required}
-        {...props}
-      />
-
-      {error && (
-        <p
-          id={errorId}
-          className="flex items-center gap-1 font-medium leading-tight"
-          style={{ fontSize: '11px', color: '#ef4444' }}
-          role="alert"
+    <>
+      <style>{`
+        .premium-field:focus {
+          border-color: var(--brand-500) !important;
+          box-shadow: var(--glow-brand) !important;
+          outline: none;
+        }
+        .premium-field::placeholder { color: var(--ink-400); }
+        .premium-field:disabled {
+          background: var(--surface-sunken) !important;
+          opacity: 0.7;
+          cursor: not-allowed;
+        }
+      `}</style>
+      <div className="flex flex-col" style={{ gap: '6px' }}>
+        <label
+          htmlFor={inputId}
+          className="leading-none"
+          style={{
+            fontSize: '12.5px',
+            fontWeight: 600,
+            color: 'var(--ink-600)',
+            marginBottom: '6px',
+          }}
         >
-          <AlertCircle size={12} className="flex-shrink-0" />
-          {error}
-        </p>
-      )}
-      {!error && helperText && (
-        <p id={helpId} className="leading-snug" style={{ fontSize: '11px', color: '#94a3b8' }}>
-          {helperText}
-        </p>
-      )}
-    </div>
+          {label}
+          {required && (
+            <span className="text-indigo-400 ml-0.5" aria-hidden="true">*</span>
+          )}
+        </label>
+
+        <input
+          id={inputId}
+          className={[
+            'premium-field w-full px-3.5 outline-none transition-all ease-premium',
+            'text-slate-800',
+            error ? 'border-2' : 'border',
+            className,
+          ].filter(Boolean).join(' ')}
+          style={{
+            ...fieldBaseStyle,
+            border: error ? '1px solid var(--danger-600)' : '1px solid var(--border-strong)',
+          }}
+          aria-invalid={error ? 'true' : undefined}
+          aria-describedby={error ? errorId : helperText ? helpId : undefined}
+          aria-required={required}
+          {...props}
+        />
+
+        {error && (
+          <p
+            id={errorId}
+            className="flex items-center gap-1 font-medium leading-tight"
+            style={{ fontSize: '11.5px', color: 'var(--danger-600)' }}
+            role="alert"
+          >
+            <AlertCircle size={12} className="flex-shrink-0" />
+            {error}
+          </p>
+        )}
+        {!error && helperText && (
+          <p id={helpId} className="leading-snug" style={{ fontSize: '11px', color: 'var(--ink-400)' }}>
+            {helperText}
+          </p>
+        )}
+      </div>
+    </>
   );
 }

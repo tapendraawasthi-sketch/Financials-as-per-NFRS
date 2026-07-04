@@ -37,31 +37,76 @@ export default function SubledgerPage() {
 
   if (!companyId) {
     return (
-      <div className="max-w-3xl mx-auto p-6 text-sm text-slate-600">
-        Complete company setup before entering subledger details.
+      <div className="max-w-3xl mx-auto">
+        <div className="mb-6">
+          <p
+            className="text-xs font-bold uppercase tracking-widest mb-2"
+            style={{ color: 'var(--brand-600)' }}
+          >
+            STEP 5 OF 8
+          </p>
+          <h2
+            className="font-display text-2xl font-semibold mb-2"
+            style={{ color: 'var(--ink-950)' }}
+          >
+            Sub-ledger Details
+          </h2>
+          <p className="text-sm max-w-2xl" style={{ color: 'var(--ink-500)', lineHeight: 1.6 }}>
+            Review debtors, creditors, bank balances, and related-party transactions.
+          </p>
+        </div>
+        <div className="card">
+          <div className="card-body text-sm text-slate-600">
+            Complete company setup before entering subledger details.
+          </div>
+        </div>
       </div>
     );
   }
 
   return (
     <div className="max-w-5xl mx-auto space-y-5">
-      <SubledgerInputPanel
-        companyId={companyId}
-        tbDebtorTotal={tbDebtorTotal}
-        tbCreditorTotal={tbCreditorTotal}
-      />
-
-      <div className="flex items-center justify-between border-t border-slate-200 pt-4">
-        <p className="text-xs text-slate-500">
-          Save each tab before continuing. You can also enter these details later in the Excel workbook.
+      <div className="mb-6">
+        <p
+          className="text-xs font-bold uppercase tracking-widest mb-2"
+          style={{ color: 'var(--brand-600)' }}
+        >
+          STEP 5 OF 8
         </p>
-        <div className="flex gap-2">
-          <Button variant="secondary" size="sm" onClick={handleSkip}>
-            Skip — Enter in Excel
-          </Button>
-          <Button variant="primary" size="sm" onClick={handleContinue}>
-            Continue to Adjustments →
-          </Button>
+        <h2
+          className="font-display text-2xl font-semibold mb-2"
+          style={{ color: 'var(--ink-950)' }}
+        >
+          Sub-ledger Details
+        </h2>
+        <p className="text-sm max-w-2xl" style={{ color: 'var(--ink-500)', lineHeight: 1.6 }}>
+          Review debtors, creditors, bank balances, and related-party transactions.
+        </p>
+      </div>
+
+      <div className="card">
+        <div className="card-body">
+          <SubledgerInputPanel
+            companyId={companyId}
+            tbDebtorTotal={tbDebtorTotal}
+            tbCreditorTotal={tbCreditorTotal}
+          />
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card-footer flex items-center justify-between">
+          <p className="text-xs text-slate-500">
+            Save each tab before continuing. You can also enter these details later in the Excel workbook.
+          </p>
+          <div className="flex gap-2">
+            <Button variant="secondary" size="sm" onClick={handleSkip}>
+              Skip — Enter in Excel
+            </Button>
+            <Button variant="primary" size="sm" onClick={handleContinue}>
+              Continue to Adjustments →
+            </Button>
+          </div>
         </div>
       </div>
     </div>

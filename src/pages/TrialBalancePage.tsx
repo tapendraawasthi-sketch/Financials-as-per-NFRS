@@ -123,6 +123,24 @@ export default function TrialBalancePage() {
 
   return (
     <div>
+      <div className="mb-6">
+        <p
+          className="text-xs font-bold uppercase tracking-widest mb-2"
+          style={{ color: 'var(--brand-600)' }}
+        >
+          STEP 3 OF 8
+        </p>
+        <h2
+          className="font-display text-2xl font-semibold mb-2"
+          style={{ color: 'var(--ink-950)' }}
+        >
+          Upload Trial Balance
+        </h2>
+        <p className="text-sm max-w-2xl" style={{ color: 'var(--ink-500)', lineHeight: 1.6 }}>
+          Import your trial balance from accounting software, review the data, and map accounts to NFRS categories.
+        </p>
+      </div>
+
       <Tabs
         tabs={tabs}
         active={activeTab}
@@ -133,6 +151,8 @@ export default function TrialBalancePage() {
 
       <div className="page-enter">
         {activeTab === 'upload' && (
+          <div className="card">
+            <div className="card-body">
           <>
             {importMode === 'choice' && (
               <TBInputModeSelector
@@ -188,42 +208,64 @@ export default function TrialBalancePage() {
               </>
             )}
           </>
+            </div>
+          </div>
         )}
 
         {activeTab === 'review' && tb && validation && (
           <div className="space-y-4">
-            <TBValidationPanel
-              validation={{
-                isBalanced: validation.isBalanced,
-                totalDebitBalance: validation.totalClosingDr,
-                totalCreditBalance: validation.totalClosingCr,
-                openingDebitTotal: validation.openingDebitTotal ?? 0,
-                openingCreditTotal: validation.openingCreditTotal ?? 0,
-                closingDebitTotal: validation.closingDebitTotal ?? 0,
-                closingCreditTotal: validation.closingCreditTotal ?? 0,
-                warnings: validation.warnings,
-                errors: validation.errors,
-              }}
-              totalRows={rows.length}
-              autoMappedCount={autoMapped}
-              needsReviewCount={needsReview}
-              unmatchedCount={unmatched}
-            />
-            <TBDataGrid
-              rows={rows}
-              validation={validation}
-              roundingLevel={state.company?.accountingPolicies?.roundingLevel ?? 100}
-            />
+            <div className="card">
+              <div className="card-body">
+                <TBValidationPanel
+                  validation={{
+                    isBalanced: validation.isBalanced,
+                    totalDebitBalance: validation.totalClosingDr,
+                    totalCreditBalance: validation.totalClosingCr,
+                    openingDebitTotal: validation.openingDebitTotal ?? 0,
+                    openingCreditTotal: validation.openingCreditTotal ?? 0,
+                    closingDebitTotal: validation.closingDebitTotal ?? 0,
+                    closingCreditTotal: validation.closingCreditTotal ?? 0,
+                    warnings: validation.warnings,
+                    errors: validation.errors,
+                  }}
+                  totalRows={rows.length}
+                  autoMappedCount={autoMapped}
+                  needsReviewCount={needsReview}
+                  unmatchedCount={unmatched}
+                />
+              </div>
+            </div>
+            <div className="card">
+              <div className="card-header">
+                <h3
+                  className="font-bold leading-none"
+                  style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--ink-700)' }}
+                >
+                  Trial Balance Data
+                </h3>
+              </div>
+              <div className="card-body">
+                <TBDataGrid
+                  rows={rows}
+                  validation={validation}
+                  roundingLevel={state.company?.accountingPolicies?.roundingLevel ?? 100}
+                />
+              </div>
+            </div>
           </div>
         )}
 
         {activeTab === 'mapping' && tb && (
-          <TBAccountMapper
-            rows={rows}
-            companyId={state.company?.id ?? ''}
-            onMappingChange={handleMappingChange}
-            onConfirm={handleConfirmMappings}
-          />
+          <div className="card">
+            <div className="card-body">
+              <TBAccountMapper
+                rows={rows}
+                companyId={state.company?.id ?? ''}
+                onMappingChange={handleMappingChange}
+                onConfirm={handleConfirmMappings}
+              />
+            </div>
+          </div>
         )}
       </div>
     </div>

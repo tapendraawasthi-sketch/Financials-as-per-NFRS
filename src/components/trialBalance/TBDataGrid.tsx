@@ -99,10 +99,9 @@ export default function TBDataGrid({
   const containerH  = Math.min(rows.length * ROW_HEIGHT + 48, 540);
 
   // ── Styles ──────────────────────────────────────────────────────────────────
-  // item 69: bg-white sticky header to prevent bleed-through
-  const thCls = `${dc.cellPad} ${dc.fontSize} font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap bg-white border-b-2 border-slate-300 text-right`;
-  const thLCls = `${dc.cellPad} ${dc.fontSize} font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap bg-white border-b-2 border-slate-300 text-left`;
-  const tdCls  = `${dc.cellPad} ${dc.fontSize} font-mono text-right whitespace-nowrap`;
+  const thCls = `${dc.cellPad} ${dc.fontSize} whitespace-nowrap text-right`;
+  const thLCls = `${dc.cellPad} ${dc.fontSize} whitespace-nowrap text-left`;
+  const tdCls  = `${dc.cellPad} ${dc.fontSize} amount`;
 
   return (
     <div>
@@ -117,22 +116,34 @@ export default function TBDataGrid({
         ].map(tile => (
           <div
             key={tile.label}
-            className={`bg-white border rounded-lg px-3 py-2.5 ${
+            className="card px-3 py-2.5"
+            style={
               'isStatus' in tile && tile.isStatus
-                ? tile.balanced
-                  ? 'border-emerald-200 bg-emerald-50'
-                  : 'border-red-200 bg-red-50'
-                : 'border-slate-200'
-            }`}
+                ? {
+                    borderColor: tile.balanced ? 'var(--success-600)' : 'var(--danger-600)',
+                    background: tile.balanced ? 'var(--success-100)' : 'var(--danger-100)',
+                  }
+                : undefined
+            }
           >
-            <p className="text-[11px] uppercase tracking-wide text-slate-400 font-semibold leading-none">
+            <p
+              className="text-[11px] uppercase tracking-wide font-semibold leading-none"
+              style={{ color: 'var(--ink-400)' }}
+            >
               {tile.label}
             </p>
-            <p className={`text-sm font-semibold font-mono mt-1 leading-none ${
-              'isStatus' in tile && tile.isStatus
-                ? tile.balanced ? 'text-emerald-700' : 'text-red-700'
-                : 'text-slate-800'
-            }`}>
+            <p
+              className={`text-sm font-semibold font-mono mt-1 leading-none ${
+                'isStatus' in tile && tile.isStatus
+                  ? tile.balanced ? 'text-emerald-700' : 'text-red-700'
+                  : ''
+              }`}
+              style={
+                !('isStatus' in tile && tile.isStatus)
+                  ? { color: 'var(--ink-800)' }
+                  : undefined
+              }
+            >
               {tile.value}
             </p>
           </div>
@@ -144,11 +155,11 @@ export default function TBDataGrid({
         <div className="flex items-center gap-2">
           {/* item 65: larger, more prominent balance badge */}
           <span
-            className={`text-sm font-bold px-3 py-1 rounded-full ${
-              balanced
-                ? 'bg-emerald-100 text-emerald-800'
-                : 'bg-red-100 text-red-700'
-            }`}
+            className="text-sm font-bold px-3 py-1 rounded-full"
+            style={{
+              background: balanced ? 'var(--success-100)' : 'var(--danger-100)',
+              color: balanced ? 'var(--success-700)' : 'var(--danger-700)',
+            }}
           >
             {balanced ? '✅ BALANCED' : '⚠️ UNBALANCED'}
           </span>
@@ -159,7 +170,8 @@ export default function TBDataGrid({
         <div
           role="group"
           aria-label="Row density"
-          className="flex items-center gap-0.5 bg-slate-100 rounded-md p-0.5"
+          className="flex items-center gap-0.5 rounded-md p-0.5"
+          style={{ background: 'var(--surface-sunken)' }}
         >
           {(['compact', 'normal', 'comfortable'] as Density[]).map(d => (
             <button
@@ -182,17 +194,16 @@ export default function TBDataGrid({
       {/* ── Data table (virtualised) ──────────────────────────────────── */}
       <div
         ref={containerRef}
-        className="border border-slate-200 rounded-md overflow-auto"
+        className="card overflow-auto"
         style={{ height: containerH }}
         onScroll={handleScroll}
         role="grid"
         aria-rowcount={rows.length + 1}
         aria-label="Trial balance accounts"
       >
-        <table className="w-full border-collapse" style={{ minWidth: 980 }}>
+        <table className="fin-table w-full" style={{ minWidth: 980 }}>
           <thead>
             <tr style={{ position: 'sticky', top: 0, zIndex: 10 }}>
-              {/* item 69: bg-white on sticky header, border-b-2 border-slate-300 */}
               <th className={`${thLCls} w-9 text-center`}>#</th>
               <th className={`${thLCls}`} style={{ width: 200 }}>Account Name</th>
               {/* item 70: NFRS Category column added */}
@@ -227,17 +238,14 @@ export default function TBDataGrid({
               const netFm = fmt(Math.abs(net));
 
               // item 67: proper zebra stripe — bg-slate-50 not bg-slate-50/40
-              const rowBg = bothNonZero
-                ? 'bg-amber-50'
-                : absIdx % 2 === 0
-                ? 'bg-white'
-                : 'bg-slate-50';
-
               return (
                 <tr
                   key={row.rowIndex ?? absIdx}
-                  className={`${rowBg} border-b border-slate-100 hover:bg-slate-100/60 transition-colors`}
-                  style={{ height: dc.rowHeight }}
+                  className="transition-colors"
+                  style={{
+                    height: dc.rowHeight,
+                    ...(bothNonZero ? { background: 'var(--warning-100)' } : {}),
+                  }}
                   aria-rowindex={absIdx + 2}
                   // item 68: tooltip on amber rows explaining why they're highlighted
                   title={bothNonZero
@@ -261,55 +269,59 @@ export default function TBDataGrid({
                   <td className={`${dc.cellPad}`} style={{ maxWidth: 150 }}>
                     {row.nfrsCategory && row.nfrsCategory !== 'unclassified' ? (
                       <span
-                        className="inline-block text-[10px] bg-blue-50 text-blue-700 rounded px-1.5 py-0.5 font-medium truncate max-w-[140px]"
+                        className="inline-block text-[10px] rounded px-1.5 py-0.5 font-medium truncate max-w-[140px]"
+                        style={{ background: 'var(--brand-50)', color: 'var(--brand-700)' }}
                         title={row.nfrsCategory as string}
                       >
                         {row.nfrsCategory as string}
                       </span>
                     ) : (
-                      <span className="inline-block text-[10px] bg-red-50 text-red-600 rounded px-1.5 py-0.5 font-medium">
+                      <span
+                        className="inline-block text-[10px] rounded px-1.5 py-0.5 font-medium"
+                        style={{ background: 'var(--danger-100)', color: 'var(--danger-600)' }}
+                      >
                         unclassified
                       </span>
                     )}
                   </td>
 
                   {/* Opening Dr */}
-                  <td className={`${tdCls} ${(row.openingDr ?? 0) === 0 ? 'text-slate-300' : 'text-slate-700'}`}>
+                  <td className={`${tdCls} ${(row.openingDr ?? 0) === 0 ? 'amount-zero' : ''}`}>
                     {fmt(row.openingDr ?? 0)}
                   </td>
 
                   {/* Opening Cr */}
-                  <td className={`${tdCls} ${(row.openingCr ?? 0) === 0 ? 'text-slate-300' : 'text-slate-700'}`}>
+                  <td className={`${tdCls} ${(row.openingCr ?? 0) === 0 ? 'amount-zero' : ''}`}>
                     {fmt(row.openingCr ?? 0)}
                   </td>
 
                   {/* During Dr */}
-                  <td className={`${tdCls} ${(row.duringDr ?? 0) === 0 ? 'text-slate-300' : 'text-slate-500'}`}>
+                  <td className={`${tdCls} ${(row.duringDr ?? 0) === 0 ? 'amount-zero' : ''}`}>
                     {fmt(row.duringDr ?? 0)}
                   </td>
 
                   {/* During Cr */}
-                  <td className={`${tdCls} ${(row.duringCr ?? 0) === 0 ? 'text-slate-300' : 'text-slate-500'}`}>
+                  <td className={`${tdCls} ${(row.duringCr ?? 0) === 0 ? 'amount-zero' : ''}`}>
                     {fmt(row.duringCr ?? 0)}
                   </td>
 
                   {/* Adj Dr */}
-                  <td className={`${tdCls} ${(row.adjustmentDr ?? 0) === 0 ? 'text-slate-300' : 'text-slate-400'}`}>
+                  <td className={`${tdCls} ${(row.adjustmentDr ?? 0) === 0 ? 'amount-zero' : ''}`}>
                     {fmt(row.adjustmentDr ?? 0)}
                   </td>
 
                   {/* Adj Cr */}
-                  <td className={`${tdCls} ${(row.adjustmentCr ?? 0) === 0 ? 'text-slate-300' : 'text-slate-400'}`}>
+                  <td className={`${tdCls} ${(row.adjustmentCr ?? 0) === 0 ? 'amount-zero' : ''}`}>
                     {fmt(row.adjustmentCr ?? 0)}
                   </td>
 
                   {/* Closing Dr */}
-                  <td className={`${tdCls} font-semibold ${closeDr === 0 ? 'text-slate-300' : 'text-slate-800'}`}>
+                  <td className={`${tdCls} font-semibold ${closeDr === 0 ? 'amount-zero' : ''}`}>
                     {fmt(closeDr)}
                   </td>
 
                   {/* Closing Cr */}
-                  <td className={`${tdCls} font-semibold ${closeCr === 0 ? 'text-slate-300' : 'text-slate-800'}`}>
+                  <td className={`${tdCls} font-semibold ${closeCr === 0 ? 'amount-zero' : ''}`}>
                     {fmt(closeCr)}
                   </td>
 
@@ -317,11 +329,12 @@ export default function TBDataGrid({
                   <td
                     className={`${tdCls} font-semibold ${
                       net === 0
-                        ? 'text-slate-300'
+                        ? 'amount-zero'
                         : net > 0
-                        ? 'text-blue-700'
-                        : 'text-red-600'
+                        ? ''
+                        : 'amount-negative'
                     }`}
+                    style={net > 0 && net !== 0 ? { color: 'var(--brand-600)' } : undefined}
                   >
                     {net === 0 ? '—' : netFm}
                   </td>
@@ -338,7 +351,7 @@ export default function TBDataGrid({
 
           {/* ── Totals footer ──────────────────────────────────────────── */}
           <tfoot>
-            <tr className="bg-slate-50 border-t-2 border-slate-300">
+            <tr className="row-total">
               <td className={`${dc.cellPad}`} colSpan={3}>
                 <span className={`${dc.fontSize} font-bold text-slate-700`}>TOTAL</span>
               </td>
@@ -351,7 +364,8 @@ export default function TBDataGrid({
               <td className={`${tdCls} py-2 font-bold text-slate-800`}>{fmt(totals.closeDr)}</td>
               <td className={`${tdCls} py-2 font-bold text-slate-800`}>{fmt(totals.closeCr)}</td>
               <td
-                className={`${tdCls} py-2 font-bold ${balanced ? 'text-emerald-600' : 'text-red-600'}`}
+                className={`${tdCls} py-2 font-bold ${balanced ? '' : 'amount-negative'}`}
+                style={balanced ? { color: 'var(--success-600)' } : undefined}
               >
                 {balanced ? '✓ OK' : fmt(diff)}
               </td>

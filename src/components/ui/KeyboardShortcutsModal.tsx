@@ -26,14 +26,16 @@ const GROUPED = SHORTCUTS.reduce((acc, s) => {
 function Kbd({ children }: { children: string }) {
   return (
     <kbd
-      className="inline-flex items-center justify-center h-6 rounded font-mono font-semibold text-slate-600"
+      className="inline-flex items-center justify-center h-6 rounded font-mono font-semibold"
       style={{
         minWidth: '1.5rem',
         padding: '0 6px',
         fontSize: '11px',
-        background: '#f8fafc',
-        border: '1px solid #e2e8f0',
-        boxShadow: '0 1px 0 rgba(0,0,0,0.12)',
+        fontFamily: 'var(--font-mono)',
+        background: 'var(--surface-sunken)',
+        border: '1px solid var(--border-strong)',
+        borderRadius: 'var(--radius-sm)',
+        color: 'var(--ink-600)',
       }}
     >
       {children}

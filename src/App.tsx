@@ -431,6 +431,7 @@ const AppInner: React.FC = () => {
       headerTitle={stepInfo.title}
       headerSubtitle={stepInfo.subtitle}
       breadcrumb={['Home', stepInfo.title]}
+      pageKey={state.currentStep}
       wizardFooter={(
         <WizardFooter
           canGoPrev={canGoPrev}

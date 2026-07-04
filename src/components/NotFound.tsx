@@ -8,7 +8,10 @@ const NotFound: React.FC<NotFoundProps> = ({ onGoHome }) => {
   return (
     <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
       <div className="text-center max-w-md">
-        <div className="font-black text-slate-200 mb-4 select-none" style={{ fontSize: '96px', lineHeight: 1 }}>
+        <div
+          className="text-slate-200 mb-4 select-none"
+          style={{ fontFamily: 'var(--font-display)', fontSize: '96px', lineHeight: 1 }}
+        >
           404
         </div>
         <h1 className="text-xl font-bold text-slate-800 mb-3">This page doesn't exist</h1>
@@ -20,8 +23,8 @@ const NotFound: React.FC<NotFoundProps> = ({ onGoHome }) => {
           onClick={handleGoHome}
           className="font-semibold px-8 py-3 rounded-xl text-white transition-all"
           style={{
-            background: 'linear-gradient(135deg, #4338ca, #6366f1)',
-            boxShadow: '0 2px 8px rgba(79,70,229,0.35)',
+            background: 'linear-gradient(135deg, var(--brand-600), var(--brand-400))',
+            boxShadow: 'var(--shadow-md)',
             fontSize: '13px',
           }}
         >

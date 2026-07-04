@@ -63,45 +63,47 @@ export function useToast(): ToastContextValue {
   return ctx;
 }
 
-const VARIANT_CONFIG: Record<ToastVariant, {
-  borderColor: string;
-  iconBg: string;
-  iconColor: string;
-  Icon: React.ComponentType<{ size?: number; className?: string }>;
-}> = {
-  success: { borderColor: '#14b8a6', iconBg: '#f0fdfa', iconColor: '#0d9488', Icon: CheckCircle2 },
-  error:   { borderColor: '#ef4444', iconBg: '#fef2f2', iconColor: '#dc2626', Icon: XCircle     },
-  info:    { borderColor: '#3b82f6', iconBg: '#eff6ff', iconColor: '#2563eb', Icon: Info         },
-  warning: { borderColor: '#f59e0b', iconBg: '#fffbeb', iconColor: '#d97706', Icon: AlertTriangle },
+const VARIANT_BORDER: Record<ToastVariant, string> = {
+  success: 'var(--success-600)',
+  error:   'var(--danger-600)',
+  info:    'var(--brand-500)',
+  warning: 'var(--warning-600)',
+};
+
+const VARIANT_ICONS: Record<ToastVariant, React.ComponentType<{ size?: number; className?: string }>> = {
+  success: CheckCircle2,
+  error:   XCircle,
+  info:    Info,
+  warning: AlertTriangle,
 };
 
 function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string) => void }) {
-  const cfg = VARIANT_CONFIG[toast.variant];
-  const { Icon } = cfg;
+  const borderColor = VARIANT_BORDER[toast.variant];
+  const Icon = VARIANT_ICONS[toast.variant];
   const hasDuration = toast.duration > 0;
 
   return (
     <div
       role="status"
       aria-live="polite"
-      className="flex items-center gap-3 rounded-xl px-4 py-3 pointer-events-auto animate-fade-in relative overflow-hidden"
+      className="toast-item flex items-center gap-3 px-4 py-3 pointer-events-auto relative overflow-hidden"
       style={{
         minWidth: '260px',
         maxWidth: '380px',
-        background: '#ffffff',
-        border: '1px solid #e2e8f0',
-        borderLeft: `4px solid ${cfg.borderColor}`,
-        boxShadow: '0 4px 16px rgba(0,0,0,0.12), 0 1px 4px rgba(0,0,0,0.06)',
+        background: 'var(--surface)',
+        borderLeft: `3px solid ${borderColor}`,
+        borderRadius: 'var(--radius-md)',
+        boxShadow: 'var(--shadow-lg)',
       }}
     >
-      <span
-        className="h-7 w-7 rounded-full flex items-center justify-center flex-shrink-0"
-        style={{ background: cfg.iconBg, color: cfg.iconColor }}
-      >
-        <Icon size={15} className="text-current" />
+      <span className="flex-shrink-0" style={{ color: borderColor }}>
+        <Icon size={16} />
       </span>
 
-      <p className="flex-1 font-medium text-slate-800 leading-snug min-w-0" style={{ fontSize: '13px' }}>
+      <p
+        className="flex-1 font-medium leading-snug min-w-0"
+        style={{ fontSize: '13px', color: 'var(--ink-800)' }}
+      >
         {toast.message}
       </p>
 
@@ -115,11 +117,11 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string)
 
       {hasDuration && (
         <span
-          className="absolute bottom-0 left-0 rounded-b-xl"
+          className="absolute bottom-0 left-0"
           style={{
             height: '3px',
             width: '100%',
-            background: cfg.borderColor,
+            background: borderColor,
             animation: `shrink ${toast.duration}ms linear forwards`,
           }}
         />
@@ -143,6 +145,13 @@ function ToastContainer({
         @keyframes shrink {
           from { width: 100%; }
           to   { width: 0%;   }
+        }
+        @keyframes toastSlideIn {
+          from { opacity: 0; transform: translateX(24px); }
+          to   { opacity: 1; transform: translateX(0); }
+        }
+        .toast-item {
+          animation: toastSlideIn var(--dur-base) var(--ease-premium) forwards;
         }
       `}</style>
       <div

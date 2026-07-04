@@ -9,6 +9,7 @@ import IncomeStatementView from '../components/statements/IncomeStatementView';
 import CashFlowView from '../components/statements/CashFlowView';
 import ChangesInEquityView from '../components/statements/ChangesInEquityView';
 import NotesViewer from '../components/statements/NotesViewer';
+import PrintButton from '../components/output/PrintButton';
 import { financialsApi } from '../api/client';
 import { formatNPRSimple } from '../utils/numberFormat';
 
@@ -79,6 +80,8 @@ export default function StatementsPage() {
     return <LoadingSpinner message="Computing financial statements..." fullPage={false} />;
   }
 
+  const showPrintAction = hasFinancials && activeTab !== 'notes';
+
   return (
     <div>
       <div className="flex items-center justify-between mb-5">
@@ -124,27 +127,38 @@ export default function StatementsPage() {
         </div>
       )}
 
-      <div className="page-enter">
-        {activeTab === 'bs' && state.balanceSheet && state.company && (
-          <BalanceSheetView data={state.balanceSheet} company={state.company} />
-        )}
-        {activeTab === 'is' && state.incomeStatement && state.company && (
-          <IncomeStatementView data={state.incomeStatement} company={state.company} />
-        )}
-        {activeTab === 'equity' && <ChangesInEquityView />}
-        {activeTab === 'cf' && <CashFlowView />}
-        {activeTab === 'notes' && <NotesViewer />}
-
-        {!hasFinancials && (
-          <div className="text-center py-16">
-            <p className="text-sm text-slate-500 mb-4">
-              Financial statements have not been generated yet.
-            </p>
-            <Button variant="primary" size="md" onClick={handleGenerate}>
-              Generate Now
-            </Button>
+      <div
+        className="relative rounded-xl p-4"
+        style={{ background: 'var(--surface-sunken)' }}
+      >
+        {showPrintAction && (
+          <div className="no-print absolute top-4 right-4 z-20 flex items-center gap-2">
+            <PrintButton label="Print / Export PDF" />
           </div>
         )}
+
+        <div className="page-enter">
+          {activeTab === 'bs' && state.balanceSheet && state.company && (
+            <BalanceSheetView data={state.balanceSheet} company={state.company} />
+          )}
+          {activeTab === 'is' && state.incomeStatement && state.company && (
+            <IncomeStatementView data={state.incomeStatement} company={state.company} />
+          )}
+          {activeTab === 'equity' && <ChangesInEquityView />}
+          {activeTab === 'cf' && <CashFlowView />}
+          {activeTab === 'notes' && <NotesViewer />}
+
+          {!hasFinancials && (
+            <div className="statement-page max-w-4xl mx-auto text-center py-16">
+              <p className="text-sm text-slate-500 mb-4">
+                Financial statements have not been generated yet.
+              </p>
+              <Button variant="primary" size="md" onClick={handleGenerate}>
+                Generate Now
+              </Button>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

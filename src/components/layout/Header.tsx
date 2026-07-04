@@ -1,7 +1,7 @@
 // src/components/layout/Header.tsx
 import React from 'react';
-import { Building2, HelpCircle, Check } from 'lucide-react';
-import { formatLastSaved } from '../../hooks/useSessionPersistence';
+import { Sun, Moon } from 'lucide-react';
+import { useTheme } from '../../hooks/useTheme';
 
 interface HeaderProps {
   title:         string;
@@ -13,106 +13,117 @@ interface HeaderProps {
   lastSavedAt?:  Date | null;
 }
 
+function getInitials(name?: string): string {
+  if (!name) return 'CA';
+  const parts = name.trim().split(/\s+/);
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+  return name.slice(0, 2).toUpperCase();
+}
+
 export default function Header({
   title,
   subtitle,
   actions,
   breadcrumb,
   companyName,
-  fiscalYear,
-  lastSavedAt,
 }: HeaderProps) {
+  const { theme, toggleTheme } = useTheme();
+
   return (
     <header
-      className="flex items-center justify-between px-6 flex-shrink-0 relative bg-white/96"
+      className="sticky top-0 z-20 flex items-center justify-between flex-shrink-0"
       style={{
-        height: '60px',
-        backdropFilter: 'blur(12px)',
-        borderBottom: '1px solid rgba(226,232,240,0.80)',
-        boxShadow: '0 1px 0 rgba(0,0,0,0.06), 0 2px 12px rgba(0,0,0,0.04)',
+        height: '64px',
+        background: 'var(--surface)',
+        borderBottom: '1px solid var(--border-hairline)',
+        backdropFilter: 'blur(8px)',
+        padding: '0 28px',
       }}
     >
-      {/* ── Left: Title ─────────────────────────────── */}
       <div className="min-w-0 flex-1">
         {breadcrumb && breadcrumb.length > 0 && (
           <p
-            className="leading-none mb-0.5 uppercase tracking-widest"
-            style={{ fontSize: '8px', color: '#94a3b8' }}
+            className="leading-none mb-1"
+            style={{ fontSize: '12.5px' }}
             aria-label="Breadcrumb"
           >
-            {breadcrumb.join(' / ')}
+            {breadcrumb.map((crumb, i) => (
+              <span key={i}>
+                {i > 0 && <span style={{ color: 'var(--ink-400)', margin: '0 6px' }}>/</span>}
+                <span
+                  style={{
+                    color: i === breadcrumb.length - 1 ? 'var(--ink-900)' : 'var(--ink-500)',
+                    fontWeight: i === breadcrumb.length - 1 ? 600 : 400,
+                    fontSize: '12.5px',
+                  }}
+                >
+                  {crumb}
+                </span>
+              </span>
+            ))}
           </p>
         )}
-        <div className="flex items-center gap-2">
-          <h1 className="font-bold text-slate-900 leading-none truncate" style={{ fontSize: '15px' }}>
-            {title}
-          </h1>
-          {subtitle && (
-            <>
-              <span className="text-slate-200 hidden sm:block" aria-hidden="true">·</span>
-              <span className="text-slate-400 hidden sm:block leading-none" style={{ fontSize: '13px' }}>
-                {subtitle}
-              </span>
-            </>
-          )}
-        </div>
+        <h1
+          className="leading-tight truncate"
+          style={{
+            fontFamily: 'var(--font-display)',
+            fontSize: '20px',
+            fontWeight: 600,
+            color: 'var(--ink-950)',
+          }}
+        >
+          {title}
+        </h1>
+        {subtitle && (
+          <p
+            className="leading-none mt-0.5 truncate"
+            style={{ color: 'var(--ink-500)', fontSize: '12.5px' }}
+          >
+            {subtitle}
+          </p>
+        )}
       </div>
 
-      {/* ── Center: Company Context Pill ────────────── */}
-      {companyName && (
-        <div className="hidden md:flex items-center mx-4 flex-shrink-0">
-          <span
-            className="inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 font-semibold max-w-[260px] truncate"
-            style={{
-              fontSize: '11px',
-              color: '#4338ca',
-              background: 'linear-gradient(135deg, #eef2ff 0%, #e0e7ff 100%)',
-              border: '1px solid #c7d2fe',
-            }}
-          >
-            <Building2 size={12} className="flex-shrink-0 text-indigo-400" />
-            <span className="truncate font-semibold" title={companyName}>{companyName}</span>
-            {fiscalYear && (
-              <>
-                <span className="text-indigo-300" aria-hidden="true">·</span>
-                <span className="text-indigo-500 whitespace-nowrap">FY {fiscalYear}</span>
-              </>
-            )}
-          </span>
-        </div>
-      )}
-
-      {/* ── Right: Actions + Utils ───────────────────── */}
-      <div className="flex items-center gap-2 ml-4 flex-shrink-0">
+      <div className="flex items-center gap-3 ml-4 flex-shrink-0">
         {actions && (
-          <div className="flex items-center gap-2 mr-1">{actions}</div>
+          <div className="flex items-center gap-2">{actions}</div>
         )}
 
-        {/* Session saved indicator */}
-        {lastSavedAt !== undefined && (
-          <span
-            className="hidden sm:inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-semibold"
-            style={{
-              fontSize: '11px',
-              color: '#0d9488',
-              background: '#f0fdfa',
-              border: '1px solid #99f6e4',
-            }}
-          >
-            <Check size={11} strokeWidth={3} />
-            <span>{formatLastSaved(lastSavedAt)}</span>
-          </span>
-        )}
-
-        {/* Help button */}
+        <style>{`.premium-header-btn:focus-visible { box-shadow: var(--glow-brand); outline: none; }`}</style>
         <button
           type="button"
-          aria-label="Help and documentation"
-          className="h-8 w-8 flex items-center justify-center rounded-full text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-all"
-          title="Help"
+          aria-label={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
+          onClick={toggleTheme}
+          className="premium-header-btn h-9 w-9 flex items-center justify-center rounded-lg transition-colors"
+          style={{ color: 'var(--ink-500)' }}
         >
-          <HelpCircle size={16} />
+          {theme === 'light' ? <Sun size={18} /> : <Moon size={18} />}
         </button>
+
+        <span
+          style={{
+            width: '1px',
+            height: '24px',
+            background: 'var(--border-hairline)',
+          }}
+          aria-hidden="true"
+        />
+
+        <div
+          className="flex items-center justify-center flex-shrink-0"
+          style={{
+            width: '34px',
+            height: '34px',
+            borderRadius: '9999px',
+            background: 'var(--brand-100)',
+            color: 'var(--brand-700)',
+            fontSize: '12px',
+            fontWeight: 700,
+          }}
+          title={companyName}
+        >
+          {getInitials(companyName)}
+        </div>
       </div>
     </header>
   );

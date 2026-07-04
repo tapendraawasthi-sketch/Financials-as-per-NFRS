@@ -30,29 +30,31 @@ export function SlimWizardProgress({
   currentStep,
   completedSteps,
 }: Pick<WizardProgressProps, 'currentStep' | 'completedSteps'>) {
-  const currentIdx     = STEPS.findIndex(s => s.id === currentStep);
-  const totalSteps     = STEPS.length;
-  const completedCount = Math.max(completedSteps.length, currentIdx);
-  const pct            = Math.round((completedCount / (totalSteps - 1)) * 100);
+  const currentIdx = STEPS.findIndex(s => s.id === currentStep);
 
   return (
     <div
-      className="relative w-full overflow-hidden"
-      style={{ height: '3px', background: 'rgba(226,232,240,0.7)' }}
+      className="relative w-full flex"
+      style={{ height: '4px', background: 'var(--border-hairline)' }}
       role="progressbar"
-      aria-valuenow={pct}
-      aria-valuemin={0}
-      aria-valuemax={100}
-      aria-label={`Workflow progress: step ${currentIdx + 1} of ${totalSteps}`}
+      aria-valuenow={currentIdx + 1}
+      aria-valuemin={1}
+      aria-valuemax={STEPS.length}
+      aria-label={`Workflow progress: step ${currentIdx + 1} of ${STEPS.length}`}
     >
-      <div
-        className="h-full transition-all duration-700 ease-out"
-        style={{
-          width: `${pct}%`,
-          background: 'linear-gradient(90deg, #6366f1 0%, #14b8a6 100%)',
-          boxShadow: '0 0 8px rgba(99,102,241,0.6)',
-        }}
-      />
+      {STEPS.map((step, idx) => {
+        const isCompleted = completedSteps.includes(step.id) || idx < currentIdx;
+        return (
+          <div
+            key={step.id}
+            className="flex-1 h-full transition-all ease-premium"
+            style={{
+              background: isCompleted ? 'var(--brand-500)' : 'var(--surface-sunken)',
+              transitionDuration: 'var(--dur-slow)',
+            }}
+          />
+        );
+      })}
     </div>
   );
 }
@@ -82,15 +84,12 @@ export default function WizardProgress({
               <li
                 aria-hidden="true"
                 role="presentation"
-                className="flex-1 mx-1"
+                className="flex-1 mx-1 transition-all ease-premium"
                 style={{
                   height: '3px',
                   minWidth: '8px',
                   borderRadius: '3px',
-                  background: connectorDone
-                    ? 'linear-gradient(90deg, #6366f1, #14b8a6)'
-                    : 'rgba(226,232,240,0.8)',
-                  transition: 'background 0.4s ease',
+                  background: connectorDone ? 'var(--brand-500)' : 'var(--border-hairline)',
                 }}
               />
             )}
@@ -100,24 +99,23 @@ export default function WizardProgress({
               aria-current={isActive ? 'step' : undefined}
             >
               <div
-                className="h-7 w-7 rounded-full flex items-center justify-center text-xs font-bold transition-all duration-300"
+                className="h-7 w-7 rounded-full flex items-center justify-center text-xs font-bold transition-all ease-premium"
                 style={
                   isActive
                     ? {
-                        background: 'linear-gradient(135deg, #6366f1, #4f46e5)',
-                        boxShadow: '0 0 0 3px rgba(99,102,241,0.25), 0 0 12px rgba(99,102,241,0.4)',
-                        color: 'white',
+                        background: 'var(--gold-500)',
+                        boxShadow: 'var(--glow-gold)',
+                        color: 'var(--chrome-950)',
                       }
                     : isDone
                     ? {
-                        background: 'linear-gradient(135deg, #14b8a6, #0d9488)',
-                        boxShadow: '0 0 0 2px rgba(20,184,166,0.20)',
+                        background: 'var(--success-600)',
                         color: 'white',
                       }
                     : {
-                        background: 'rgba(226,232,240,0.6)',
-                        border: '1.5px solid rgba(203,213,225,0.8)',
-                        color: '#94a3b8',
+                        background: 'var(--surface-sunken)',
+                        border: '1px solid var(--border-strong)',
+                        color: 'var(--ink-400)',
                       }
                 }
               >
@@ -127,7 +125,9 @@ export default function WizardProgress({
               {!compact && (
                 <span
                   className="text-[10px] mt-1 whitespace-nowrap font-medium"
-                  style={{ color: isActive ? '#6366f1' : isDone ? '#64748b' : '#94a3b8' }}
+                  style={{
+                    color: isActive ? 'var(--brand-600)' : isDone ? 'var(--ink-500)' : 'var(--ink-400)',
+                  }}
                   title={step.short}
                 >
                   {isActive || isDone ? step.short : ''}

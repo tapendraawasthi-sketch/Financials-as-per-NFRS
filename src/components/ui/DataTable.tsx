@@ -71,13 +71,12 @@ export default function DataTable<T extends Record<string, any>>({
 
   return (
     <div
-      className={`overflow-hidden ${maxHeight ? 'flex flex-col' : ''} ${className}`}
-      style={{ border: '1px solid #e2e8f0', borderRadius: '12px', boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}
+      className={`overflow-hidden card ${maxHeight ? 'flex flex-col' : ''} ${className}`}
     >
       <div className={maxHeight ? 'overflow-y-auto' : ''} style={maxHeight ? { maxHeight } : {}}>
-        <table className="w-full text-xs border-collapse" role="grid">
+        <table className={`fin-table w-full ${className}`} role="grid">
           <thead>
-            <tr style={{ background: 'linear-gradient(to right, #f8fafc, #f1f5f9)', borderBottom: '2px solid #e2e8f0' }}>
+            <tr>
               {columns.map(col => (
                 <th
                   key={col.key}
@@ -88,7 +87,7 @@ export default function DataTable<T extends Record<string, any>>({
                   }}
                   className={[
                     cellPad,
-                    'font-bold text-slate-500 uppercase tracking-[0.06em] whitespace-nowrap',
+                    'whitespace-nowrap',
                     alignClass(col.align),
                     col.sortable ? 'cursor-pointer select-none hover:text-slate-700' : '',
                   ].filter(Boolean).join(' ')}
@@ -128,12 +127,11 @@ export default function DataTable<T extends Record<string, any>>({
                       : undefined
                   }
                   className={[
-                    'border-b border-slate-100 last:border-0 transition-colors',
                     onRowClick
-                      ? 'cursor-pointer hover:bg-blue-50/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600'
-                      : 'hover:bg-slate-50/70',
-                    i % 2 === 1 ? 'bg-slate-50/50' : 'bg-white',
+                      ? 'cursor-pointer focus-visible:outline-none'
+                      : '',
                   ].filter(Boolean).join(' ')}
+                  style={onRowClick ? { outline: 'none' } : undefined}
                 >
                   {columns.map(col => {
                     const val = row[col.key];
@@ -142,7 +140,6 @@ export default function DataTable<T extends Record<string, any>>({
                         key={col.key}
                         className={[
                           cellPad,
-                          'text-slate-700',
                           alignClass(col.align),
                           col.mono ? 'font-mono tabular-nums' : '',
                         ].filter(Boolean).join(' ')}
@@ -158,7 +155,7 @@ export default function DataTable<T extends Record<string, any>>({
           </tbody>
 
           {footer && (
-            <tfoot style={{ background: '#f8fafc', borderTop: '2px solid #e2e8f0' }}>
+            <tfoot style={{ background: 'var(--surface-sunken)', borderTop: '2px solid var(--border-strong)' }}>
               {footer}
             </tfoot>
           )}

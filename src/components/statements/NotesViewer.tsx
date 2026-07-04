@@ -14,9 +14,20 @@ const TAB_LABELS = [
 
 function NoteHeader({ children }: { children: React.ReactNode }) {
   return (
-    <p className="text-xs font-bold text-slate-700 uppercase tracking-wide mt-4 mb-2 pb-1 border-b border-slate-200">
+    <div
+      className="flex items-center mt-5 mb-3 px-3 py-2.5 rounded-lg"
+      style={{
+        background: 'var(--brand-50)',
+        borderLeft: '3px solid var(--brand-500)',
+        color: 'var(--brand-700)',
+        fontSize: '11px',
+        fontWeight: 700,
+        textTransform: 'uppercase',
+        letterSpacing: '0.07em',
+      }}
+    >
       {children}
-    </p>
+    </div>
   );
 }
 
@@ -739,30 +750,44 @@ export default function NotesViewer() {
   ];
 
   return (
-    <div>
-      {/* Tab navigation */}
-      <div className="border-b border-slate-200 mb-4 no-print">
-        <nav className="-mb-px flex gap-1 overflow-x-auto" role="tablist">
-          {TAB_LABELS.map((label, i) => (
-            <button
-              key={i}
-              role="tab"
-              aria-selected={activeTab === i}
-              onClick={() => setActiveTab(i)}
-              className={[
-                'whitespace-nowrap px-3 py-2 text-[11px] font-medium border-b-2 transition-colors',
-                activeTab === i
-                  ? 'border-blue-600 text-blue-700'
-                  : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300',
-              ].join(' ')}
-            >
-              {label}
-            </button>
-          ))}
-        </nav>
+    <div className="statement-page max-w-5xl mx-auto">
+      {company?.companyName && (
+        <div className="statement-header">
+          <p className="statement-company-name">{company.companyName}</p>
+          <p className="statement-title">Notes to the Financial Statements</p>
+          <p className="statement-date">
+            For the year ended {company.fiscalYear?.endDateBS ?? '—'}
+          </p>
+        </div>
+      )}
+
+      <div
+        className="rounded-xl p-1 mb-5 no-print flex flex-wrap gap-0.5"
+        style={{ background: 'var(--surface-sunken)' }}
+        role="tablist"
+      >
+        {TAB_LABELS.map((label, i) => (
+          <button
+            key={i}
+            role="tab"
+            aria-selected={activeTab === i}
+            onClick={() => setActiveTab(i)}
+            className={[
+              'h-8 px-3.5 rounded-lg font-medium transition-all ease-premium focus-visible:outline-none',
+              activeTab === i
+                ? 'bg-white text-slate-900 shadow-sm'
+                : 'text-slate-500 hover:text-slate-700',
+            ].join(' ')}
+            style={{
+              fontSize: '12px',
+              boxShadow: activeTab === i ? 'var(--shadow-sm)' : undefined,
+            }}
+          >
+            {label}
+          </button>
+        ))}
       </div>
 
-      {/* Tab content */}
       <div role="tabpanel">{tabContent[activeTab]}</div>
     </div>
   );

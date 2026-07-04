@@ -16,8 +16,8 @@ interface CardProps {
 const PAD: Record<NonNullable<CardProps['padding']>, string> = {
   none: '',
   sm:   'p-4',
-  md:   'p-5',
-  lg:   'p-6',
+  md:   '',
+  lg:   'p-8',
 };
 
 export default function Card({
@@ -29,26 +29,19 @@ export default function Card({
   className = '',
   children,
   noBorder  = false,
-  accent    = false,
 }: CardProps) {
+  const cardCls = [
+    'card',
+    noBorder ? 'border-0 shadow-none' : '',
+    className,
+  ].filter(Boolean).join(' ');
+
+  const bodyPad = padding === 'md' ? 'card-body' : PAD[padding];
+
   return (
-    <div
-      className={`bg-white relative overflow-hidden ${className}`}
-      style={{
-        borderRadius: '14px',
-        border: noBorder ? 'none' : '1px solid #e8edf2',
-        boxShadow: '0 1px 4px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.03)',
-      }}
-    >
+    <div className={cardCls}>
       {title && (
-        <div
-          className="flex items-center justify-between px-5 py-3.5"
-          style={{
-            background: 'linear-gradient(135deg, #fafbff 0%, #f6f8fe 100%)',
-            borderBottom: '1px solid #f0f4f8',
-            borderLeft: `3px solid ${accent ? '#6366f1' : '#c7d2fe'}`,
-          }}
-        >
+        <div className="card-header flex items-center justify-between">
           <div className="min-w-0">
             <h3
               className="font-bold text-slate-700 leading-none truncate"
@@ -68,16 +61,10 @@ export default function Card({
         </div>
       )}
 
-      <div className={PAD[padding]}>{children}</div>
+      <div className={bodyPad}>{children}</div>
 
       {footer && (
-        <div
-          className="px-5 py-3"
-          style={{
-            borderTop: '1px solid #f0f4f8',
-            background: 'linear-gradient(135deg, #fafbff 0%, #f6f8fe 100%)',
-          }}
-        >
+        <div className="card-footer">
           {footer}
         </div>
       )}

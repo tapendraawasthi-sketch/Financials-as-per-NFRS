@@ -5,37 +5,30 @@ import { Info, CheckCircle2, AlertTriangle, XCircle, X } from 'lucide-react';
 type AlertType = 'info' | 'success' | 'warning' | 'error';
 
 const STYLES: Record<AlertType, {
-  wrap: React.CSSProperties;
+  background: string;
   borderLeft: string;
-  iconColor: string;
+  color: string;
 }> = {
   info: {
-    wrap: { background: '#eff6ff', border: '1px solid #bfdbfe' },
-    borderLeft: '#3b82f6',
-    iconColor: '#3b82f6',
+    background: 'var(--brand-50)',
+    borderLeft: 'var(--brand-500)',
+    color: 'var(--brand-700)',
   },
   success: {
-    wrap: { background: '#f0fdfa', border: '1px solid #99f6e4' },
-    borderLeft: '#14b8a6',
-    iconColor: '#14b8a6',
+    background: 'var(--success-100)',
+    borderLeft: 'var(--success-600)',
+    color: 'var(--success-700)',
   },
   warning: {
-    wrap: { background: '#fffbeb', border: '1px solid #fde68a' },
-    borderLeft: '#f59e0b',
-    iconColor: '#f59e0b',
+    background: 'var(--warning-100)',
+    borderLeft: 'var(--warning-600)',
+    color: 'var(--warning-700)',
   },
   error: {
-    wrap: { background: '#fef2f2', border: '1px solid #fecaca' },
-    borderLeft: '#dc2626',
-    iconColor: '#dc2626',
+    background: 'var(--danger-100)',
+    borderLeft: 'var(--danger-600)',
+    color: 'var(--danger-700)',
   },
-};
-
-const TEXT_COLORS: Record<AlertType, string> = {
-  info:    '#1d4ed8',
-  success: '#0d9488',
-  warning: '#92400e',
-  error:   '#991b1b',
 };
 
 const ICONS: Record<AlertType, React.ComponentType<{ size?: number; className?: string }>> = {
@@ -61,21 +54,22 @@ export default function Alert({
   className = '',
 }: AlertProps) {
   const s       = STYLES[type];
-  const color   = TEXT_COLORS[type];
   const IconCmp = ICONS[type];
 
   return (
     <div
       role={type === 'error' ? 'alert' : 'status'}
       aria-live={type === 'error' ? 'assertive' : 'polite'}
-      className={`flex items-start rounded-xl px-4 py-3 text-sm ${className}`}
+      className={`flex items-start px-4 py-3 text-sm ${className}`}
       style={{
-        ...s.wrap,
-        borderLeft: `4px solid ${s.borderLeft}`,
-        color,
+        background: s.background,
+        borderLeft: `3px solid ${s.borderLeft}`,
+        borderRadius: 'var(--radius-md)',
+        color: s.color,
+        padding: '12px 16px',
       }}
     >
-      <span className="flex-shrink-0 mt-0.5 mr-3" style={{ color: s.iconColor }}>
+      <span className="flex-shrink-0 mt-0.5 mr-3" style={{ color: s.color }}>
         <IconCmp size={16} />
       </span>
 

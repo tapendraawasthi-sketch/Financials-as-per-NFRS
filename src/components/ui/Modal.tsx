@@ -63,7 +63,7 @@ export default function Modal({
   return (
     <div
       className="fixed inset-0 z-50 flex items-start justify-center pt-12 px-4 pb-8"
-      style={{ background: 'rgba(2,6,23,0.60)', backdropFilter: 'blur(4px)' }}
+      style={{ background: 'rgba(10,14,26,0.55)', backdropFilter: 'blur(4px)' }}
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}
       aria-modal="true"
       role="dialog"
@@ -71,10 +71,10 @@ export default function Modal({
     >
       <style>{`
         @keyframes modalEnter {
-          from { opacity: 0; transform: scale(.96) translateY(10px); }
-          to   { opacity: 1; transform: scale(1)   translateY(0);    }
+          from { opacity: 0; transform: scale(0.96); }
+          to   { opacity: 1; transform: scale(1); }
         }
-        .modal-enter { animation: modalEnter 160ms cubic-bezier(.22,.61,.36,1) forwards; }
+        .modal-enter { animation: modalEnter var(--dur-base) var(--ease-premium) forwards; }
       `}</style>
 
       <div
@@ -83,23 +83,35 @@ export default function Modal({
         className={[
           'modal-enter relative w-full',
           WIDTHS[size],
-          'bg-white rounded-2xl flex flex-col max-h-[85vh] outline-none',
+          'flex flex-col max-h-[85vh] outline-none',
         ].join(' ')}
-        style={{ boxShadow: '0 16px 48px rgba(0,0,0,0.18), 0 4px 16px rgba(0,0,0,0.08)' }}
+        style={{
+          background: 'var(--surface)',
+          borderRadius: 'var(--radius-lg)',
+          boxShadow: 'var(--shadow-xl)',
+        }}
       >
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 flex-shrink-0" style={{ borderBottom: '1px solid #e2e8f0' }}>
+        <div
+          className="flex items-center justify-between px-6 py-4 flex-shrink-0"
+          style={{ borderBottom: '1px solid var(--border-hairline)' }}
+        >
           <h2 id={titleId} className="font-semibold text-slate-900" style={{ fontSize: '15px' }}>
             {title}
           </h2>
           <button
             onClick={onClose}
             aria-label="Close dialog"
-            className="h-8 w-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600"
+            className="modal-close-btn h-8 w-8 flex items-center justify-center rounded-full text-slate-400 transition-colors focus-visible:outline-none"
+            style={{ width: '32px', height: '32px' }}
           >
             <X size={16} />
           </button>
         </div>
+
+        <style>{`
+          .modal-close-btn:hover { background: var(--surface-hover); color: var(--ink-700); }
+          .modal-close-btn:focus-visible { box-shadow: var(--glow-brand); }
+        `}</style>
 
         <div className="flex-1 overflow-y-auto px-6 py-5 min-h-[120px]">
           {children}
@@ -107,8 +119,12 @@ export default function Modal({
 
         {footer && (
           <div
-            className="flex-shrink-0 px-6 py-4 flex items-center justify-end gap-3 rounded-b-2xl"
-            style={{ borderTop: '1px solid #e2e8f0', background: '#f8fafc' }}
+            className="flex-shrink-0 px-6 py-4 flex items-center justify-end gap-3"
+            style={{
+              borderTop: '1px solid var(--border-hairline)',
+              background: 'var(--surface-sunken)',
+              borderRadius: '0 0 var(--radius-lg) var(--radius-lg)',
+            }}
           >
             {footer}
           </div>

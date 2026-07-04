@@ -32,13 +32,13 @@ class ErrorBoundary extends Component<Props, State> {
         <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
           <div
             className="bg-white w-full overflow-hidden"
-            style={{ maxWidth: '480px', borderRadius: '20px', boxShadow: '0 16px 48px rgba(0,0,0,0.16)' }}
+            style={{ maxWidth: '480px', borderRadius: '20px', boxShadow: 'var(--shadow-xl)' }}
           >
             <div style={{ height: '4px', background: 'linear-gradient(90deg, #dc2626, #ef4444)' }} />
             <div className="p-8 text-center">
               <div
                 className="inline-flex items-center justify-center w-16 h-16 rounded-2xl mb-5"
-                style={{ background: '#fef2f2' }}
+                style={{ background: 'var(--danger-100)' }}
               >
                 <AlertCircle size={32} className="text-red-400" />
               </div>
@@ -51,19 +51,26 @@ class ErrorBoundary extends Component<Props, State> {
                 <button
                   onClick={this.handleReload}
                   className="font-semibold px-6 py-2.5 rounded-xl text-white transition-all"
-                  style={{ background: 'linear-gradient(135deg,#4338ca,#6366f1)', boxShadow: '0 2px 8px rgba(79,70,229,0.35)', fontSize: '13px' }}
+                  style={{
+                    background: 'linear-gradient(135deg, var(--brand-600), var(--brand-400))',
+                    boxShadow: 'var(--shadow-md)',
+                    fontSize: '13px',
+                  }}
                 >
                   🔄 Try Again
                 </button>
                 <button
                   onClick={this.handleFresh}
                   className="font-semibold px-6 py-2.5 rounded-xl transition-colors text-slate-700 bg-white hover:bg-slate-50"
-                  style={{ border: '1px solid #e2e8f0', fontSize: '13px' }}
+                  style={{ border: '1px solid var(--border-strong)', fontSize: '13px' }}
                 >
                   🗑️ Start Fresh
                 </button>
               </div>
-              <div className="border border-slate-200 rounded-xl overflow-hidden text-left">
+              <div
+                className="rounded-xl overflow-hidden text-left"
+                style={{ border: '1px solid var(--border-strong)' }}
+              >
                 <button
                   onClick={this.toggleDetails}
                   className="w-full flex items-center justify-between px-4 py-3 bg-slate-50 hover:bg-slate-100 transition-colors"

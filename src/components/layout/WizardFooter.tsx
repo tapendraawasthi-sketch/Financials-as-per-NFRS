@@ -21,36 +21,39 @@ export default function WizardFooter({
 }: WizardFooterProps) {
   return (
     <footer
-      className="flex-shrink-0 no-print border-t border-slate-200 bg-white/95 backdrop-blur-sm px-7 py-3"
+      className="sticky bottom-0 flex-shrink-0 no-print flex items-center justify-between"
+      style={{
+        background: 'var(--surface)',
+        borderTop: '1px solid var(--border-hairline)',
+        padding: '16px 28px',
+      }}
       aria-label="Wizard navigation"
     >
-      <div className="flex items-center justify-between gap-4">
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={onPrev}
-          disabled={!canGoPrev}
-          aria-label="Previous step"
-        >
-          <ArrowLeft size={14} className="mr-1.5" />
-          Previous
-        </Button>
+      <Button
+        variant="secondary"
+        size="md"
+        onClick={onPrev}
+        disabled={!canGoPrev}
+        aria-label="Previous step"
+      >
+        <ArrowLeft size={14} />
+        Previous
+      </Button>
 
-        <p className="text-xs text-slate-500 font-medium">
-          Step {stepIndex + 1} of {totalSteps}
-        </p>
+      <p style={{ color: 'var(--ink-500)', fontSize: '12.5px' }}>
+        Step {stepIndex + 1} of {totalSteps}
+      </p>
 
-        <Button
-          variant="primary"
-          size="sm"
-          onClick={onNext}
-          disabled={!canGoNext}
-          aria-label="Next step"
-        >
-          Next
-          <ArrowRight size={14} className="ml-1.5" />
-        </Button>
-      </div>
+      <Button
+        variant="primary"
+        size="md"
+        onClick={onNext}
+        disabled={!canGoNext}
+        aria-label="Next step"
+      >
+        Next
+        <ArrowRight size={14} />
+      </Button>
     </footer>
   );
 }

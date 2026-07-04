@@ -262,6 +262,24 @@ export default function AdjustmentsPage() {
 
   return (
     <div>
+      <div className="mb-6">
+        <p
+          className="text-xs font-bold uppercase tracking-widest mb-2"
+          style={{ color: 'var(--brand-600)' }}
+        >
+          STEP 6 OF 8
+        </p>
+        <h2
+          className="font-display text-2xl font-semibold mb-2"
+          style={{ color: 'var(--ink-950)' }}
+        >
+          Year-End Adjustments
+        </h2>
+        <p className="text-sm max-w-2xl" style={{ color: 'var(--ink-500)', lineHeight: 1.6 }}>
+          Enter depreciation, provisions, and adjusting journal entries before generating financial statements.
+        </p>
+      </div>
+
       <Tabs
         tabs={tabs}
         active={effectiveTab}
@@ -273,22 +291,30 @@ export default function AdjustmentsPage() {
       <div className="page-enter space-y-5">
         {effectiveTab === 'assets' && relevance.hasPPE && (
           <>
-            <AssetRegisterTable
-              fiscalYear={fiscalYear}
-              initialAssets={initialAssets}
-              roundingLevel={roundingLevel}
-              onCalculate={handleCalculateDepreciation}
-            />
+            <div className="card">
+              <div className="card-body">
+                <AssetRegisterTable
+                  fiscalYear={fiscalYear}
+                  initialAssets={initialAssets}
+                  roundingLevel={roundingLevel}
+                  onCalculate={handleCalculateDepreciation}
+                />
+              </div>
+            </div>
             {depnSummary.length > 0 && (
-              <DepreciationSchedule
-                summary={depnSummary}
-                totalDepreciation={state.adjustments?.totalDepreciationExpense ?? 0}
-                gainOnDisposals={state.adjustments?.gainOnDisposals ?? 0}
-                lossOnDisposals={state.adjustments?.lossOnDisposals ?? 0}
-                roundingLevel={roundingLevel}
-                fiscalYear={fiscalYear}
-                taxDepreciationPools={state.adjustments?.taxDepreciationPools}
-              />
+              <div className="card">
+                <div className="card-body">
+                  <DepreciationSchedule
+                    summary={depnSummary}
+                    totalDepreciation={state.adjustments?.totalDepreciationExpense ?? 0}
+                    gainOnDisposals={state.adjustments?.gainOnDisposals ?? 0}
+                    lossOnDisposals={state.adjustments?.lossOnDisposals ?? 0}
+                    roundingLevel={roundingLevel}
+                    fiscalYear={fiscalYear}
+                    taxDepreciationPools={state.adjustments?.taxDepreciationPools}
+                  />
+                </div>
+              </div>
             )}
           </>
         )}
@@ -355,10 +381,12 @@ export default function AdjustmentsPage() {
         )}
       </div>
 
-      <div className="flex justify-end mt-6">
-        <Button variant="primary" size="md" onClick={handleProceed}>
-          Generate Financial Statements →
-        </Button>
+      <div className="card mt-6">
+        <div className="card-footer flex justify-end">
+          <Button variant="primary" size="md" onClick={handleProceed}>
+            Generate Financial Statements →
+          </Button>
+        </div>
       </div>
     </div>
   );

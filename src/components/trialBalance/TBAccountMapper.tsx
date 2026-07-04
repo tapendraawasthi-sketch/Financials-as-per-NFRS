@@ -46,9 +46,9 @@ function fmtBalance(row: MappedTBRow): string {
 }
 
 function confidenceColor(n: number): string {
-  if (n >= 80) return '#16a34a';
-  if (n >= 60) return '#d97706';
-  return '#dc2626';
+  if (n >= 80) return 'var(--success-600)';
+  if (n >= 60) return 'var(--warning-600)';
+  return 'var(--danger-600)';
 }
 
 function methodLabel(m?: string): string {
@@ -76,14 +76,21 @@ function SimilarSuggestionBanner({
   onDismiss:  () => void;
 }) {
   return (
-    <div className="flex items-center gap-3 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 animate-fade-in">
+    <div
+      className="flex items-center gap-3 rounded-lg px-4 py-3 animate-fade-in"
+      style={{
+        background: 'var(--warning-100)',
+        border: '1px solid var(--warning-600)',
+        borderRadius: 'var(--radius-md)',
+      }}
+    >
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-amber-800 leading-snug">
+        <p className="text-sm font-medium leading-snug" style={{ color: 'var(--warning-700)' }}>
           Apply "{NFRS_LABELS[suggestion.nfrsCategory] ?? suggestion.nfrsCategory}" to{' '}
           <strong>{suggestion.matchingRows.length}</strong> similar account
           {suggestion.matchingRows.length !== 1 ? 's' : ''}?
         </p>
-        <p className="text-xs text-amber-600 mt-0.5 truncate">
+        <p className="text-xs mt-0.5 truncate" style={{ color: 'var(--warning-600)' }}>
           {suggestion.matchingRows.map(r => r.rawLabel).join(', ')}
         </p>
       </div>
@@ -287,21 +294,21 @@ export default function TBAccountMapper({
     { id: 'mapped',    label: 'Mapped',        count: mappedCount       },
   ] as const;
 
-  const thCls = 'px-3 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wide text-left bg-white border-b-2 border-slate-300 whitespace-nowrap';
+  const thCls = 'px-3 py-2 text-[11px] whitespace-nowrap text-left';
 
   return (
     <div className="space-y-3">
 
       {/* ── item 75: live completion counter ───────────────────────── */}
-      <div className="bg-white border border-slate-200 rounded-lg px-4 py-3">
+      <div className="card px-4 py-3">
         <div className="flex items-center justify-between mb-2">
-          <p className="text-sm font-medium text-slate-700">
-            <span className="text-blue-700 font-bold">{mappedCount}</span>
-            <span className="text-slate-400"> of </span>
-            <span className="font-bold text-slate-700">{rows.length}</span>
-            <span className="text-slate-500"> accounts mapped</span>
+          <p className="text-sm font-medium" style={{ color: 'var(--ink-700)' }}>
+            <span className="font-bold" style={{ color: 'var(--brand-600)' }}>{mappedCount}</span>
+            <span style={{ color: 'var(--ink-400)' }}> of </span>
+            <span className="font-bold" style={{ color: 'var(--ink-700)' }}>{rows.length}</span>
+            <span style={{ color: 'var(--ink-500)' }}> accounts mapped</span>
           </p>
-          <span className="text-sm font-semibold text-slate-600">{completePct}%</span>
+          <span className="text-sm font-semibold" style={{ color: 'var(--ink-600)' }}>{completePct}%</span>
         </div>
         <ProgressBar
           value={completePct}
@@ -316,8 +323,11 @@ export default function TBAccountMapper({
       </div>
 
       {unmatchedCount === 0 && rows.length > 0 && (
-        <div className="flex items-center justify-between gap-4 bg-emerald-50 border border-emerald-200 rounded-lg px-4 py-3">
-          <p className="text-sm font-medium text-emerald-800">
+        <div
+          className="flex items-center justify-between gap-4 rounded-lg px-4 py-3"
+          style={{ background: 'var(--success-100)', border: '1px solid var(--success-600)' }}
+        >
+          <p className="text-sm font-medium" style={{ color: 'var(--success-700)' }}>
             All {rows.length} accounts mapped. Ready to proceed.
           </p>
           <Button
@@ -343,7 +353,10 @@ export default function TBAccountMapper({
       {/* ── Top bar: tabs + search ─────────────────────────────────── */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
         {/* item 73: tabs with counts */}
-        <div className="flex items-center bg-slate-100 rounded-md p-0.5 gap-0.5">
+        <div
+          className="flex items-center rounded-md p-0.5 gap-0.5"
+          style={{ background: 'var(--surface-sunken)' }}
+        >
           {tabs.map(t => (
             <button
               key={t.id}
@@ -383,7 +396,11 @@ export default function TBAccountMapper({
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="Search account name…"
-            className="h-8 w-full rounded border border-slate-300 bg-white pl-8 pr-3 text-xs text-slate-700 placeholder:text-slate-400 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+            className="h-8 w-full rounded border bg-white pl-8 pr-3 text-xs outline-none focus:ring-1"
+            style={{
+              borderColor: 'var(--border-strong)',
+              color: 'var(--ink-700)',
+            }}
             aria-label="Search accounts"
           />
         </div>
@@ -391,13 +408,13 @@ export default function TBAccountMapper({
 
       {/* ── Mapping table ──────────────────────────────────────────── */}
       <div
-        className="border border-slate-200 rounded-md overflow-auto"
+        className="card overflow-auto"
         style={{ maxHeight: 540 }}
         role="grid"
         aria-label="Account mapping table"
         aria-rowcount={filteredRows.length + 1}
       >
-        <table className="w-full border-collapse text-xs" style={{ minWidth: 780 }}>
+        <table className="fin-table w-full text-xs" style={{ minWidth: 780 }}>
           <thead>
             <tr style={{ position: 'sticky', top: 0, zIndex: 10 }}>
               <th className={`${thCls} w-8 text-center`}>#</th>
@@ -429,10 +446,10 @@ export default function TBAccountMapper({
 
                 return (
                   <React.Fragment key={groupName}>
-                    <tr className="bg-slate-100 border-b border-slate-200">
-                      <td colSpan={6} className="px-3 py-2">
+                    <tr className="row-section-head">
+                      <td colSpan={6}>
                         <div className="flex items-center justify-between gap-3 flex-wrap">
-                          <span className="text-xs font-semibold text-slate-700">{groupName}</span>
+                          <span className="text-xs font-semibold" style={{ color: 'var(--brand-700)' }}>{groupName}</span>
                           {unmappedInGroup > 0 && (
                             <select
                               defaultValue=""
@@ -468,18 +485,17 @@ export default function TBAccountMapper({
                       const needsReview =
                         (row.confidence ?? 0) > 0 && (row.confidence ?? 0) < 80;
 
-                      const rowBg = isUnmatched
-                        ? 'bg-red-50/40'
+                      const rowStyle: React.CSSProperties | undefined = isUnmatched
+                        ? { background: 'var(--danger-100)' }
                         : needsReview
-                        ? 'bg-amber-50/40'
-                        : i % 2 === 0
-                        ? 'bg-white'
-                        : 'bg-slate-50';
+                        ? { background: 'var(--warning-100)' }
+                        : undefined;
 
                       return (
                         <tr
                           key={row.rowIndex ?? `${groupName}-${i}`}
-                          className={`${rowBg} border-b border-slate-100 last:border-0 hover:bg-blue-50/30 transition-colors`}
+                          className="transition-colors"
+                          style={rowStyle}
                           aria-rowindex={rowCounter + 1}
                         >
                           <td className="px-2.5 py-1.5 text-center text-[10px] text-slate-400">
@@ -536,7 +552,7 @@ export default function TBAccountMapper({
                             </span>
                           </td>
 
-                          <td className="px-3 py-1.5 text-right font-mono text-[11px] text-slate-600">
+                          <td className="px-3 py-1.5 text-right font-mono text-[11px] amount">
                             {fmtBalance(row)}
                           </td>
                         </tr>

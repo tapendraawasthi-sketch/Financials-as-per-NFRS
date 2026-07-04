@@ -1,6 +1,5 @@
 // src/components/ui/LoadingSpinner.tsx
 import React, { useState, useEffect } from 'react';
-import { Loader2 } from 'lucide-react';
 
 interface LoadingSpinnerProps {
   message?:  string;
@@ -9,10 +8,32 @@ interface LoadingSpinnerProps {
 }
 
 const SIZES: Record<NonNullable<LoadingSpinnerProps['size']>, number> = {
-  sm: 16,
-  md: 24,
-  lg: 32,
+  sm: 20,
+  md: 28,
+  lg: 36,
 };
+
+function ArcSpinner({ size }: { size: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      className="animate-spin"
+      style={{ animationDuration: '0.8s', animationTimingFunction: 'linear' }}
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="12" r="10" stroke="var(--border-hairline)" strokeWidth="2" />
+      <path
+        d="M12 2a10 10 0 0 1 10 10"
+        stroke="var(--brand-500)"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
 
 export default function LoadingSpinner({
   message,
@@ -36,16 +57,17 @@ export default function LoadingSpinner({
       aria-label={message ?? 'Loading'}
       aria-live="polite"
     >
-      <Loader2 size={px} className="text-indigo-600 animate-spin" />
+      <ArcSpinner size={px} />
 
       {message && (
         <span
-          className={`text-center ${
-            fullPage
-              ? 'text-slate-600 font-medium max-w-xs'
-              : 'text-slate-500 text-sm'
-          }`}
-          style={{ fontSize: fullPage ? '14px' : undefined }}
+          className="text-center"
+          style={{
+            fontSize: fullPage ? '13px' : '13px',
+            color: 'var(--ink-500)',
+            fontWeight: fullPage ? 500 : 400,
+            maxWidth: fullPage ? '20rem' : undefined,
+          }}
         >
           {message}
         </span>
@@ -61,7 +83,10 @@ export default function LoadingSpinner({
 
   if (fullPage) {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-white">
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center gradient-mesh"
+        style={{ backgroundColor: 'var(--canvas)' }}
+      >
         {inner}
       </div>
     );

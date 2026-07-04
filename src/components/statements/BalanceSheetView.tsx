@@ -1,7 +1,6 @@
 // src/components/statements/BalanceSheetView.tsx
 import React from 'react';
 import { AlertTriangle } from 'lucide-react';
-import PrintButton    from '../output/PrintButton';
 import { BalanceSheet } from '../../types/financials';
 import { CompanyProfile } from '../../types/company';
 
@@ -29,12 +28,12 @@ function DataRow({ label, note, cy, py, rl, indent = false }: {
   const isZero = !cy || cy === 0;
   return (
     <tr>
-      <td className={`${indent ? 'pl-8' : ''}`} style={{ fontSize: '13px', color: '#334155' }}>{label}</td>
-      <td className="text-center w-[7%] px-2" style={{ fontSize: '11px' }}>
-        {note && <span style={{ color: '#6366f1', fontWeight: 500 }}>{note}</span>}
+      <td className={indent ? 'pl-8' : ''}>{label}</td>
+      <td className="text-center w-[7%] px-2">
+        {note && <span className="text-indigo-600 font-medium text-xs">{note}</span>}
       </td>
-      <td className={`amount text-[13px] ${isZero ? 'amount-zero' : ''}`}>{fmt(cy, rl)}</td>
-      <td className={`amount text-[13px] ${!py || py === 0 ? 'amount-zero' : ''}`}>{fmt(py, rl)}</td>
+      <td className={`amount ${isZero ? 'amount-zero' : ''}`}>{fmt(cy, rl)}</td>
+      <td className={`amount ${!py || py === 0 ? 'amount-zero' : ''}`}>{fmt(py, rl)}</td>
     </tr>
   );
 }
@@ -44,10 +43,10 @@ function TotalRow({ label, cy, py, rl, grand = false }: {
 }) {
   return (
     <tr className={grand ? 'row-grand-total' : 'row-total'}>
-      <td style={{ fontSize: '13px' }}>{label}</td>
+      <td>{label}</td>
       <td />
-      <td className="amount text-[13px]">{fmt(cy, rl)}</td>
-      <td className="amount text-[13px]">{fmt(py, rl)}</td>
+      <td className="amount">{fmt(cy, rl)}</td>
+      <td className="amount">{fmt(py, rl)}</td>
     </tr>
   );
 }
@@ -63,17 +62,13 @@ function BalanceSheetView({ data, company, previousYear }: BalanceSheetViewProps
 
   return (
     <div className="statement-page max-w-4xl mx-auto">
-      <div className="no-print flex justify-end mb-3">
-        <PrintButton label="Print / Export PDF" />
-      </div>
-
       <div className="statement-header">
         <p className="statement-company-name">{company.companyName}</p>
         <p className="statement-title">Statement of Financial Position</p>
         <p className="statement-date">
           As at {cy?.endDateBS ?? '31 Ashadh 2082'} ({cy?.endDateAD ?? 'July 15, 2025'})
         </p>
-        <p className="text-xs text-slate-400 italic mt-1">
+        <p className="statement-date italic mt-1">
           All amounts in NPR rounded to nearest {rl.toLocaleString()}
         </p>
       </div>
@@ -136,7 +131,7 @@ function BalanceSheetView({ data, company, previousYear }: BalanceSheetViewProps
 
           {Math.abs(diff) > rl && (
             <tr>
-              <td colSpan={4} className="px-3 py-2 text-xs text-red-700 bg-red-50" style={{ border: '1px solid #fecaca' }} role="alert">
+              <td colSpan={4} className="px-3 py-2 text-xs text-red-700 bg-red-50" style={{ border: '1px solid var(--danger-100)' }} role="alert">
                 <span className="flex items-center gap-1.5">
                   <AlertTriangle size={13} className="flex-shrink-0" />
                   ERROR: Balance sheet does not balance. Difference: {Math.abs(diff).toLocaleString('en-IN')}
@@ -163,7 +158,7 @@ function BalanceSheetView({ data, company, previousYear }: BalanceSheetViewProps
           ].map(sig => (
             <div key={sig.role} className="flex flex-col items-start">
               <div className="h-12 w-full" />
-              <div className="w-full pb-1 mb-1" style={{ borderBottom: '1px solid #475569' }}>
+              <div className="w-full pb-1 mb-1" style={{ borderBottom: '1px solid var(--ink-600)' }}>
                 <p className="font-semibold text-slate-800" style={{ fontSize: '13px' }}>{sig.name}</p>
               </div>
               <p className="text-slate-400">{sig.role}</p>
@@ -177,7 +172,7 @@ function BalanceSheetView({ data, company, previousYear }: BalanceSheetViewProps
             </p>
             <div
               className="w-40 h-16 rounded-lg flex items-center justify-center mb-2"
-              style={{ background: '#f8fafc', border: '1px solid #e2e8f0' }}
+              style={{ background: 'var(--surface-sunken)', border: '1px solid var(--border-strong)' }}
             >
               <span className="text-xs text-slate-300 italic">Signature</span>
             </div>

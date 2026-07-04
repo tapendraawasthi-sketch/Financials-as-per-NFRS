@@ -188,8 +188,28 @@ export default function CompanySetupPage() {
     }
   };
 
+  const activeTabLabel = TABS.find((t) => t.id === activeTab)?.label ?? '';
+
   return (
     <div className="max-w-4xl">
+      <div className="mb-6">
+        <p
+          className="text-xs font-bold uppercase tracking-widest mb-2"
+          style={{ color: 'var(--brand-600)' }}
+        >
+          STEP 1 OF 8
+        </p>
+        <h2
+          className="font-display text-2xl font-semibold mb-2"
+          style={{ color: 'var(--ink-950)' }}
+        >
+          Company Setup
+        </h2>
+        <p className="text-sm max-w-2xl" style={{ color: 'var(--ink-500)', lineHeight: 1.6 }}>
+          Enter basic company and registration details, configure accounting policies, and add prior-year comparatives.
+        </p>
+      </div>
+
       <Tabs
         tabs={TABS}
         active={activeTab}
@@ -198,7 +218,16 @@ export default function CompanySetupPage() {
         className="mb-6"
       />
 
-      <div className="page-enter">
+      <div className="card">
+        <div className="card-header">
+          <h3
+            className="font-bold leading-none"
+            style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--ink-700)' }}
+          >
+            {activeTabLabel}
+          </h3>
+        </div>
+        <div className="card-body page-enter">
         {activeTab === 'info' && (
           <CompanyInfoForm
             initialData={state.company ? {
@@ -254,6 +283,7 @@ export default function CompanySetupPage() {
             onSave={handleSavePreviousYear}
           />
         )}
+        </div>
       </div>
     </div>
   );

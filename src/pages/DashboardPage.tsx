@@ -1,5 +1,16 @@
 // src/pages/DashboardPage.tsx
 import React, { useState } from 'react';
+import {
+  ShieldCheck,
+  FileCheck2,
+  Lock,
+  Zap,
+  Sparkles,
+  Layers,
+  FileText,
+  BarChart3,
+  Link2,
+} from 'lucide-react';
 import Button from '../components/ui/Button';
 import Modal from '../components/ui/Modal';
 import { useAppStore } from '../store/appStore';
@@ -28,6 +39,55 @@ function isSessionInProgress(currentStep: AppStep, hasSession: boolean): boolean
   return stepIndex > 0 || hasSession;
 }
 
+function BrandMark() {
+  return (
+    <div className="flex items-center gap-3">
+      <div
+        className="flex items-center justify-center flex-shrink-0"
+        style={{
+          width: '36px',
+          height: '36px',
+          borderRadius: '12px',
+          background: 'linear-gradient(135deg, var(--brand-400), var(--brand-700) 60%, var(--gold-500))',
+        }}
+      >
+        <span style={{ fontFamily: 'var(--font-display)', color: 'white', fontSize: '18px', fontWeight: 700 }}>
+          N
+        </span>
+      </div>
+      <div>
+        <p style={{ color: 'var(--ink-950)', fontSize: '14.5px', fontWeight: 700, lineHeight: 1.2 }}>
+          NFRS Reporter
+        </p>
+        <p
+          style={{
+            color: 'var(--ink-500)',
+            fontSize: '10.5px',
+            textTransform: 'uppercase',
+            letterSpacing: '0.08em',
+          }}
+        >
+          Enterprise Edition
+        </p>
+      </div>
+    </div>
+  );
+}
+
+const FEATURE_CARDS = [
+  { icon: Layers, figure: '6-Step Wizard', caption: 'From Trial Balance to Statements' },
+  { icon: FileText, figure: '26 Notes', caption: 'Full NAS for MEs Disclosure Set' },
+  { icon: BarChart3, figure: '4 Statements', caption: 'BS · IS · CF · Equity, Auto-Linked' },
+  { icon: Link2, figure: '100% Formula-Linked', caption: 'Fully Auditable Excel Output' },
+];
+
+const TRUST_ITEMS = [
+  { icon: ShieldCheck, label: 'NAS for MEs Compliant' },
+  { icon: FileCheck2, label: 'ICAN Reference Format' },
+  { icon: Lock, label: 'Bank-Grade Data Security' },
+  { icon: Zap, label: 'Under 15 Minutes per Client' },
+];
+
 export default function DashboardPage({ onStart, onContinue, hasSession }: DashboardPageProps) {
   const { state } = useAppStore();
   const [showResetModal, setShowResetModal] = useState(false);
@@ -41,9 +101,7 @@ export default function DashboardPage({ onStart, onContinue, hasSession }: Dashb
     setShowResetModal(true);
   };
 
-  const handleCancelReset = () => {
-    setShowResetModal(false);
-  };
+  const handleCancelReset = () => setShowResetModal(false);
 
   const handleDiscardAndStart = () => {
     setShowResetModal(false);
@@ -78,104 +136,156 @@ export default function DashboardPage({ onStart, onContinue, hasSession }: Dashb
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col">
-      {/* Hero */}
+    <div
+      className="min-h-screen flex flex-col gradient-mesh"
+      style={{ backgroundColor: 'var(--canvas)', minHeight: '100vh' }}
+    >
+      {/* Top bar */}
       <div
-        className="relative flex flex-col items-center justify-center text-center px-6 py-20"
-        style={{
-          background: 'linear-gradient(135deg, #0a0f1e 0%, #1e293b 50%, #0f172a 100%)',
-          minHeight: '70vh',
-        }}
+        className="flex items-center justify-between flex-shrink-0"
+        style={{ height: '72px', padding: '0 40px' }}
       >
-        {/* Grid overlay */}
-        <div
-          className="absolute inset-0 pointer-events-none"
-          style={{
-            opacity: 0.03,
-            backgroundImage:
-              'repeating-linear-gradient(0deg,transparent,transparent 40px,#fff 40px,#fff 41px),' +
-              'repeating-linear-gradient(90deg,transparent,transparent 40px,#fff 40px,#fff 41px)',
-          }}
-        />
-
-        {/* Logo */}
-        <div
-          className="h-16 w-16 rounded-2xl flex items-center justify-center mb-6"
-          style={{
-            background: 'linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)',
-            boxShadow: '0 0 40px rgba(99,102,241,0.5)',
-          }}
-        >
-          <span className="text-white font-black text-3xl leading-none select-none">N</span>
-        </div>
-
-        <h1
-          className="text-white font-black tracking-tight leading-none mb-3"
-          style={{ fontSize: '42px' }}
-        >
-          NFRS Financial Reporter
-        </h1>
-
-        <p
-          className="max-w-xl leading-relaxed mb-2"
-          style={{ color: '#94a3b8', fontSize: '16px' }}
-        >
-          Convert your trial balance to ICAN-compliant financial statements in minutes.
-        </p>
-        <p style={{ color: '#64748b', fontSize: '13px' }} className="mb-8">
-          Supporting NAS for Micro Entities 2018 &middot; Nepal Income Tax Act 2058
-        </p>
-
-        <div className="flex flex-col sm:flex-row items-center gap-3">
-          <Button variant="primary" size="lg" onClick={handleStartClick}>
-            Start New Report
-          </Button>
+        <BrandMark />
+        <div className="flex items-center gap-4">
+          <button
+            type="button"
+            className="transition-colors"
+            style={{
+              background: 'transparent',
+              color: 'var(--brand-600)',
+              fontSize: '13px',
+              fontWeight: 500,
+              border: 'none',
+              cursor: 'pointer',
+            }}
+          >
+            Documentation
+          </button>
           {hasSession && (
-            <Button variant="secondary" size="lg" onClick={onContinue}>
-              Continue Previous Session
+            <Button variant="secondary" size="md" onClick={onContinue}>
+              Continue Session
             </Button>
           )}
         </div>
+      </div>
 
-        {/* Feature pills */}
-        <div className="flex flex-wrap justify-center gap-2.5 mt-10 max-w-2xl">
-          {[
-            'Auto-parse any trial balance format',
-            'AI-powered account mapping',
-            'All 4 NFRS statements',
-            '26 mandatory notes',
-            'Nepal IT Act 2058 tax computation',
-            'ICAN Excel format output',
-          ].map((f) => (
-            <span
-              key={f}
-              className="inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 font-medium"
+      {/* Hero */}
+      <section
+        className="text-center"
+        style={{ maxWidth: '780px', margin: '64px auto 48px', padding: '0 24px' }}
+      >
+        <div
+          className="inline-flex items-center gap-2 rounded-full"
+          style={{
+            background: 'var(--gold-100)',
+            border: '1px solid var(--gold-400)',
+            color: 'var(--gold-700)',
+            fontSize: '11.5px',
+            fontWeight: 600,
+            padding: '6px 16px',
+            marginBottom: '24px',
+          }}
+        >
+          <Sparkles size={12} />
+          Trusted by Chartered Accountants across Nepal
+        </div>
+
+        <h1
+          className="font-display"
+          style={{
+            fontSize: '44px',
+            fontWeight: 600,
+            color: 'var(--ink-950)',
+            lineHeight: 1.15,
+            marginBottom: '20px',
+          }}
+        >
+          Financial Statements.
+          <br />
+          <span style={{ color: 'var(--brand-500)' }}>Fully Automated.</span>
+        </h1>
+
+        <p
+          style={{
+            color: 'var(--ink-500)',
+            fontSize: '16px',
+            maxWidth: '560px',
+            margin: '0 auto',
+            lineHeight: 1.6,
+          }}
+        >
+          Generate ICAN-compliant NAS for MEs financial statements from any trial balance format in minutes — not days.
+        </p>
+
+        <div
+          className="flex flex-col sm:flex-row items-center justify-center"
+          style={{ gap: '14px', marginTop: '32px' }}
+        >
+          <Button variant="primary" size="lg" onClick={handleStartClick}>
+            Start New Engagement
+          </Button>
+          {hasSession && (
+            <Button variant="secondary" size="lg" onClick={onContinue}>
+              Resume Draft
+            </Button>
+          )}
+        </div>
+      </section>
+
+      {/* Trust badges */}
+      <div
+        className="flex flex-wrap justify-center"
+        style={{ gap: '32px', marginBottom: '56px', padding: '0 24px' }}
+      >
+        {TRUST_ITEMS.map(({ icon: Icon, label }) => (
+          <div key={label} className="flex items-center gap-2">
+            <Icon size={16} style={{ color: 'var(--brand-500)' }} />
+            <span style={{ color: 'var(--ink-600)', fontSize: '13px', fontWeight: 500 }}>
+              {label}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      {/* Feature cards */}
+      <div
+        className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4"
+        style={{ maxWidth: '1080px', margin: '0 auto', gap: '20px', padding: '0 24px' }}
+      >
+        {FEATURE_CARDS.map(({ icon: Icon, figure, caption }) => (
+          <div key={figure} className="card card-interactive" style={{ padding: '24px' }}>
+            <div
+              className="flex items-center justify-center mb-4"
               style={{
-                fontSize: '12px',
-                color: '#a5b4fc',
-                background: 'rgba(99,102,241,0.12)',
-                border: '1px solid rgba(99,102,241,0.25)',
+                width: '40px',
+                height: '40px',
+                borderRadius: 'var(--radius-md)',
+                background: 'var(--brand-50)',
               }}
             >
-              <span className="h-1.5 w-1.5 rounded-full bg-indigo-400" />
-              {f}
-            </span>
-          ))}
-        </div>
+              <Icon size={20} style={{ color: 'var(--brand-600)' }} />
+            </div>
+            <p className="kpi-number" style={{ fontSize: '28px', color: 'var(--ink-950)', marginBottom: '6px' }}>
+              {figure}
+            </p>
+            <p style={{ color: 'var(--ink-500)', fontSize: '12.5px' }}>{caption}</p>
+          </div>
+        ))}
       </div>
 
       {/* Footer */}
-      <div className="flex-1 flex items-end justify-center pb-8">
-        <div className="text-center">
-          <div className="flex items-center justify-center gap-2 mb-2">
-            <span className="compliance-badge">NAS for MEs 2018</span>
-            <span className="compliance-badge">ICAN Nepal</span>
-          </div>
-          <p className="text-xs text-slate-400">
-            Accounting Standards Board, Nepal &middot; ICAN Building, Satdobato, Lalitpur
-          </p>
-        </div>
-      </div>
+      <footer
+        className="text-center mt-auto"
+        style={{
+          padding: '32px',
+          borderTop: '1px solid var(--border-hairline)',
+          marginTop: '40px',
+          color: 'var(--ink-400)',
+          fontSize: '12px',
+        }}
+      >
+        NFRS Financial Reporter — Nepal Financial Reporting Automation
+      </footer>
 
       <Modal
         isOpen={showResetModal}

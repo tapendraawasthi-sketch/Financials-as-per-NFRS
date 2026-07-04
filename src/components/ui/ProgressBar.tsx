@@ -10,11 +10,6 @@ interface ProgressBarProps {
   className?:  string;
 }
 
-const TRACK_H: Record<NonNullable<ProgressBarProps['size']>, string> = {
-  sm: 'h-1',
-  md: 'h-2',
-};
-
 export default function ProgressBar({
   value,
   label,
@@ -27,15 +22,17 @@ export default function ProgressBar({
 
   const fillStyle: React.CSSProperties = {
     width: `${pct}%`,
+    height: '6px',
+    borderRadius: 'var(--radius-full)',
     background:
       color === 'green'
-        ? 'linear-gradient(90deg, #14b8a6, #2dd4bf)'
+        ? 'linear-gradient(90deg, var(--success-600), var(--success-600))'
         : color === 'amber'
-        ? 'linear-gradient(90deg, #f59e0b, #fcd34d)'
+        ? 'linear-gradient(90deg, var(--warning-600), var(--warning-600))'
         : color === 'red'
-        ? 'linear-gradient(90deg, #dc2626, #f87171)'
-        : 'linear-gradient(90deg, #6366f1, #14b8a6)',
-    transition: 'width 700ms cubic-bezier(.22,.61,.36,1)',
+        ? 'linear-gradient(90deg, var(--danger-600), var(--danger-600))'
+        : 'linear-gradient(90deg, var(--brand-500), var(--brand-400))',
+    transition: 'width var(--dur-slow) var(--ease-premium)',
   };
 
   return (
@@ -50,14 +47,19 @@ export default function ProgressBar({
       )}
 
       <div
-        className={`w-full rounded-full overflow-hidden bg-slate-200 ${TRACK_H[size]}`}
+        className="w-full overflow-hidden"
+        style={{
+          height: '6px',
+          borderRadius: 'var(--radius-full)',
+          background: 'var(--surface-sunken)',
+        }}
         role="progressbar"
         aria-valuenow={pct}
         aria-valuemin={0}
         aria-valuemax={100}
         aria-label={label ?? 'Progress'}
       >
-        <div className="h-full rounded-full" style={fillStyle} />
+        <div style={fillStyle} />
       </div>
     </div>
   );

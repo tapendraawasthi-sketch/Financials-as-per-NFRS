@@ -1,5 +1,6 @@
 // src/components/layout/AppShell.tsx
 import React from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import { AlertCircle, X } from 'lucide-react';
 import Sidebar from './Sidebar';
 import Header  from './Header';
@@ -22,6 +23,7 @@ interface AppShellProps {
   error?:           string | null;
   onDismissError?:  () => void;
   wizardFooter?:    React.ReactNode;
+  pageKey?:          string;
   children:         React.ReactNode;
 }
 
@@ -41,10 +43,11 @@ export default function AppShell({
   error,
   onDismissError,
   wizardFooter,
+  pageKey,
   children,
 }: AppShellProps) {
   return (
-    <div className="flex h-screen min-h-screen bg-slate-50 overflow-hidden">
+    <div className="flex h-screen min-h-screen overflow-hidden" style={{ background: 'var(--canvas)' }}>
       <a href="#main-content" className="skip-link">
         Skip to main content
       </a>
@@ -57,6 +60,7 @@ export default function AppShell({
         companyName={companyName}
         fiscalYear={fiscalYear}
         onSwitchClient={onSwitchClient}
+        lastSavedAt={lastSavedAt}
       />
 
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
@@ -67,7 +71,6 @@ export default function AppShell({
           breadcrumb={breadcrumb}
           companyName={companyName}
           fiscalYear={fiscalYear}
-          lastSavedAt={lastSavedAt}
         />
 
         <SlimWizardProgress
@@ -78,20 +81,22 @@ export default function AppShell({
         {error && (
           <div
             role="alert"
-            className="flex items-center gap-2.5 px-6 py-3 text-sm text-red-700 flex-shrink-0 no-print"
+            className="flex items-center gap-2.5 px-6 py-3 text-sm flex-shrink-0 no-print"
             style={{
-              background: '#fef2f2',
-              borderBottom: '1px solid #fecaca',
-              borderLeft: '4px solid #dc2626',
+              background: 'var(--danger-100)',
+              borderBottom: '1px solid var(--danger-100)',
+              borderLeft: '3px solid var(--danger-600)',
+              color: 'var(--danger-700)',
             }}
           >
-            <AlertCircle size={16} className="flex-shrink-0 text-red-500" />
+            <AlertCircle size={16} className="flex-shrink-0" />
             <span className="flex-1 min-w-0">{error}</span>
             {onDismissError && (
               <button
                 onClick={onDismissError}
                 aria-label="Dismiss error"
-                className="flex-shrink-0 text-red-400 hover:text-red-700 rounded transition-colors"
+                className="flex-shrink-0 rounded transition-colors"
+                style={{ color: 'var(--danger-600)' }}
               >
                 <X size={14} />
               </button>
@@ -102,11 +107,22 @@ export default function AppShell({
         <main
           id="main-content"
           role="main"
-          className="flex-1 overflow-y-auto px-7 py-6 bg-slate-50"
+          className="flex-1 overflow-y-auto"
+          style={{ background: 'var(--canvas)', padding: '28px' }}
           tabIndex={-1}
         >
-          <div className="page-enter">
-            {children}
+          <div style={{ maxWidth: '1180px', margin: '0 auto' }}>
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={pageKey ?? 'page'}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.24, ease: [0.16, 1, 0.3, 1] }}
+            >
+              {children}
+            </motion.div>
+          </AnimatePresence>
           </div>
         </main>
 

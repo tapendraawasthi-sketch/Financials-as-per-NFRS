@@ -211,14 +211,20 @@ export default function TBUploadZone({
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
               className={[
-                'border border-dashed rounded p-8 text-center cursor-pointer transition-colors',
+                'border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-all ease-premium',
                 isDragging
-                  ? 'border-blue-400 bg-blue-50'
-                  : 'border-slate-300 bg-slate-50 hover:bg-slate-100 hover:border-slate-400',
+                  ? 'brand-ring'
+                  : 'hover:border-slate-300',
               ].join(' ')}
+              style={{
+                borderRadius: 'var(--radius-lg)',
+                borderColor: isDragging ? 'var(--brand-500)' : 'var(--border-strong)',
+                background: isDragging ? 'var(--brand-50)' : 'var(--surface-sunken)',
+              }}
             >
               <svg
-                className="h-8 w-8 text-slate-300 mx-auto mb-2"
+                className="h-8 w-8 mx-auto mb-2"
+                style={{ color: isDragging ? 'var(--brand-500)' : 'var(--ink-300)' }}
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"
@@ -228,10 +234,10 @@ export default function TBUploadZone({
                 <path strokeLinecap="round" strokeLinejoin="round"
                   d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
               </svg>
-              <p className="text-sm text-slate-500">
+              <p className="text-sm font-medium" style={{ color: 'var(--ink-600)' }}>
                 Drop file here or click to browse
               </p>
-              <p className="text-xs text-slate-400 mt-1">
+              <p className="text-xs mt-1" style={{ color: 'var(--ink-400)' }}>
                 Accepts .xlsx, .xls, .csv — ICAN MEs templates, Tally/Busy grouped exports
               </p>
               <div className="mt-4 flex justify-center" onClick={(e) => e.stopPropagation()}>
@@ -244,11 +250,11 @@ export default function TBUploadZone({
 
           {/* Uploading state */}
           {uploadState === 'uploading' && (
-            <div className="py-4 space-y-2">
-              <p className="text-xs text-slate-600 truncate">
+            <div className="py-4 space-y-3">
+              <p className="text-xs truncate" style={{ color: 'var(--ink-600)' }}>
                 {processingPhase || `Processing ${filename}…`}
               </p>
-              <ProgressBar value={progress} showValue size="md" />
+              <ProgressBar value={progress} showValue size="md" color="blue" />
             </div>
           )}
 
@@ -256,27 +262,32 @@ export default function TBUploadZone({
           {uploadState === 'success' && result && (
             <div className="py-2 space-y-2">
               <div className="flex items-center gap-2.5">
-                <span className="h-2 w-2 rounded-full bg-emerald-500 flex-shrink-0" aria-hidden="true" />
-                <span className="text-xs text-slate-700 truncate flex-1" title={result.filename}>
+                <span
+                  className="h-2 w-2 rounded-full flex-shrink-0"
+                  style={{ background: 'var(--success-600)' }}
+                  aria-hidden="true"
+                />
+                <span className="text-xs truncate flex-1" style={{ color: 'var(--ink-700)' }} title={result.filename}>
                   {result.filename} — {result.leafCount} ledger accounts
                   {result.groupCount > 0 ? ` (${result.groupCount} group headers)` : ''}
                 </span>
                 <button
                   type="button"
                   onClick={handleReupload}
-                  className="text-xs text-blue-600 hover:text-blue-800 underline flex-shrink-0 transition-colors"
+                  className="text-xs underline flex-shrink-0 transition-colors"
+                  style={{ color: 'var(--brand-600)' }}
                 >
                   Re-upload
                 </button>
               </div>
-              <div className="text-xs text-slate-500 space-y-1 pl-4">
-                <p>Detected format: <span className="font-medium text-slate-700">{result.detectedFormat}</span></p>
-                <p>Balance check: <span className={result.isBalanced ? 'text-emerald-700' : 'text-amber-700'}>
+              <div className="text-xs space-y-1 pl-4" style={{ color: 'var(--ink-500)' }}>
+                <p>Detected format: <span className="font-medium" style={{ color: 'var(--ink-700)' }}>{result.detectedFormat}</span></p>
+                <p>Balance check: <span style={{ color: result.isBalanced ? 'var(--success-700)' : 'var(--warning-700)' }}>
                   {result.isBalanced ? 'Balanced' : 'Imbalanced — review required'}
                 </span></p>
                 {result.warnings.length > 0 && (
                   <details className="mt-1">
-                    <summary className="cursor-pointer text-amber-700">
+                    <summary className="cursor-pointer" style={{ color: 'var(--warning-700)' }}>
                       {result.warnings.length} parser notice{result.warnings.length === 1 ? '' : 's'}
                     </summary>
                     <ul className="mt-1 list-disc list-inside text-slate-500 max-h-24 overflow-y-auto">
@@ -293,12 +304,17 @@ export default function TBUploadZone({
           {/* Error state */}
           {uploadState === 'error' && (
             <div className="flex items-center gap-2.5 py-2">
-              <span className="h-2 w-2 rounded-full bg-red-500 flex-shrink-0" aria-hidden="true" />
-              <span className="text-xs text-red-600 flex-1">Upload failed.</span>
+              <span
+                className="h-2 w-2 rounded-full flex-shrink-0"
+                style={{ background: 'var(--danger-600)' }}
+                aria-hidden="true"
+              />
+              <span className="text-xs flex-1" style={{ color: 'var(--danger-600)' }}>Upload failed.</span>
               <button
                 type="button"
                 onClick={handleReupload}
-                className="text-xs text-blue-600 hover:text-blue-800 underline flex-shrink-0"
+                className="text-xs underline flex-shrink-0"
+                style={{ color: 'var(--brand-600)' }}
               >
                 Try again
               </button>
@@ -317,12 +333,15 @@ export default function TBUploadZone({
 
           {/* AI toggle */}
           {!hideAIOption && (
-          <div className="flex items-center justify-between py-2.5 border-t border-slate-100 mt-3">
+          <div
+            className="flex items-center justify-between py-2.5 mt-3"
+            style={{ borderTop: '1px solid var(--border-hairline)' }}
+          >
             <div>
-              <p className="text-xs text-slate-600 font-medium leading-none">
+              <p className="text-xs font-medium leading-none" style={{ color: 'var(--ink-600)' }}>
                 Use AI Account Matching
               </p>
-              <p className="text-xs text-slate-400 mt-0.5">
+              <p className="text-xs mt-0.5" style={{ color: 'var(--ink-400)' }}>
                 Claude AI improves classification of unrecognised accounts
               </p>
             </div>
@@ -332,10 +351,11 @@ export default function TBUploadZone({
               aria-checked={aiOn}
               aria-label="Toggle AI account matching"
               onClick={toggleAI}
-              className={[
-                'relative w-9 h-5 rounded-full flex-shrink-0 cursor-pointer transition-colors duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600',
-                aiOn ? 'bg-blue-600' : 'bg-slate-300',
-              ].join(' ')}
+              className="relative w-9 h-5 rounded-full flex-shrink-0 cursor-pointer transition-colors duration-200 focus-visible:outline focus-visible:outline-2"
+              style={{
+                background: aiOn ? 'var(--brand-500)' : 'var(--ink-200)',
+                outlineColor: 'var(--brand-400)',
+              }}
             >
               <span
                 className={[
@@ -352,11 +372,14 @@ export default function TBUploadZone({
       {/* ── Right: Instructions ────────────────────────────────────── */}
       <div className="col-span-2">
         <Card title="Export from Your Software" padding="sm">
-          <div className="divide-y divide-slate-100">
+          <div className="divide-y" style={{ borderColor: 'var(--border-hairline)' }}>
             {EXPORT_PATHS.map(sw => (
               <div key={sw.name} className="py-2.5 first:pt-0 last:pb-0">
-                <p className="text-xs font-medium text-slate-700">{sw.name}</p>
-                <p className="text-xs text-slate-500 font-mono bg-slate-50 px-1.5 py-0.5 rounded mt-0.5 leading-snug break-words">
+                <p className="text-xs font-medium" style={{ color: 'var(--ink-700)' }}>{sw.name}</p>
+                <p
+                  className="text-xs font-mono px-1.5 py-0.5 rounded mt-0.5 leading-snug break-words"
+                  style={{ color: 'var(--ink-500)', background: 'var(--surface-sunken)' }}
+                >
                   {sw.path}
                 </p>
               </div>
@@ -366,7 +389,8 @@ export default function TBUploadZone({
           <a
             href="/sample-trial-balance.csv"
             download
-            className="text-xs text-blue-600 hover:text-blue-800 underline mt-3 block transition-colors"
+            className="text-xs underline mt-3 block transition-colors"
+            style={{ color: 'var(--brand-600)' }}
           >
             Download sample CSV format
           </a>

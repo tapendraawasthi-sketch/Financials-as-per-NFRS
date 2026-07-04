@@ -101,98 +101,129 @@ export default function NumberInput({
   }, [value, step, min, onChange]);
 
   return (
-    <div className="flex flex-col gap-1.5">
-      <label
-        htmlFor={inputId}
-        className="font-medium text-slate-700 leading-none"
-        style={{ fontSize: '13px' }}
-      >
-        {label}
-        {required && <span className="text-red-500 ml-0.5" aria-hidden="true">*</span>}
-      </label>
+    <>
+      <style>{`
+        .premium-number-field:focus {
+          border-color: var(--brand-500) !important;
+          box-shadow: var(--glow-brand) !important;
+          outline: none;
+        }
+        .premium-number-field:disabled {
+          background: var(--surface-sunken) !important;
+          opacity: 0.7;
+          cursor: not-allowed;
+        }
+      `}</style>
+      <div className="flex flex-col" style={{ gap: '6px' }}>
+        <label
+          htmlFor={inputId}
+          className="leading-none"
+          style={{ fontSize: '12.5px', fontWeight: 600, color: 'var(--ink-600)', marginBottom: '6px' }}
+        >
+          {label}
+          {required && <span className="text-red-500 ml-0.5" aria-hidden="true">*</span>}
+        </label>
 
-      <div className="relative flex items-center">
-        {prefix && (
-          <span
-            className="absolute left-2.5 text-slate-400 pointer-events-none select-none leading-none"
-            style={{ fontSize: '12px' }}
-            aria-hidden="true"
-          >
-            {prefix}
-          </span>
-        )}
-
-        <input
-          id={inputId}
-          type={focused ? 'number' : 'text'}
-          inputMode="decimal"
-          value={displayValue}
-          disabled={disabled}
-          min={min}
-          max={max}
-          placeholder={placeholder}
-          onFocus={() => setFocused(true)}
-          onBlur={handleBlur}
-          onChange={handleChange}
-          className={[
-            'h-11 w-full rounded-xl border outline-none transition-all duration-150 text-right',
-            'font-mono tabular-nums',
-            prefix ? 'pl-8' : 'pl-2.5',
-            suffix ? 'pr-8' : showSteppers ? 'pr-16' : 'pr-2.5',
-            error
-              ? 'border-red-400 bg-red-50 focus:border-red-500 focus:ring-1 focus:ring-red-400'
-              : 'border-slate-200 bg-white focus:border-indigo-400 focus:ring-4 focus:ring-indigo-50 hover:border-slate-300',
-            disabled ? 'bg-slate-50 text-slate-400 cursor-not-allowed' : 'text-slate-800',
-          ].filter(Boolean).join(' ')}
-          style={{ fontSize: '13px', MozAppearance: 'textfield' as any, WebkitAppearance: 'none' }}
-          aria-invalid={error ? 'true' : undefined}
-          aria-describedby={error ? errorId : helperText ? helpId : undefined}
-          aria-required={required}
-        />
-
-        {showSteppers && !disabled && (
-          <div className="absolute right-0 flex flex-col h-11" style={{ borderLeft: '1px solid #e2e8f0' }}>
-            <button
-              type="button"
-              onClick={increment}
-              disabled={disabled || (max !== undefined && (typeof value === 'number' ? value : 0) >= max)}
-              className="flex-1 w-8 flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-50 rounded-tr-xl disabled:opacity-30 transition-colors"
-              style={{ borderBottom: '1px solid #e2e8f0' }}
-              aria-label="Increase value"
-              tabIndex={-1}
+        <div className="relative flex items-center">
+          {prefix && (
+            <span
+              className="absolute left-2.5 pointer-events-none select-none leading-none"
+              style={{ fontSize: '12px', color: 'var(--ink-400)' }}
+              aria-hidden="true"
             >
-              <ChevronUp size={11} />
-            </button>
-            <button
-              type="button"
-              onClick={decrement}
-              disabled={disabled || (min !== undefined && (typeof value === 'number' ? value : 0) <= min)}
-              className="flex-1 w-8 flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-50 rounded-br-xl disabled:opacity-30 transition-colors"
-              aria-label="Decrease value"
-              tabIndex={-1}
-            >
-              <ChevronDown size={11} />
-            </button>
-          </div>
-        )}
+              {prefix}
+            </span>
+          )}
 
-        {suffix && !showSteppers && (
-          <span
-            className="absolute right-2.5 text-slate-400 pointer-events-none select-none leading-none"
-            style={{ fontSize: '12px' }}
-            aria-hidden="true"
+          <input
+            id={inputId}
+            type={focused ? 'number' : 'text'}
+            inputMode="decimal"
+            value={displayValue}
+            disabled={disabled}
+            min={min}
+            max={max}
+            placeholder={placeholder}
+            onFocus={() => setFocused(true)}
+            onBlur={handleBlur}
+            onChange={handleChange}
+            className={[
+              'premium-number-field w-full border outline-none transition-all ease-premium text-right',
+              'font-mono tabular-nums text-slate-800',
+              prefix ? 'pl-8' : 'pl-2.5',
+              suffix ? 'pr-8' : showSteppers ? 'pr-16' : 'pr-2.5',
+            ].filter(Boolean).join(' ')}
+            style={{
+              fontSize: '13px',
+              height: '38px',
+              borderRadius: 'var(--radius-sm)',
+              background: 'var(--surface)',
+              border: error ? '1px solid var(--danger-600)' : '1px solid var(--border-strong)',
+              MozAppearance: 'textfield' as React.CSSProperties['MozAppearance'],
+              WebkitAppearance: 'none',
+            }}
+            aria-invalid={error ? 'true' : undefined}
+            aria-describedby={error ? errorId : helperText ? helpId : undefined}
+            aria-required={required}
+          />
+
+          {showSteppers && !disabled && (
+            <div
+              className="absolute right-0 flex flex-col"
+              style={{ height: '38px', borderLeft: '1px solid var(--border-strong)' }}
+            >
+              <button
+                type="button"
+                onClick={increment}
+                disabled={disabled || (max !== undefined && (typeof value === 'number' ? value : 0) >= max)}
+                className="flex-1 w-8 flex items-center justify-center hover:bg-slate-50 disabled:opacity-30 transition-colors"
+                style={{ borderBottom: '1px solid var(--border-strong)', borderRadius: '0 var(--radius-sm) 0 0' }}
+                aria-label="Increase value"
+                tabIndex={-1}
+              >
+                <ChevronUp size={11} />
+              </button>
+              <button
+                type="button"
+                onClick={decrement}
+                disabled={disabled || (min !== undefined && (typeof value === 'number' ? value : 0) <= min)}
+                className="flex-1 w-8 flex items-center justify-center hover:bg-slate-50 disabled:opacity-30 transition-colors"
+                style={{ borderRadius: '0 0 var(--radius-sm) 0' }}
+                aria-label="Decrease value"
+                tabIndex={-1}
+              >
+                <ChevronDown size={11} />
+              </button>
+            </div>
+          )}
+
+          {suffix && !showSteppers && (
+            <span
+              className="absolute right-2.5 pointer-events-none select-none leading-none"
+              style={{ fontSize: '12px', color: 'var(--ink-400)' }}
+              aria-hidden="true"
+            >
+              {suffix}
+            </span>
+          )}
+        </div>
+
+        {error && (
+          <p
+            id={errorId}
+            className="leading-tight"
+            style={{ fontSize: '11.5px', color: 'var(--danger-600)' }}
+            role="alert"
           >
-            {suffix}
-          </span>
+            {error}
+          </p>
+        )}
+        {!error && helperText && (
+          <p id={helpId} className="leading-snug" style={{ fontSize: '11px', color: 'var(--ink-400)' }}>
+            {helperText}
+          </p>
         )}
       </div>
-
-      {error && (
-        <p id={errorId} className="text-xs text-red-600 leading-tight" role="alert">{error}</p>
-      )}
-      {!error && helperText && (
-        <p id={helpId} className="text-xs text-slate-400 leading-snug">{helperText}</p>
-      )}
-    </div>
+    </>
   );
 }

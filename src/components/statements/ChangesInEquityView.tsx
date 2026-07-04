@@ -62,11 +62,13 @@ export default function ChangesInEquityView() {
 
   function AmtCell({ value, bold = false, isGrand = false }: { value: number; bold?: boolean; isGrand?: boolean }) {
     return (
-      <td className="text-center font-mono tabular-nums px-3 py-1.5" style={{
-        fontSize: '13px',
-        fontWeight: bold || isGrand ? 600 : 400,
-        color: value < 0 ? '#b91c1c' : value === 0 ? '#cbd5e1' : '#1e293b',
-      }}>
+      <td
+        className={[
+          'amount text-center px-3 py-1.5',
+          value < 0 ? 'amount-negative' : value === 0 ? 'amount-zero' : '',
+          bold || isGrand ? 'font-semibold' : '',
+        ].filter(Boolean).join(' ')}
+      >
         {fmtAmt(value)}
       </td>
     );
@@ -74,17 +76,11 @@ export default function ChangesInEquityView() {
 
   return (
     <div className="statement-page max-w-5xl mx-auto overflow-x-auto">
-      <div className="flex justify-end mb-3 no-print">
-        <button className="px-3 py-1.5 text-xs font-medium border border-slate-300 rounded-lg text-slate-600 hover:bg-slate-50 transition-colors" onClick={() => window.print()}>
-          Print / Export PDF
-        </button>
-      </div>
-
       <div className="statement-header">
         <p className="statement-company-name">{companyName}</p>
         <p className="statement-title">Statement of Changes in Equity</p>
         <p className="statement-date">For the year ended {endDateBS}</p>
-        <p className="text-xs text-slate-400 italic mt-1">All amounts in NPR rounded to nearest {roundingLevel}</p>
+        <p className="statement-date italic mt-1">All amounts in NPR rounded to nearest {roundingLevel}</p>
       </div>
 
       <div className="overflow-x-auto -mx-2 px-2">
@@ -108,8 +104,8 @@ export default function ChangesInEquityView() {
           </thead>
           <tbody>
             {rows.map((row, i) => (
-              <tr key={i} className={row.isGrandTotal ? 'row-grand-total' : row.isSectionHead ? 'row-section-head' : 'border-b border-slate-100'}>
-                <td className="px-3 py-1.5 text-slate-700" style={{ fontSize: '13px' }}>{row.label}</td>
+              <tr key={i} className={row.isGrandTotal ? 'row-grand-total' : row.isSectionHead ? 'row-section-head' : ''}>
+                <td>{row.label}</td>
                 <AmtCell value={row.sc} bold={row.isGrandTotal || row.isSectionHead} isGrand={row.isGrandTotal} />
                 <AmtCell value={row.sp} bold={row.isGrandTotal || row.isSectionHead} isGrand={row.isGrandTotal} />
                 <AmtCell value={row.gr} bold={row.isGrandTotal || row.isSectionHead} isGrand={row.isGrandTotal} />
@@ -130,7 +126,7 @@ export default function ChangesInEquityView() {
           {['Chairperson', 'Director', 'Head of Accounts'].map(role => (
             <div key={role} className="flex flex-col items-start">
               <div className="h-12 w-full" />
-              <div className="w-full pb-1 mb-1" style={{ borderBottom: '1px solid #475569' }}>
+              <div className="w-full pb-1 mb-1" style={{ borderBottom: '1px solid var(--ink-600)' }}>
                 <p className="font-semibold text-slate-800" style={{ fontSize: '13px' }}>—</p>
               </div>
               <p className="text-slate-400">{role}</p>

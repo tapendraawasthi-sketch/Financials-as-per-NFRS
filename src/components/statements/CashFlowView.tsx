@@ -138,20 +138,11 @@ export default function CashFlowView() {
 
   return (
     <div className="statement-page max-w-4xl mx-auto">
-      <div className="flex justify-end mb-3 no-print">
-        <button
-          className="px-3 py-1.5 text-xs font-medium border border-slate-300 rounded-lg text-slate-600 hover:bg-slate-50 transition-colors"
-          onClick={() => window.print()}
-        >
-          Print / Export PDF
-        </button>
-      </div>
-
       <div className="statement-header">
         <p className="statement-company-name">{companyName}</p>
         <p className="statement-title">Statement of Cash Flows (Indirect Method)</p>
         <p className="statement-date">For the year ended {endDateBS}</p>
-        <p className="text-xs text-slate-400 italic mt-1">
+        <p className="statement-date italic mt-1">
           All amounts in NPR rounded to nearest {roundingLevel}
         </p>
       </div>
@@ -186,14 +177,13 @@ export default function CashFlowView() {
 
               return (
                 <tr key={i} className={rowClass(row.style)}>
-                  <td className={[indentClass(row.indent), row.italic ? 'italic text-slate-400' : ''].filter(Boolean).join(' ')}
-                    style={{ fontSize: '13px' }}>
+                  <td className={[indentClass(row.indent), row.italic ? 'italic text-slate-400' : ''].filter(Boolean).join(' ')}>
                     {row.label}
                   </td>
-                  <td className="amount" style={{ fontSize: '13px' }}>
+                  <td className="amount">
                     {!isSubHeader && row.current !== 0 ? cfv(row.current, row.bracketed) : ''}
                   </td>
-                  <td className="amount text-slate-400" style={{ fontSize: '13px' }}>
+                  <td className="amount text-slate-400">
                     {!isSubHeader && row.previous !== undefined && row.previous !== 0 ? cfv(row.previous, row.bracketed) : ''}
                   </td>
                 </tr>
@@ -204,7 +194,7 @@ export default function CashFlowView() {
       </div>
 
       {Math.abs(reconciliationDiff) > 0.5 && (
-        <div className="mt-3 px-4 py-2.5 text-xs text-red-700 font-mono" style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '10px' }}>
+        <div className="mt-3 px-4 py-2.5 text-xs text-red-700 font-mono" style={{ background: 'var(--danger-100)', border: '1px solid var(--danger-100)', borderRadius: '10px' }}>
           ⚠ Reconciliation difference: {cfv(reconciliationDiff)} — review working capital movements.
         </div>
       )}
@@ -220,7 +210,7 @@ export default function CashFlowView() {
           {['Chairperson', 'Director', 'Head of Accounts'].map(role => (
             <div key={role} className="flex flex-col items-start">
               <div className="h-12 w-full" />
-              <div className="w-full pb-1 mb-1" style={{ borderBottom: '1px solid #475569' }}>
+              <div className="w-full pb-1 mb-1" style={{ borderBottom: '1px solid var(--ink-600)' }}>
                 <p className="font-semibold text-slate-800" style={{ fontSize: '13px' }}>—</p>
               </div>
               <p className="text-slate-400">{role}</p>

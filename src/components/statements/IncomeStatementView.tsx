@@ -1,6 +1,5 @@
 // src/components/statements/IncomeStatementView.tsx
 import React from 'react';
-import PrintButton         from '../output/PrintButton';
 import { IncomeStatement } from '../../types/financials';
 import { CompanyProfile }  from '../../types/company';
 
@@ -28,12 +27,12 @@ function DataRow({ label, note, cy, py, rl, indent = true }: {
   const isZero = !cy || cy === 0;
   return (
     <tr>
-      <td className={`${indent ? 'pl-8' : ''} text-xs text-slate-700`}>{label}</td>
-      <td className="text-center text-xs">
-        {note && <span style={{ color: '#6366f1', fontWeight: 500 }}>{note}</span>}
+      <td className={indent ? 'pl-8' : ''}>{label}</td>
+      <td className="text-center">
+        {note && <span className="text-indigo-600 font-medium text-xs">{note}</span>}
       </td>
-      <td className={`amount text-xs ${isZero ? 'amount-zero' : ''}`}>{fmt(cy, rl)}</td>
-      <td className={`amount text-xs ${!py || py === 0 ? 'amount-zero' : ''}`}>{fmt(py, rl)}</td>
+      <td className={`amount ${isZero ? 'amount-zero' : ''}`}>{fmt(cy, rl)}</td>
+      <td className={`amount ${!py || py === 0 ? 'amount-zero' : ''}`}>{fmt(py, rl)}</td>
     </tr>
   );
 }
@@ -44,10 +43,10 @@ function TotalRow({ label, cy, py, rl, grand = false, isLoss = false }: {
 }) {
   return (
     <tr className={grand ? 'row-grand-total' : 'row-total'}>
-      <td className="text-xs">{label}</td>
+      <td>{label}</td>
       <td />
-      <td className={`amount text-xs ${isLoss && cy && cy < 0 ? 'amount-loss-subtle' : ''}`}>{fmt(cy, rl)}</td>
-      <td className={`amount text-xs ${isLoss && py && py < 0 ? 'amount-loss-subtle' : ''}`}>{fmt(py, rl)}</td>
+      <td className={`amount ${isLoss && cy && cy < 0 ? 'amount-loss-subtle' : ''}`}>{fmt(cy, rl)}</td>
+      <td className={`amount ${isLoss && py && py < 0 ? 'amount-loss-subtle' : ''}`}>{fmt(py, rl)}</td>
     </tr>
   );
 }
@@ -69,17 +68,13 @@ function IncomeStatementView({ data, company, previousYear }: IncomeStatementVie
 
   return (
     <div className="statement-page max-w-4xl mx-auto">
-      <div className="no-print flex justify-end mb-3">
-        <PrintButton label="Print / Export PDF" />
-      </div>
-
       <div className="statement-header">
         <p className="statement-company-name">{company.companyName}</p>
         <p className="statement-title">Statement of Income</p>
         <p className="statement-date">
           For the year ended {cy?.endDateBS ?? '31 Ashadh 2082'} ({cy?.endDateAD ?? 'July 15, 2025'})
         </p>
-        <p className="text-xs text-slate-400 italic mt-1">
+        <p className="statement-date italic mt-1">
           All amounts in NPR rounded to nearest {rl.toLocaleString()}
         </p>
       </div>
@@ -140,14 +135,10 @@ function IncomeStatementView({ data, company, previousYear }: IncomeStatementVie
         </p>
       </div>
       {(!previousYear?.totalExpenses) && (
-        <p className="text-xs text-slate-400 italic text-center mt-2">
+        <p className="statement-date italic text-center mt-2">
           Prior year comparative figures not provided — enter directly in the Excel workbook.
         </p>
       )}
-
-      <div className="no-print flex justify-end mt-4">
-        <PrintButton label="Print / Export PDF" />
-      </div>
     </div>
   );
 }
