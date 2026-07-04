@@ -2996,6 +2996,294 @@ import ExcelJS3 from "exceljs";
 
 // server/services/excelWriter.ts
 import ExcelJS2 from "exceljs";
+
+// server/services/mesEnterDetailsFields.ts
+function buildMesEnterDetailsFields(company, adjustments) {
+  const policies = company.accountingPolicies;
+  const inv = adjustments?.inventoryDetails;
+  const taxRate = policies?.incomeTaxRatePercent ?? company.incomeTaxRate ?? 25;
+  const bonusRate = policies?.bonusRatePercent ?? (company.employeeBonusRate ?? 0.1) * 100;
+  const employees = company.noOfEmployees ?? company.numberOfEmployees ?? 0;
+  const dividendDeclared = company.dividendDeclaredPercent ?? 0;
+  const dividendCapacity = Math.max(0, 100 - dividendDeclared);
+  const fields = [
+    { label: "name of entity", value: company.companyName ?? company.name ?? "" },
+    { label: "address", value: company.fullAddress ?? company.address ?? "" },
+    { label: "this year", value: company.fiscalYear?.bsFY ?? company.fiscalYearCurrent ?? "" },
+    { label: "last year", value: company.previousFiscalYear?.bsFY ?? company.fiscalYearPrevious ?? "" },
+    { label: "reporting date (bs)", value: company.fiscalYear?.endDateBS ?? company.reportingDateBS ?? "" },
+    { label: "reporting date (ad)", value: company.fiscalYear?.endDateAD ?? company.reportingDateAD ?? "" },
+    { label: "entity type", value: company.entityType ?? company.typeOfEntity ?? company.companyType ?? "" },
+    { label: "applicable standard", value: company.applicableStandard ?? "NAS for MEs" },
+    { label: "pan / vat number", value: company.panVatNumber ?? company.panNo ?? "" },
+    { label: "registration no.", value: company.registrationNumber ?? company.registrationNo ?? "" },
+    { label: "chairperson", value: company.chairperson ?? "" },
+    { label: "director", value: company.director ?? "" },
+    { label: "accounts head", value: company.accountsHead ?? "" },
+    { label: "auditor", value: company.auditorInfo?.auditorName ?? company.auditor ?? "" },
+    { label: "name of audit firm", value: company.auditorInfo?.auditorFirmName ?? company.auditFirmName ?? "" },
+    { label: "ican registration no.", value: company.auditorInfo?.icanRegNumber ?? "" },
+    { label: "number of employees", value: employees, isNumeric: true },
+    { label: "income tax rate (%)", value: taxRate, isNumeric: true },
+    { label: "bonus rate (%)", value: typeof bonusRate === "number" && bonusRate <= 1 ? bonusRate * 100 : bonusRate, isNumeric: true },
+    { label: "rounding level (npr)", value: policies?.roundingLevel ?? 100, isNumeric: true },
+    { label: "authorized share capital", value: company.authorizedCapital ?? 0, isNumeric: true },
+    { label: "issued share capital (cy)", value: company.issuedCapitalCY ?? 0, isNumeric: true },
+    { label: "dividend capacity (%)", value: dividendCapacity, isNumeric: true },
+    { label: "dividend declared (%)", value: dividendDeclared, isNumeric: true },
+    { label: "dividend payable (npr)", value: adjustments?.dividendPayable ?? 0, isNumeric: true }
+  ];
+  if (inv) {
+    fields.push(
+      { label: "inventory \u2014 raw materials (cy)", value: inv.rawMaterialsCY ?? 0, isNumeric: true },
+      { label: "inventory \u2014 raw materials (py)", value: inv.rawMaterialsPY ?? 0, isNumeric: true },
+      { label: "inventory \u2014 work in progress (cy)", value: inv.wipCY ?? 0, isNumeric: true },
+      { label: "inventory \u2014 work in progress (py)", value: inv.wipPY ?? 0, isNumeric: true },
+      { label: "inventory \u2014 finished goods (cy)", value: inv.finishedGoodsCY ?? 0, isNumeric: true },
+      { label: "inventory \u2014 finished goods (py)", value: inv.finishedGoodsPY ?? 0, isNumeric: true }
+    );
+  }
+  return fields;
+}
+
+// server/services/mesTrialBalanceWriter.ts
+var NUMBER_FORMAT = "#,##0.00";
+var SUBHEADER_BG = "E2EFDA";
+var THIN_BORDER = {
+  top: { style: "thin", color: { argb: "FFD1D5DB" } },
+  left: { style: "thin", color: { argb: "FFD1D5DB" } },
+  bottom: { style: "thin", color: { argb: "FFD1D5DB" } },
+  right: { style: "thin", color: { argb: "FFD1D5DB" } }
+};
+function applyHeaderStyle(cell) {
+  cell.font = { name: "Arial", size: 11, bold: true, color: { argb: "FF1E3A5F" } };
+  cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFD6E4F0" } };
+}
+function applySubHeaderStyle(cell) {
+  cell.font = { name: "Arial", size: 10, bold: true };
+  cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: `FF${SUBHEADER_BG}` } };
+  cell.border = THIN_BORDER;
+}
+function applyInputStyle(cell) {
+  cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE8F5E9" } };
+}
+var MES_TB_TOTAL_COLS = 19;
+var MES_TB_CY_COLS = [2, 3, 4, 5, 6, 7, 8, 9];
+var MES_TB_PY_COLS = [12, 13, 14, 15, 16, 17, 18, 19];
+var SECTION_MAP = [
+  { prefixes: ["BS Equity"], header: "CAPITAL ACCOUNT & RESERVES" },
+  { prefixes: ["BS NCL Borrowings"], header: "NON-CURRENT LIABILITIES - LOANS & BORROWINGS" },
+  { prefixes: ["BS NCL Employee Benefits"], header: "NON-CURRENT LIABILITIES - EMPLOYEE BENEFITS" },
+  { prefixes: ["BS NCL Provisions"], header: "NON-CURRENT LIABILITIES - PROVISIONS" },
+  { prefixes: ["BS NCL"], header: "NON-CURRENT LIABILITIES - OTHER" },
+  { prefixes: ["BS CL Trade Payables"], header: "CURRENT LIABILITIES - TRADE PAYABLES" },
+  { prefixes: ["BS CL Borrowings"], header: "CURRENT LIABILITIES - LOANS & BORROWINGS" },
+  { prefixes: ["BS CL Tax"], header: "CURRENT LIABILITIES - TAX PAYABLE" },
+  { prefixes: ["BS CL Employee"], header: "CURRENT LIABILITIES - EMPLOYEE PAYABLES" },
+  { prefixes: ["BS CL Provisions"], header: "CURRENT LIABILITIES - PROVISIONS" },
+  { prefixes: ["BS CL Other"], header: "CURRENT LIABILITIES - OTHER" },
+  { prefixes: ["BS CA Tax"], header: "CURRENT ASSETS - ADVANCE TAX" },
+  { prefixes: ["BS NCA PPE"], header: "PROPERTY, PLANT & EQUIPMENT" },
+  { prefixes: ["BS NCA/CA Investments", "BS NCA Investments"], header: "INVESTMENTS" },
+  { prefixes: ["BS NCA"], header: "OTHER NON-CURRENT ASSETS" },
+  { prefixes: ["BS CA Inventory"], header: "CURRENT ASSETS - INVENTORY" },
+  { prefixes: ["BS CA Receivables"], header: "CURRENT ASSETS - TRADE RECEIVABLES" },
+  { prefixes: ["BS CA Other Receivables"], header: "CURRENT ASSETS - OTHER RECEIVABLES" },
+  { prefixes: ["BS CA Cash"], header: "CURRENT ASSETS - CASH & BANK" },
+  { prefixes: ["BS CA"], header: "CURRENT ASSETS - OTHER" },
+  { prefixes: ["IS Revenue"], header: "DIRECT INCOME" },
+  { prefixes: ["IS Other Income"], header: "INDIRECT INCOME" },
+  { prefixes: ["IS COGS"], header: "DIRECT EXPENSES" },
+  { prefixes: ["IS Employee Benefits"], header: "EMPLOYEE BENEFIT EXPENSES" },
+  { prefixes: ["IS Finance Costs"], header: "FINANCE COSTS" },
+  { prefixes: ["IS Depreciation"], header: "DEPRECIATION" },
+  { prefixes: ["IS Impairment"], header: "IMPAIRMENT EXPENSES" },
+  { prefixes: ["IS Admin"], header: "ADMINISTRATIVE EXPENSES" },
+  { prefixes: ["IS Tax"], header: "INCOME TAX EXPENSE" }
+];
+function colLetter(col) {
+  let letter = "";
+  let n = col;
+  while (n > 0) {
+    const rem = (n - 1) % 26;
+    letter = String.fromCharCode(65 + rem) + letter;
+    n = Math.floor((n - 1) / 26);
+  }
+  return letter;
+}
+function normLabel(s) {
+  return s.toLowerCase().trim().replace(/\s+/g, " ");
+}
+function buildSectionAccounts() {
+  const sectionAccounts = /* @__PURE__ */ new Map();
+  for (const entry of CHART_OF_ACCOUNTS) {
+    if (entry.isGroup || entry.statementLine === "N/A") continue;
+    let header = null;
+    for (const { prefixes, header: h } of SECTION_MAP) {
+      if (prefixes.some((p) => entry.statementLine.startsWith(p))) {
+        header = h;
+        break;
+      }
+    }
+    if (!header) continue;
+    if (!sectionAccounts.has(header)) sectionAccounts.set(header, []);
+    sectionAccounts.get(header).push({ displayLabel: entry.displayLabel, category: entry.category });
+  }
+  return SECTION_MAP.map(({ header }) => header).filter((header) => sectionAccounts.has(header)).map((header) => ({ header, accounts: sectionAccounts.get(header) }));
+}
+function indexRows(rows) {
+  const map = /* @__PURE__ */ new Map();
+  for (const row of rows) {
+    if (row.isGroupRow) continue;
+    map.set(normLabel(row.rawLabel), row);
+    if (row.displayLabel) map.set(normLabel(row.displayLabel), row);
+    if (row.nfrsCategory) map.set(String(row.nfrsCategory), row);
+  }
+  return map;
+}
+function indexPyRows(rows) {
+  const map = /* @__PURE__ */ new Map();
+  for (const row of rows ?? []) {
+    if (row.isGroupRow) continue;
+    map.set(normLabel(row.rawLabel), row);
+  }
+  return map;
+}
+function writeAmountCells(row, cols, amounts, styled = false) {
+  amounts.forEach((amt, i) => {
+    const cell = row.getCell(cols[i]);
+    cell.value = amt || null;
+    cell.numFmt = NUMBER_FORMAT;
+    cell.alignment = { horizontal: "right" };
+    if (styled) applyInputStyle(cell);
+    cell.border = THIN_BORDER;
+  });
+}
+function rowAmounts(r) {
+  return [
+    r.openingDr,
+    r.openingCr,
+    r.duringDr,
+    r.duringCr,
+    r.adjustmentDr,
+    r.adjustmentCr,
+    r.closingDr,
+    r.closingCr
+  ];
+}
+function writeMesFormatTrialBalance(ws, tb, company) {
+  ws.getColumn(1).width = 42;
+  for (const col of [...MES_TB_CY_COLS, ...MES_TB_PY_COLS]) {
+    ws.getColumn(col).width = 14;
+  }
+  const companyName = company?.companyName ?? tb.companyName ?? "[COMPANY NAME]";
+  const fy = company?.fiscalYear?.bsFY ?? tb.fiscalYear ?? "";
+  ws.mergeCells(1, 1, 1, MES_TB_TOTAL_COLS);
+  const titleCell = ws.getCell(1, 1);
+  titleCell.value = companyName;
+  titleCell.alignment = { horizontal: "center", vertical: "middle" };
+  applyHeaderStyle(titleCell);
+  ws.getRow(1).height = 26;
+  ws.mergeCells(2, 1, 2, MES_TB_TOTAL_COLS);
+  const subCell = ws.getCell(2, 1);
+  subCell.value = `TRIAL BALANCE \u2014 FISCAL YEAR ${fy}`;
+  subCell.alignment = { horizontal: "center", vertical: "middle" };
+  applyHeaderStyle(subCell);
+  ws.mergeCells(3, 1, 3, 9);
+  ws.getCell(3, 1).value = "CURRENT YEAR";
+  ws.getCell(3, 1).font = { name: "Arial", size: 10, bold: true };
+  ws.getCell(3, 1).alignment = { horizontal: "center" };
+  ws.mergeCells(3, 11, 3, 19);
+  ws.getCell(3, 11).value = "PREVIOUS YEAR";
+  ws.getCell(3, 11).font = { name: "Arial", size: 10, bold: true };
+  ws.getCell(3, 11).alignment = { horizontal: "center" };
+  const cyHeaders = [
+    "Particulars",
+    "Opening Dr.",
+    "Opening Cr.",
+    "During Dr.",
+    "During Cr.",
+    "Adjustment Dr.",
+    "Adjustment Cr.",
+    "Closing Dr.",
+    "Closing Cr."
+  ];
+  const headerRow = ws.getRow(5);
+  cyHeaders.forEach((h, i) => {
+    const c = headerRow.getCell(i + 1);
+    c.value = h;
+    applySubHeaderStyle(c);
+    c.alignment = { horizontal: i === 0 ? "left" : "center", vertical: "middle" };
+  });
+  cyHeaders.forEach((h, i) => {
+    const c = headerRow.getCell(11 + i);
+    c.value = h;
+    applySubHeaderStyle(c);
+    c.alignment = { horizontal: i === 0 ? "left" : "center", vertical: "middle" };
+  });
+  const cyIndex = indexRows(tb.rows);
+  const pyIndex = indexPyRows(tb.previousYearData ?? void 0);
+  const matchedCy = /* @__PURE__ */ new Set();
+  let currentRow = 6;
+  const dataStartRow = currentRow;
+  for (const { header, accounts } of buildSectionAccounts()) {
+    ws.mergeCells(currentRow, 1, currentRow, MES_TB_TOTAL_COLS);
+    const sectionCell = ws.getRow(currentRow).getCell(1);
+    sectionCell.value = header;
+    sectionCell.font = { name: "Arial", size: 10, bold: true };
+    sectionCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: `FF${SUBHEADER_BG}` } };
+    currentRow++;
+    for (const account of accounts) {
+      const cyRow = cyIndex.get(normLabel(account.displayLabel)) ?? cyIndex.get(account.category);
+      if (!cyRow) continue;
+      matchedCy.add(cyRow);
+      const pyRow = pyIndex.get(normLabel(account.displayLabel)) ?? pyIndex.get(normLabel(cyRow.rawLabel));
+      const row = ws.getRow(currentRow);
+      row.getCell(1).value = account.displayLabel;
+      row.getCell(1).font = { name: "Arial", size: 10 };
+      writeAmountCells(row, MES_TB_CY_COLS, rowAmounts(cyRow));
+      if (pyRow) {
+        writeAmountCells(row, MES_TB_PY_COLS, rowAmounts(pyRow));
+      } else {
+        writeAmountCells(row, MES_TB_PY_COLS, [0, 0, 0, 0, 0, 0, 0, 0], true);
+      }
+      currentRow++;
+    }
+  }
+  const unmatched = tb.rows.filter((r) => !r.isGroupRow && !matchedCy.has(r));
+  if (unmatched.length > 0) {
+    ws.mergeCells(currentRow, 1, currentRow, MES_TB_TOTAL_COLS);
+    ws.getRow(currentRow).getCell(1).value = "OTHER ACCOUNTS";
+    ws.getRow(currentRow).getCell(1).font = { name: "Arial", size: 10, bold: true };
+    currentRow++;
+    for (const cyRow of unmatched) {
+      const pyRow = pyIndex.get(normLabel(cyRow.rawLabel));
+      const row = ws.getRow(currentRow);
+      row.getCell(1).value = cyRow.displayLabel ?? cyRow.rawLabel;
+      writeAmountCells(row, MES_TB_CY_COLS, rowAmounts(cyRow));
+      if (pyRow) writeAmountCells(row, MES_TB_PY_COLS, rowAmounts(pyRow));
+      else writeAmountCells(row, MES_TB_PY_COLS, [0, 0, 0, 0, 0, 0, 0, 0], true);
+      currentRow++;
+    }
+  }
+  const dataEndRow = currentRow - 1;
+  const totalRow = ws.getRow(currentRow);
+  totalRow.getCell(1).value = "GRAND TOTAL";
+  totalRow.getCell(1).font = { name: "Arial", size: 10, bold: true };
+  const doubleTop = { style: "double", color: { argb: "FF1E40AF" } };
+  for (const col of [...MES_TB_CY_COLS, ...MES_TB_PY_COLS]) {
+    const cell = totalRow.getCell(col);
+    const letter = colLetter(col);
+    cell.value = { formula: `SUM(${letter}${dataStartRow}:${letter}${dataEndRow})`, result: 0 };
+    cell.numFmt = NUMBER_FORMAT;
+    cell.alignment = { horizontal: "right" };
+    cell.font = { name: "Arial", size: 10, bold: true };
+    cell.border = { top: doubleTop };
+  }
+  ws.views = [{ state: "frozen", ySplit: 5 }];
+}
+
+// server/services/excelWriter.ts
 var COLORS = {
   BRAND_BLUE: "1E40AF",
   HEADER_BG: "1E3A8A",
@@ -3018,18 +3306,18 @@ var FONTS = {
   NOTE_REF: { name: "Arial", size: 9, italic: true, color: { argb: "FF64748B" } },
   TITLE: { name: "Arial", size: 11, bold: true, color: { argb: `FF${COLORS.WHITE}` } }
 };
-var NUMBER_FORMAT = "#,##0";
-var THIN_BORDER = { style: "thin", color: { argb: `FF${COLORS.BORDER_COLOR}` } };
+var NUMBER_FORMAT2 = "#,##0";
+var THIN_BORDER2 = { style: "thin", color: { argb: `FF${COLORS.BORDER_COLOR}` } };
 var MEDIUM_BORDER = { style: "medium", color: { argb: `FF${COLORS.BRAND_BLUE}` } };
-function applyHeaderStyle(cell) {
+function applyHeaderStyle2(cell) {
   cell.font = { name: "Arial", size: 11, bold: true, color: { argb: `FF${COLORS.WHITE}` } };
   cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: `FF${COLORS.BRAND_BLUE}` } };
 }
-function applySubHeaderStyle(cell) {
+function applySubHeaderStyle2(cell) {
   cell.font = { name: "Arial", size: 10, bold: true, color: { argb: `FF${COLORS.BRAND_BLUE}` } };
   cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: `FF${COLORS.SUBHEADER_BG}` } };
 }
-function applyInputStyle(cell) {
+function applyInputStyle2(cell) {
   cell.font = { name: "Arial", size: 10 };
   cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: `FF${COLORS.GREEN_INPUT}` } };
 }
@@ -3046,16 +3334,16 @@ function applyTotalStyle(cell) {
   cell.border = { ...cell.border, top: MEDIUM_BORDER };
 }
 function applyHeaderFill(cell, colorHex = COLORS.HEADER_BG) {
-  if (colorHex === COLORS.SUBHEADER_BG) applySubHeaderStyle(cell);
-  else applyHeaderStyle(cell);
+  if (colorHex === COLORS.SUBHEADER_BG) applySubHeaderStyle2(cell);
+  else applyHeaderStyle2(cell);
 }
 function applyGreenInput(cell) {
-  applyInputStyle(cell);
+  applyInputStyle2(cell);
 }
 function writeNoteSheetTitle(ws, title) {
   const cell = ws.getRow(1).getCell(1);
   cell.value = title;
-  applyHeaderStyle(cell);
+  applyHeaderStyle2(cell);
 }
 var PPE_WORKINGS_CLASSES = [
   "Land",
@@ -3113,7 +3401,7 @@ function proRataDays(purchaseSerial, fiscalYear) {
 }
 function setAmountCell(cell, value) {
   cell.value = value || null;
-  cell.numFmt = NUMBER_FORMAT;
+  cell.numFmt = NUMBER_FORMAT2;
   cell.alignment = { horizontal: "right" };
 }
 function writeSumTotalRow(ws, row, labelCol, sumCols, fromRow, toRow, label = "Total") {
@@ -3122,9 +3410,9 @@ function writeSumTotalRow(ws, row, labelCol, sumCols, fromRow, toRow, label = "T
   exRow.getCell(labelCol).font = FONTS.TOTAL;
   sumCols.forEach((col) => {
     const cell = exRow.getCell(col);
-    const colLetter2 = ws.getColumn(col).letter ?? String.fromCharCode(64 + col);
-    cell.value = { formula: `SUM(${colLetter2}${fromRow}:${colLetter2}${toRow})`, result: 0 };
-    cell.numFmt = NUMBER_FORMAT;
+    const colLetter3 = ws.getColumn(col).letter ?? String.fromCharCode(64 + col);
+    cell.value = { formula: `SUM(${colLetter3}${fromRow}:${colLetter3}${toRow})`, result: 0 };
+    cell.numFmt = NUMBER_FORMAT2;
     cell.alignment = { horizontal: "right" };
     cell.font = FONTS.TOTAL;
     cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: `FF${COLORS.TOTAL_BG}` } };
@@ -3147,14 +3435,14 @@ function agingBucketAmount(amount, days) {
   return [0, 0, 0, amount];
 }
 function applyAllBorders(cell) {
-  cell.border = { top: THIN_BORDER, bottom: THIN_BORDER, left: THIN_BORDER, right: THIN_BORDER };
+  cell.border = { top: THIN_BORDER2, bottom: THIN_BORDER2, left: THIN_BORDER2, right: THIN_BORDER2 };
 }
 function writeSectionHeader(ws, row, text, lastColIndex = 4) {
   const exRow = ws.getRow(row);
   const cell = exRow.getCell(1);
   ws.mergeCells(row, 1, row, lastColIndex);
   cell.value = text;
-  applySubHeaderStyle(cell);
+  applySubHeaderStyle2(cell);
   cell.alignment = { horizontal: "left", vertical: "middle" };
   exRow.height = 18;
 }
@@ -3163,7 +3451,7 @@ function writeStatementHeader(ws, companyName, statementTitle, periodLine, curYe
   const r1 = ws.getCell("A1");
   r1.value = companyName.toUpperCase();
   r1.alignment = { horizontal: "center", vertical: "middle" };
-  applyHeaderStyle(r1);
+  applyHeaderStyle2(r1);
   ws.getRow(1).height = 26;
   ws.mergeCells("A2:F2");
   const r2 = ws.getCell("A2");
@@ -3192,7 +3480,7 @@ function writeStatementHeader(ws, companyName, statementTitle, periodLine, curYe
   headerRow.getCell(3).value = curYearLabel;
   headerRow.getCell(4).value = prevYearLabel;
   headerRow.eachCell({ includeEmpty: false }, (cell) => {
-    applySubHeaderStyle(cell);
+    applySubHeaderStyle2(cell);
     cell.alignment = { horizontal: Number(cell.col) === 1 ? "left" : "center", vertical: "middle" };
     applyAllBorders(cell);
   });
@@ -3217,12 +3505,12 @@ function writeAmountRow(ws, rowNum, r) {
   } else applyBodyStyle(cell2);
   const cell3 = exRow.getCell(3);
   cell3.value = r.cy || null;
-  cell3.numFmt = NUMBER_FORMAT;
+  cell3.numFmt = NUMBER_FORMAT2;
   cell3.alignment = { horizontal: "right" };
   applyBodyStyle(cell3);
   const cell4 = exRow.getCell(4);
   cell4.value = r.py || null;
-  cell4.numFmt = NUMBER_FORMAT;
+  cell4.numFmt = NUMBER_FORMAT2;
   cell4.alignment = { horizontal: "right" };
   applyBodyStyle(cell4);
   [cell1, cell2, cell3, cell4].forEach(applyAllBorders);
@@ -3415,27 +3703,25 @@ function writeInstructions(ws) {
     ws.getRow(i + 3).getCell(2).font = { name: "Arial", size: 10 };
   });
 }
-function writeEnterDetails(ws, company) {
-  const fields = [
-    ["Company Name", company.companyName ?? ""],
-    ["PAN / VAT Number", company.panVatNumber ?? ""],
-    ["Registration No.", company.registrationNumber ?? ""],
-    ["Company Type", company.companyType ?? ""],
-    ["Fiscal Year", company.fiscalYear?.bsFY ?? ""],
-    ["Chairperson", company.chairperson ?? ""],
-    ["Director", company.director ?? ""],
-    ["Accounts Head", company.accountsHead ?? ""],
-    ["Auditor Name", company.auditorInfo?.auditorName ?? ""],
-    ["Audit Firm", company.auditorInfo?.auditorFirmName ?? ""]
-  ];
-  fields.forEach(([label, value], i) => {
-    const row = ws.getRow(i + 2);
-    row.getCell(1).value = label;
-    row.getCell(1).font = { name: "Arial", size: 10, bold: true };
-    const vc = row.getCell(2);
-    vc.value = value;
-    applyInputStyle(vc);
-    vc.border = THIN_BORDER;
+function writeEnterDetails(ws, company, adjustments) {
+  ws.getColumn(1).width = 4;
+  ws.getColumn(2).width = 34;
+  ws.getColumn(3).width = 36;
+  ws.mergeCells(1, 2, 1, 3);
+  const title = ws.getCell(1, 2);
+  title.value = "ENTER DETAILS \u2014 NAS FOR MEs";
+  title.font = { name: "Arial", size: 12, bold: true };
+  title.alignment = { horizontal: "center" };
+  const fields = buildMesEnterDetailsFields(company, adjustments);
+  fields.forEach(({ label, value, isNumeric }, i) => {
+    const row = ws.getRow(i + 3);
+    row.getCell(2).value = label;
+    row.getCell(2).font = { name: "Arial", size: 10, bold: true };
+    const vc = row.getCell(3);
+    vc.value = value === "" ? null : value;
+    if (isNumeric && typeof value === "number") vc.numFmt = NUMBER_FORMAT2;
+    applyInputStyle2(vc);
+    vc.border = THIN_BORDER2;
   });
 }
 function writeBalanceSheet(ws, bs, company) {
@@ -3545,7 +3831,7 @@ function writeBalanceSheet(ws, bs, company) {
     if (!targetRow || !fromRow || !toRow) return;
     const cell = ws.getRow(targetRow).getCell(col);
     cell.value = fromRow === toRow ? { formula: `${col}${fromRow}`, result: cell.value ?? 0 } : { formula: `SUM(${col}${fromRow}:${col}${toRow})`, result: cell.value ?? 0 };
-    cell.numFmt = NUMBER_FORMAT;
+    cell.numFmt = NUMBER_FORMAT2;
     applyTotalStyle(cell);
   };
   if (bsRowMap.totalNcaRow && bsRowMap.ppeRow && bsRowMap.ncaOtherRow) {
@@ -3562,7 +3848,7 @@ function writeBalanceSheet(ws, bs, company) {
   }
   const checkCell = ws.getRow(row).getCell(3);
   checkCell.value = { formula: `=C${row - rows.length + rows.findIndex((r) => r.isTotal && r.label.includes("TOTAL ASSETS")) + 6}-C${row - 1}` };
-  checkCell.numFmt = NUMBER_FORMAT;
+  checkCell.numFmt = NUMBER_FORMAT2;
   ws.getRow(row).getCell(1).value = "Balance Check (must be zero):";
   ws.getRow(row).getCell(1).font = { name: "Arial", size: 9, italic: true };
   row++;
@@ -3656,7 +3942,7 @@ function writeIncomeStatement(ws, is, company) {
         result: cell.value ?? 0
       };
     }
-    cell.numFmt = NUMBER_FORMAT;
+    cell.numFmt = NUMBER_FORMAT2;
     applyTotalStyle(cell);
   };
   applySumFormula(isRowMap.totalIncomeRow, incomeDetailRows, "C");
@@ -3669,7 +3955,7 @@ function writeIncomeStatement(ws, is, company) {
       formula: `C${isRowMap.totalIncomeRow}-C${isRowMap.totalExpensesRow}`,
       result: pbtCell.value ?? 0
     };
-    pbtCell.numFmt = NUMBER_FORMAT;
+    pbtCell.numFmt = NUMBER_FORMAT2;
     applyTotalStyle(pbtCell);
   }
   if (isRowMap.netProfitRow && isRowMap.profitBeforeTaxRow && isRowMap.taxRow) {
@@ -3678,7 +3964,7 @@ function writeIncomeStatement(ws, is, company) {
       formula: `C${isRowMap.profitBeforeTaxRow}-C${isRowMap.taxRow}`,
       result: npCell.value ?? 0
     };
-    npCell.numFmt = NUMBER_FORMAT;
+    npCell.numFmt = NUMBER_FORMAT2;
     applyTotalStyle(npCell);
   }
   writeSignatureLine(ws, row + 1, company);
@@ -3768,7 +4054,7 @@ function writeChangesInEquity(ws, ce, company) {
   const r1 = ws.getCell("A1");
   r1.value = (company.companyName ?? "").toUpperCase();
   r1.alignment = { horizontal: "center" };
-  applyHeaderStyle(r1);
+  applyHeaderStyle2(r1);
   ws.mergeCells("A2:F2");
   ws.getCell("A2").value = "STATEMENT OF CHANGES IN EQUITY";
   ws.getCell("A2").font = { name: "Arial", size: 12, bold: true };
@@ -3805,7 +4091,7 @@ function writeChangesInEquity(ws, ce, company) {
         cell.value = val;
       } else {
         cell.value = val || null;
-        cell.numFmt = NUMBER_FORMAT;
+        cell.numFmt = NUMBER_FORMAT2;
         cell.alignment = { horizontal: "right" };
       }
       applyAllBorders(cell);
@@ -3828,7 +4114,7 @@ function writeNote31_PPE(ws, depnSummary) {
     const c = hRow.getCell(i + 1);
     c.value = h;
     c.alignment = { horizontal: i === 0 ? "left" : "center" };
-    applySubHeaderStyle(c);
+    applySubHeaderStyle2(c);
     applyAllBorders(c);
   });
   const costRows = [
@@ -3848,12 +4134,12 @@ function writeNote31_PPE(ws, depnSummary) {
     depnSummary.forEach((d, i) => {
       const v = fn(d);
       row.getCell(i + 2).value = v || null;
-      row.getCell(i + 2).numFmt = NUMBER_FORMAT;
+      row.getCell(i + 2).numFmt = NUMBER_FORMAT2;
       row.getCell(i + 2).alignment = { horizontal: "right" };
       total += v;
     });
     row.getCell(depnSummary.length + 2).value = total || null;
-    row.getCell(depnSummary.length + 2).numFmt = NUMBER_FORMAT;
+    row.getCell(depnSummary.length + 2).numFmt = NUMBER_FORMAT2;
     row.getCell(depnSummary.length + 2).alignment = { horizontal: "right" };
     row.height = 15;
   });
@@ -3863,6 +4149,7 @@ function writeNote31_PPE(ws, depnSummary) {
   const depnRows = [
     ["Balance at Beginning of Year", (d) => d.openingAccumDepn],
     ["Charge for the Year", (d) => d.depnForYear],
+    ["Impairment Losses", (d) => d.impairmentLosses ?? 0],
     ["On Disposals", (d) => -d.depnOnDisposal],
     ["Balance at End of Year", (d) => d.closingAccumDepn]
   ];
@@ -3873,12 +4160,12 @@ function writeNote31_PPE(ws, depnSummary) {
     depnSummary.forEach((d, i) => {
       const v = fn(d);
       row.getCell(i + 2).value = v || null;
-      row.getCell(i + 2).numFmt = NUMBER_FORMAT;
+      row.getCell(i + 2).numFmt = NUMBER_FORMAT2;
       row.getCell(i + 2).alignment = { horizontal: "right" };
       total += v;
     });
     row.getCell(depnSummary.length + 2).value = total || null;
-    row.getCell(depnSummary.length + 2).numFmt = NUMBER_FORMAT;
+    row.getCell(depnSummary.length + 2).numFmt = NUMBER_FORMAT2;
     row.getCell(depnSummary.length + 2).alignment = { horizontal: "right" };
     row.height = 15;
   });
@@ -3899,7 +4186,7 @@ function writeNote31_PPE(ws, depnSummary) {
       const v = fn(d);
       const c = row.getCell(i + 2);
       c.value = v || null;
-      c.numFmt = NUMBER_FORMAT;
+      c.numFmt = NUMBER_FORMAT2;
       c.alignment = { horizontal: "right" };
       c.font = FONTS.TOTAL;
       applyHeaderFill(c, COLORS.TOTAL_BG);
@@ -3907,13 +4194,36 @@ function writeNote31_PPE(ws, depnSummary) {
     });
     const tc = row.getCell(depnSummary.length + 2);
     tc.value = total || null;
-    tc.numFmt = NUMBER_FORMAT;
+    tc.numFmt = NUMBER_FORMAT2;
     tc.alignment = { horizontal: "right" };
     tc.font = FONTS.TOTAL;
     applyHeaderFill(tc, COLORS.TOTAL_BG);
     row.height = 15;
   });
   SHEET_ROW_REGISTRY.ppeNetBookValueRow = r - 1;
+  const totalSecured = depnSummary.reduce((s, d) => s + (d.securedAmount ?? 0), 0);
+  const hasCwip = depnSummary.some(
+    (d) => d.categoryId === "under_construction" || /under construction|cwip/i.test(d.categoryName)
+  ) && depnSummary.some((d) => d.closingCost > 0 && /under construction|cwip/i.test(d.categoryName));
+  if (totalSecured > 0 || hasCwip) {
+    r += 1;
+    ws.getRow(r).getCell(1).value = "DISCLOSURES";
+    ws.getRow(r).getCell(1).font = FONTS.SUBHEADING;
+    r += 1;
+  }
+  if (totalSecured > 0) {
+    const securedClasses = depnSummary.filter((d) => d.hasSecuredAssets).map((d) => `${d.categoryName}: NPR ${(d.securedAmount ?? 0).toLocaleString("en-IN")}`).join("; ");
+    const secRow = ws.getRow(r++);
+    secRow.getCell(1).value = `Security (if any): The following PPE classes are pledged as security for borrowings \u2014 ${securedClasses}. Total secured carrying amount: NPR ${totalSecured.toLocaleString("en-IN")}.`;
+    secRow.getCell(1).font = { name: "Arial", size: 9, italic: true };
+    ws.mergeCells(r - 1, 1, r - 1, depnSummary.length + 2);
+  }
+  if (hasCwip) {
+    const cwipRow = ws.getRow(r++);
+    cwipRow.getCell(1).value = "PPE under construction: Assets under construction are carried at cost and are not depreciated until available for use, in accordance with NAS for MEs.";
+    cwipRow.getCell(1).font = { name: "Arial", size: 9, italic: true };
+    ws.mergeCells(r - 1, 1, r - 1, depnSummary.length + 2);
+  }
   return {
     ppeNetBookValueRow: r - 1,
     ppeDepreciationRow: SHEET_ROW_REGISTRY.ppeDepreciationRow
@@ -3926,7 +4236,7 @@ function writeNote37_Inventories(ws, note37) {
   headers.forEach((h, i) => {
     const c = hRow.getCell(i + 1);
     c.value = h;
-    applySubHeaderStyle(c);
+    applySubHeaderStyle2(c);
     applyAllBorders(c);
   });
   const rows = [
@@ -3944,7 +4254,7 @@ function writeNote37_Inventories(ws, note37) {
     [cy, py].forEach((v, ci) => {
       const c = r.getCell(ci + 2);
       c.value = v || null;
-      c.numFmt = NUMBER_FORMAT;
+      c.numFmt = NUMBER_FORMAT2;
       c.alignment = { horizontal: "right" };
       if (i === rows.length - 1) {
         c.font = FONTS.TOTAL;
@@ -3962,27 +4272,27 @@ function writeNote38_Cash(ws, note38) {
   ["Particulars", "Current Year", "Previous Year"].forEach((h, i) => {
     const c = hRow.getCell(i + 1);
     c.value = h;
-    applySubHeaderStyle(c);
+    applySubHeaderStyle2(c);
     applyAllBorders(c);
   });
   let r = 4;
   const cashRow = ws.getRow(r++);
   cashRow.getCell(1).value = "Cash in Hand";
   cashRow.getCell(2).value = note38.cashInHand_cy || null;
-  cashRow.getCell(2).numFmt = NUMBER_FORMAT;
+  cashRow.getCell(2).numFmt = NUMBER_FORMAT2;
   cashRow.getCell(2).alignment = { horizontal: "right" };
   note38.bankBalances?.forEach((b) => {
     const row = ws.getRow(r++);
     row.getCell(1).value = b.bankName;
     row.getCell(2).value = b.cy || null;
-    row.getCell(2).numFmt = NUMBER_FORMAT;
+    row.getCell(2).numFmt = NUMBER_FORMAT2;
     row.getCell(2).alignment = { horizontal: "right" };
   });
   const totRow = ws.getRow(r);
   totRow.getCell(1).value = "Total Cash and Equivalents";
   totRow.getCell(1).font = FONTS.TOTAL;
   totRow.getCell(2).value = note38.totalCash_cy || null;
-  totRow.getCell(2).numFmt = NUMBER_FORMAT;
+  totRow.getCell(2).numFmt = NUMBER_FORMAT2;
   totRow.getCell(2).alignment = { horizontal: "right" };
   totRow.getCell(2).font = FONTS.TOTAL;
   applyHeaderFill(totRow.getCell(2), COLORS.TOTAL_BG);
@@ -4006,7 +4316,7 @@ function writeNote39_ShareCapital(ws, note39) {
     const r = ws.getRow(3 + i);
     r.getCell(1).value = label;
     r.getCell(2).value = val || null;
-    r.getCell(2).numFmt = NUMBER_FORMAT;
+    r.getCell(2).numFmt = NUMBER_FORMAT2;
     r.getCell(2).alignment = { horizontal: "right" };
   });
   SHEET_ROW_REGISTRY.shareCapitalRow = 3 + rows.length - 1;
@@ -4015,7 +4325,7 @@ function writeNote39_ShareCapital(ws, note39) {
 function writeNote311_Borrowings(ws, note311) {
   writeNoteSheetTitle(ws, "3.11  Loans and Borrowings");
   ws.getRow(2).getCell(1).value = "Non-Current Borrowings";
-  applySubHeaderStyle(ws.getRow(2).getCell(1));
+  applySubHeaderStyle2(ws.getRow(2).getCell(1));
   const hRow = ws.getRow(3);
   ["Lender", "Interest Rate %", "Security", "Current Year", "Previous Year"].forEach((h, i) => {
     const c = hRow.getCell(i + 1);
@@ -4033,7 +4343,7 @@ function writeNote311_Borrowings(ws, note311) {
       const c = row.getCell(i + 1);
       c.value = v || null;
       if (i >= 3) {
-        c.numFmt = NUMBER_FORMAT;
+        c.numFmt = NUMBER_FORMAT2;
         c.alignment = { horizontal: "right" };
       }
     });
@@ -4050,7 +4360,7 @@ function writeNote311_Borrowings(ws, note311) {
       const c = row.getCell(i + 1);
       c.value = v || null;
       if (i >= 3) {
-        c.numFmt = NUMBER_FORMAT;
+        c.numFmt = NUMBER_FORMAT2;
         c.alignment = { horizontal: "right" };
       }
     });
@@ -4083,7 +4393,7 @@ function writeNote323_Tax(ws, note323, taxCalcSheetName, taxCalcNetPayableRow) {
     } else {
       amountCell.value = val || null;
     }
-    amountCell.numFmt = NUMBER_FORMAT;
+    amountCell.numFmt = NUMBER_FORMAT2;
     amountCell.alignment = { horizontal: "right" };
     applyBodyStyle(amountCell);
   });
@@ -4165,7 +4475,7 @@ function writePPEWorkingsSheet(ws, assets, fiscalYear, depreciationResults = [])
       setAmountCell(r.getCell(4), addition || null);
       setAmountCell(r.getCell(5), deletion || null);
       r.getCell(6).value = { formula: `C${row - 1}+D${row - 1}-E${row - 1}`, result: balance };
-      r.getCell(6).numFmt = NUMBER_FORMAT;
+      r.getCell(6).numFmt = NUMBER_FORMAT2;
       r.getCell(6).alignment = { horizontal: "right" };
       setAmountCell(r.getCell(7), salesValue || null);
       if (asset.disposed && disposalSerial) {
@@ -4181,10 +4491,10 @@ function writePPEWorkingsSheet(ws, assets, fiscalYear, depreciationResults = [])
       setAmountCell(r.getCell(12), depnYear || null);
       setAmountCell(r.getCell(13), depnDeletion || null);
       r.getCell(14).value = { formula: `K${row - 1}+L${row - 1}-M${row - 1}`, result: accumClose };
-      r.getCell(14).numFmt = NUMBER_FORMAT;
+      r.getCell(14).numFmt = NUMBER_FORMAT2;
       r.getCell(14).alignment = { horizontal: "right" };
       r.getCell(15).value = { formula: `F${row - 1}-N${row - 1}`, result: closingWdv };
-      r.getCell(15).numFmt = NUMBER_FORMAT;
+      r.getCell(15).numFmt = NUMBER_FORMAT2;
       r.getCell(15).alignment = { horizontal: "right" };
       setAmountCell(r.getCell(16), openingWdv || null);
       setAmountCell(r.getCell(17), asset.disposed ? wdvOnDisposal : null);
@@ -4207,6 +4517,8 @@ function writeTaxDepreciationSheet(ws, taxDepPools, _fiscalYear) {
     "Pool Name",
     "Opening Depreciation Basis",
     "Additions",
+    "Disposals",
+    "Depreciation Basis",
     "Absorbed Portion",
     "Unabsorbed Portion",
     "Tax Depn Rate",
@@ -4226,25 +4538,32 @@ function writeTaxDepreciationSheet(ws, taxDepPools, _fiscalYear) {
   pools.forEach((pool, i) => {
     const r = ws.getRow(4 + i);
     const rate = Number(pool.rate ?? 0);
+    const openingBasis = Number(pool.openingBasis ?? 0);
+    const additions = Number(pool.additions ?? 0);
+    const disposals = Number(pool.disposals ?? 0);
+    const depreciationBasis = Number(pool.depreciationBasis ?? openingBasis + additions - disposals);
+    const absorbed = Number(pool.absorbed ?? pool.taxDepreciation ?? 0);
+    const unabsorbed = Number(pool.unabsorbed ?? 0);
+    const taxDep = Number(pool.taxDepreciation ?? absorbed);
+    const closingBasis = Number(pool.closingBasis ?? pool.nextYearBasis ?? Math.max(0, depreciationBasis - taxDep));
     r.getCell(1).value = String(pool.poolName ?? pool.pool ?? "");
-    setAmountCell(r.getCell(2), Number(pool.openingBasis ?? 0) || null);
-    setAmountCell(r.getCell(3), Number(pool.additions ?? 0) || null);
-    setAmountCell(r.getCell(4), Number(pool.absorbed ?? pool.additions ?? 0) || null);
-    setAmountCell(r.getCell(5), Number(pool.unabsorbed ?? 0) || null);
-    r.getCell(6).value = rate ? rate : null;
-    r.getCell(6).numFmt = "0.00%";
-    r.getCell(6).alignment = { horizontal: "right" };
-    setAmountCell(r.getCell(7), Number(pool.taxDepreciation ?? 0) || null);
-    setAmountCell(
-      r.getCell(8),
-      Number(pool.nextYearBasis ?? pool.closingBasis ?? 0) || null
-    );
+    setAmountCell(r.getCell(2), openingBasis || null);
+    setAmountCell(r.getCell(3), additions || null);
+    setAmountCell(r.getCell(4), disposals || null);
+    setAmountCell(r.getCell(5), depreciationBasis || null);
+    setAmountCell(r.getCell(6), absorbed || null);
+    setAmountCell(r.getCell(7), unabsorbed || null);
+    r.getCell(8).value = rate ? rate : null;
+    r.getCell(8).numFmt = "0.00%";
+    r.getCell(8).alignment = { horizontal: "right" };
+    setAmountCell(r.getCell(9), taxDep || null);
+    setAmountCell(r.getCell(10), closingBasis || null);
     for (let ci = 1; ci <= headers.length; ci++) applyAllBorders(r.getCell(ci));
   });
   const firstDataRow = 4;
   const lastDataRow = 4 + pools.length - 1;
   const totalRow = 4 + pools.length;
-  writeSumTotalRow(ws, totalRow, 1, [7], firstDataRow, lastDataRow, "Total Tax Depreciation");
+  writeSumTotalRow(ws, totalRow, 1, [9], firstDataRow, lastDataRow, "Total Tax Depreciation");
   const noteRow = ws.getRow(totalRow + 2);
   noteRow.getCell(1).value = "Copy Closing Basis into Opening Basis each year.";
   noteRow.getCell(1).font = { name: "Arial", size: 9, italic: true, color: { argb: "FF64748B" } };
@@ -4285,7 +4604,7 @@ function writeDisallowForTaxSheet(ws, disallowItems) {
   writeSumTotalRow(ws, totalRow, 1, [2, 3, 4], firstDataRow, lastDataRow, "Total Disallowed");
   return { totalDisallowedRow: totalRow };
 }
-function writeFairValueChangeSheet(ws, listedShares) {
+function writeFairValueChangeSheet(ws, listedShares, options) {
   writeNoteSheetTitle(ws, "Fair Value Change");
   const headers = [
     "Company Name",
@@ -4309,26 +4628,57 @@ function writeFairValueChangeSheet(ws, listedShares) {
     ws.getColumn(i + 1).width = i === 0 ? 32 : 16;
   });
   const rows = listedShares.length > 0 ? listedShares : [{}];
+  const firstDataRow = 4;
   rows.forEach((share, i) => {
-    const r = ws.getRow(4 + i);
+    const r = ws.getRow(firstDataRow + i);
+    const rowNum = firstDataRow + i;
+    r.getCell(1).value = String(share.companyName ?? share.name ?? share.investmentName ?? "");
+    if (listedShares.length === 0) {
+      for (let ci = 1; ci <= headers.length; ci++) applyGreenInput(r.getCell(ci));
+      return;
+    }
     const openingUnits = Number(share.openingUnits ?? share.units ?? 0);
     const purchased = Number(share.purchasedUnits ?? share.purchasesDuringYear ?? share.additions ?? 0);
     const sold = Number(share.soldUnits ?? share.salesDuringYear ?? share.disposals ?? 0);
-    const closingUnits = Number(share.closingUnits ?? openingUnits + purchased - sold);
     const openingLtp = Number(share.openingLtp ?? share.openingLTP ?? share.costPerUnit ?? 0);
     const closingLtp = Number(share.closingLtp ?? share.closingLTP ?? share.ltp ?? 0);
-    const openingFv = Number(share.openingFV ?? share.openingBalance ?? share.totalCost ?? openingUnits * openingLtp);
-    const closingFv = Number(share.closingFV ?? share.carryingAmount ?? share.marketValue ?? closingUnits * closingLtp);
-    const fvGainLoss = Number(share.fvGainLoss ?? share.fairValueGainLoss ?? closingFv - openingFv);
-    r.getCell(1).value = String(share.companyName ?? share.name ?? share.investmentName ?? "");
-    [openingUnits, purchased, sold, closingUnits].forEach((v, ci) => setAmountCell(r.getCell(2 + ci), v || null));
+    const openingFv = Number(share.openingFV ?? share.openingBalance ?? share.totalCost ?? 0);
+    setAmountCell(r.getCell(2), openingUnits || null);
+    setAmountCell(r.getCell(3), purchased || null);
+    setAmountCell(r.getCell(4), sold || null);
+    r.getCell(5).value = { formula: `B${rowNum}+C${rowNum}-D${rowNum}`, result: openingUnits + purchased - sold };
+    r.getCell(5).numFmt = NUMBER_FORMAT2;
+    r.getCell(5).alignment = { horizontal: "right" };
     setAmountCell(r.getCell(6), openingLtp || null);
     setAmountCell(r.getCell(7), closingLtp || null);
     setAmountCell(r.getCell(8), openingFv || null);
-    setAmountCell(r.getCell(9), closingFv || null);
-    setAmountCell(r.getCell(10), fvGainLoss || null);
+    r.getCell(9).value = { formula: `E${rowNum}*G${rowNum}`, result: 0 };
+    r.getCell(9).numFmt = NUMBER_FORMAT2;
+    r.getCell(9).alignment = { horizontal: "right" };
+    r.getCell(10).value = { formula: `I${rowNum}-H${rowNum}`, result: 0 };
+    r.getCell(10).numFmt = NUMBER_FORMAT2;
+    r.getCell(10).alignment = { horizontal: "right" };
     for (let ci = 1; ci <= headers.length; ci++) applyAllBorders(r.getCell(ci));
   });
+  const lastDataRow = firstDataRow + rows.length - 1;
+  const totalRow = lastDataRow + 1;
+  writeSumTotalRow(ws, totalRow, 1, [10], firstDataRow, lastDataRow, "Total FV Gain / (Loss)");
+  const tbFv = options?.trialBalanceFvAdjustment ?? 0;
+  const verifyStart = totalRow + 2;
+  ws.getRow(verifyStart).getCell(1).value = "Verification";
+  ws.getRow(verifyStart).getCell(1).font = FONTS.SUBHEADING;
+  ws.getRow(verifyStart + 1).getCell(1).value = "Workings total FV change";
+  ws.getRow(verifyStart + 1).getCell(2).value = { formula: `J${totalRow}`, result: 0 };
+  ws.getRow(verifyStart + 1).getCell(2).numFmt = NUMBER_FORMAT2;
+  ws.getRow(verifyStart + 2).getCell(1).value = "Per trial balance / notes";
+  ws.getRow(verifyStart + 2).getCell(2).value = tbFv || null;
+  ws.getRow(verifyStart + 2).getCell(2).numFmt = NUMBER_FORMAT2;
+  ws.getRow(verifyStart + 3).getCell(1).value = "Match?";
+  ws.getRow(verifyStart + 3).getCell(2).value = {
+    formula: `ABS(B${verifyStart + 1}-B${verifyStart + 2})<1`,
+    result: Math.abs(tbFv) < 1
+  };
+  return { totalFvGainLossRow: totalRow, verificationMatchRow: verifyStart + 3 };
 }
 function writeSundryDebtors(ws, data) {
   writeNoteSheetTitle(ws, "Sundry Debtors");
@@ -4441,50 +4791,15 @@ function writeBankAccounts(ws, note38) {
     r.getCell(1).value = b.bankName;
     r.getCell(2).value = b.accountType;
     r.getCell(3).value = b.cy || null;
-    r.getCell(3).numFmt = NUMBER_FORMAT;
+    r.getCell(3).numFmt = NUMBER_FORMAT2;
     r.getCell(3).alignment = { horizontal: "right" };
     r.getCell(4).value = b.py || null;
-    r.getCell(4).numFmt = NUMBER_FORMAT;
+    r.getCell(4).numFmt = NUMBER_FORMAT2;
     r.getCell(4).alignment = { horizontal: "right" };
   });
 }
-function writeTrialBalance(ws, tb) {
-  ws.columns = [
-    { key: "label", width: 40 },
-    { key: "cat", width: 28 },
-    { key: "note", width: 8 },
-    { key: "opdr", width: 14 },
-    { key: "opcr", width: 14 },
-    { key: "durdr", width: 14 },
-    { key: "durcr", width: 14 },
-    { key: "adjdr", width: 14 },
-    { key: "adjcr", width: 14 },
-    { key: "cldr", width: 14 },
-    { key: "clcr", width: 14 },
-    { key: "net", width: 16 }
-  ];
-  const headers = ["Account Name", "NFRS Category", "Note", "Opening Dr", "Opening Cr", "During Dr", "During Cr", "Adj Dr", "Adj Cr", "Closing Dr", "Closing Cr", "Net Balance"];
-  const hRow = ws.getRow(1);
-  headers.forEach((h, i) => {
-    const c = hRow.getCell(i + 1);
-    c.value = h;
-    applySubHeaderStyle(c);
-    applyAllBorders(c);
-  });
-  tb.rows.forEach((row, idx) => {
-    const r = ws.getRow(2 + idx);
-    const vals = [row.rawLabel, row.nfrsCategory, row.matchedLabel ?? "", row.openingDr, row.openingCr, row.duringDr, row.duringCr, row.adjustmentDr, row.adjustmentCr, row.closingDr, row.closingCr, (row.closingDr ?? 0) - (row.closingCr ?? 0)];
-    vals.forEach((v, i) => {
-      const c = r.getCell(i + 1);
-      c.value = v || null;
-      if (i >= 3) {
-        c.numFmt = NUMBER_FORMAT;
-        c.alignment = { horizontal: "right" };
-      }
-      applyAllBorders(c);
-    });
-    r.height = 14;
-  });
+function writeTrialBalance(ws, tb, company) {
+  writeMesFormatTrialBalance(ws, tb, company);
 }
 function writeAdjustments(ws, adj) {
   writeNoteSheetTitle(ws, "Adjustment Journal Entries");
@@ -4492,7 +4807,7 @@ function writeAdjustments(ws, adj) {
   ["#", "Description", "Dr Account", "Cr Account", "Amount", "Note Ref", "Source"].forEach((h, i) => {
     const c = hRow.getCell(i + 1);
     c.value = h;
-    applySubHeaderStyle(c);
+    applySubHeaderStyle2(c);
     applyAllBorders(c);
   });
   adj.journalEntries.forEach((je, i) => {
@@ -4501,7 +4816,7 @@ function writeAdjustments(ws, adj) {
       const c = r.getCell(ci + 1);
       c.value = v || null;
       if (ci === 4) {
-        c.numFmt = NUMBER_FORMAT;
+        c.numFmt = NUMBER_FORMAT2;
         c.alignment = { horizontal: "right" };
       }
       applyAllBorders(c);
@@ -4514,7 +4829,7 @@ function writeTaxCalculationSheet(ws, taxData, fiscalYear) {
   const r1 = ws.getCell("A1");
   r1.value = (taxData.companyName || "Company Name").toUpperCase();
   r1.alignment = { horizontal: "center", vertical: "middle" };
-  applyHeaderStyle(r1);
+  applyHeaderStyle2(r1);
   ws.getRow(1).height = 26;
   ws.mergeCells("A2:D2");
   const r2 = ws.getCell("A2");
@@ -4536,7 +4851,7 @@ function writeTaxCalculationSheet(ws, taxData, fiscalYear) {
   ["Particulars", "Note", "As per Books", "For Income Tax"].forEach((h, i) => {
     const c = headerRow.getCell(i + 1);
     c.value = h;
-    applySubHeaderStyle(c);
+    applySubHeaderStyle2(c);
     c.alignment = { horizontal: i === 0 ? "left" : "center", vertical: "middle" };
     applyAllBorders(c);
   });
@@ -4633,10 +4948,10 @@ function writeTaxCalculationSheet(ws, taxData, fiscalYear) {
     const taxCell = r.getCell(4);
     if (idx === 4 && taxData.taxDepSheetName && taxData.taxDepTotalRow) {
       taxCell.value = {
-        formula: cellRef(taxData.taxDepSheetName, "G", taxData.taxDepTotalRow).replace(/^=/, ""),
+        formula: cellRef(taxData.taxDepSheetName, "I", taxData.taxDepTotalRow).replace(/^=/, ""),
         result: 0
       };
-      taxCell.numFmt = NUMBER_FORMAT;
+      taxCell.numFmt = NUMBER_FORMAT2;
       taxCell.alignment = { horizontal: "right" };
     } else {
       setAmountCell(taxCell, item.taxValue ?? null);
@@ -4659,7 +4974,7 @@ function writeTaxCalculationSheet(ws, taxData, fiscalYear) {
   };
   [3, 4].forEach((ci) => {
     const c = assessableRow.getCell(ci);
-    c.numFmt = NUMBER_FORMAT;
+    c.numFmt = NUMBER_FORMAT2;
     c.alignment = { horizontal: "right" };
     applyTotalStyle(c);
     applyAllBorders(c);
@@ -4670,16 +4985,16 @@ function writeTaxCalculationSheet(ws, taxData, fiscalYear) {
   donationR.getCell(1).value = "Less: Donation u/s 12";
   const donationCell = donationR.getCell(4);
   donationCell.value = taxData.donations ?? 0;
-  donationCell.numFmt = NUMBER_FORMAT;
+  donationCell.numFmt = NUMBER_FORMAT2;
   donationCell.alignment = { horizontal: "right" };
-  applyInputStyle(donationCell);
+  applyInputStyle2(donationCell);
   applyAllBorders(donationCell);
   applyAllBorders(donationR.getCell(1));
   const incomeLossRow = row++;
   const incomeLossR = ws.getRow(incomeLossRow);
   incomeLossR.getCell(1).value = "Income/(Loss)";
   incomeLossR.getCell(4).value = { formula: `D${assessableIncomeRow}-D${donationRow}`, result: 0 };
-  incomeLossR.getCell(4).numFmt = NUMBER_FORMAT;
+  incomeLossR.getCell(4).numFmt = NUMBER_FORMAT2;
   incomeLossR.getCell(4).alignment = { horizontal: "right" };
   applyTotalStyle(incomeLossR.getCell(4));
   applyAllBorders(incomeLossR.getCell(1));
@@ -4689,16 +5004,16 @@ function writeTaxCalculationSheet(ws, taxData, fiscalYear) {
   lossCarryR.getCell(1).value = "Carry forward of losses u/s 20";
   const lossCarryCell = lossCarryR.getCell(4);
   lossCarryCell.value = taxData.lossCarryForward ?? 0;
-  lossCarryCell.numFmt = NUMBER_FORMAT;
+  lossCarryCell.numFmt = NUMBER_FORMAT2;
   lossCarryCell.alignment = { horizontal: "right" };
-  applyInputStyle(lossCarryCell);
+  applyInputStyle2(lossCarryCell);
   applyAllBorders(lossCarryCell);
   applyAllBorders(lossCarryR.getCell(1));
   const taxableIncomeRow = row++;
   const taxableR = ws.getRow(taxableIncomeRow);
   taxableR.getCell(1).value = "Taxable Income/(Loss)";
   taxableR.getCell(4).value = { formula: `D${incomeLossRow}-D${lossCarryRow}`, result: 0 };
-  taxableR.getCell(4).numFmt = NUMBER_FORMAT;
+  taxableR.getCell(4).numFmt = NUMBER_FORMAT2;
   taxableR.getCell(4).alignment = { horizontal: "right" };
   applyTotalStyle(taxableR.getCell(4));
   applyAllBorders(taxableR.getCell(1));
@@ -4717,7 +5032,7 @@ function writeTaxCalculationSheet(ws, taxData, fiscalYear) {
   const incomeTaxR = ws.getRow(incomeTaxLiabilityRow);
   incomeTaxR.getCell(1).value = "Income Tax Liability";
   incomeTaxR.getCell(4).value = { formula: `MAX(0,D${taxableIncomeRow}*D${taxRateRow})`, result: 0 };
-  incomeTaxR.getCell(4).numFmt = NUMBER_FORMAT;
+  incomeTaxR.getCell(4).numFmt = NUMBER_FORMAT2;
   incomeTaxR.getCell(4).alignment = { horizontal: "right" };
   applyTotalStyle(incomeTaxR.getCell(4));
   applyAllBorders(incomeTaxR.getCell(1));
@@ -4727,9 +5042,9 @@ function writeTaxCalculationSheet(ws, taxData, fiscalYear) {
   feeR.getCell(1).value = "Fee u/s 117";
   const feeCell = feeR.getCell(4);
   feeCell.value = taxData.feeSection117 ?? 0;
-  feeCell.numFmt = NUMBER_FORMAT;
+  feeCell.numFmt = NUMBER_FORMAT2;
   feeCell.alignment = { horizontal: "right" };
-  applyInputStyle(feeCell);
+  applyInputStyle2(feeCell);
   applyAllBorders(feeCell);
   applyAllBorders(feeR.getCell(1));
   const lateTaxInputRow = row + 3;
@@ -4738,7 +5053,7 @@ function writeTaxCalculationSheet(ws, taxData, fiscalYear) {
   const int118R = ws.getRow(interest118Row);
   int118R.getCell(1).value = "Interest u/s 118";
   int118R.getCell(4).value = { formula: `IF(D${lateTaxInputRow}>0,D${lateTaxInputRow}*0.15,0)`, result: 0 };
-  int118R.getCell(4).numFmt = NUMBER_FORMAT;
+  int118R.getCell(4).numFmt = NUMBER_FORMAT2;
   int118R.getCell(4).alignment = { horizontal: "right" };
   applyAllBorders(int118R.getCell(1));
   applyAllBorders(int118R.getCell(4));
@@ -4746,7 +5061,7 @@ function writeTaxCalculationSheet(ws, taxData, fiscalYear) {
   const int119R = ws.getRow(interest119Row);
   int119R.getCell(1).value = "Interest u/s 119";
   int119R.getCell(4).value = { formula: `IF(D${shortfallInputRow}>0,D${shortfallInputRow}*0.15,0)`, result: 0 };
-  int119R.getCell(4).numFmt = NUMBER_FORMAT;
+  int119R.getCell(4).numFmt = NUMBER_FORMAT2;
   int119R.getCell(4).alignment = { horizontal: "right" };
   applyAllBorders(int119R.getCell(1));
   applyAllBorders(int119R.getCell(4));
@@ -4757,7 +5072,7 @@ function writeTaxCalculationSheet(ws, taxData, fiscalYear) {
     formula: `D${incomeTaxLiabilityRow}+D${feeRow}+D${interest118Row}+D${interest119Row}`,
     result: 0
   };
-  totalTaxR.getCell(4).numFmt = NUMBER_FORMAT;
+  totalTaxR.getCell(4).numFmt = NUMBER_FORMAT2;
   totalTaxR.getCell(4).alignment = { horizontal: "right" };
   applyTotalStyle(totalTaxR.getCell(4));
   applyAllBorders(totalTaxR.getCell(1));
@@ -4768,17 +5083,17 @@ function writeTaxCalculationSheet(ws, taxData, fiscalYear) {
   lateTaxR.getCell(1).font = { name: "Arial", size: 9, italic: true, color: { argb: "FF64748B" } };
   const lateTaxCell = lateTaxR.getCell(4);
   lateTaxCell.value = taxData.lateTaxPaidAmount ?? 0;
-  lateTaxCell.numFmt = NUMBER_FORMAT;
+  lateTaxCell.numFmt = NUMBER_FORMAT2;
   lateTaxCell.alignment = { horizontal: "right" };
-  applyInputStyle(lateTaxCell);
+  applyInputStyle2(lateTaxCell);
   const shortfallR = ws.getRow(shortfallInputRow);
   shortfallR.getCell(1).value = "Advance tax shortfall (input for s119)";
   shortfallR.getCell(1).font = { name: "Arial", size: 9, italic: true, color: { argb: "FF64748B" } };
   const shortfallCell = shortfallR.getCell(4);
   shortfallCell.value = taxData.advanceTaxShortfall ?? 0;
-  shortfallCell.numFmt = NUMBER_FORMAT;
+  shortfallCell.numFmt = NUMBER_FORMAT2;
   shortfallCell.alignment = { horizontal: "right" };
-  applyInputStyle(shortfallCell);
+  applyInputStyle2(shortfallCell);
   SHEET_ROW_REGISTRY.taxCalcIncomeTaxRow = incomeTaxLiabilityRow;
   SHEET_ROW_REGISTRY.taxCalcNetPayableRow = totalTaxLiabilityRow;
   SHEET_ROW_REGISTRY.assessableIncomeRow = assessableIncomeRow;
@@ -4797,14 +5112,14 @@ function writeTaxProfitReconciliationSheet(ws, data) {
   ws.mergeCells("A1:B1");
   const titleCell = ws.getCell("A1");
   titleCell.value = `TAX PROFIT RECONCILIATION FOR FY ${data.fiscalYear}`;
-  applyHeaderStyle(titleCell);
+  applyHeaderStyle2(titleCell);
   titleCell.alignment = { horizontal: "center", vertical: "middle" };
   ws.getRow(1).height = 24;
   const headerRow = ws.getRow(3);
   ["Particulars", "Amount"].forEach((h, i) => {
     const c = headerRow.getCell(i + 1);
     c.value = h;
-    applySubHeaderStyle(c);
+    applySubHeaderStyle2(c);
     applyAllBorders(c);
   });
   let row = 4;
@@ -4822,16 +5137,16 @@ function writeTaxProfitReconciliationSheet(ws, data) {
     formula: cellRef(data.disallowSheetName, "C", data.disallowTotalRow).replace(/^=/, ""),
     result: 0
   };
-  disallowCell.numFmt = NUMBER_FORMAT;
+  disallowCell.numFmt = NUMBER_FORMAT2;
   disallowCell.alignment = { horizontal: "right" };
   const taxDepRow = row++;
   ws.getRow(taxDepRow).getCell(1).value = "Less: Tax depreciation";
   const taxDepCell = ws.getRow(taxDepRow).getCell(2);
   taxDepCell.value = {
-    formula: `-${cellRef(data.taxDepSheetName, "G", data.taxDepTotalRow).replace(/^=/, "")}`,
+    formula: `-${cellRef(data.taxDepSheetName, "I", data.taxDepTotalRow).replace(/^=/, "")}`,
     result: 0
   };
-  taxDepCell.numFmt = NUMBER_FORMAT;
+  taxDepCell.numFmt = NUMBER_FORMAT2;
   taxDepCell.alignment = { horizontal: "right" };
   const exemptRow = row++;
   ws.getRow(exemptRow).getCell(1).value = "Less: Exempt income (Dividend income)";
@@ -4840,9 +5155,9 @@ function writeTaxProfitReconciliationSheet(ws, data) {
   ws.getRow(otherAdjRow).getCell(1).value = "Add/Less: Other adjustments";
   const otherAdjCell = ws.getRow(otherAdjRow).getCell(2);
   otherAdjCell.value = 0;
-  otherAdjCell.numFmt = NUMBER_FORMAT;
+  otherAdjCell.numFmt = NUMBER_FORMAT2;
   otherAdjCell.alignment = { horizontal: "right" };
-  applyInputStyle(otherAdjCell);
+  applyInputStyle2(otherAdjCell);
   const assessableIncomeRow = row++;
   const assessableR = ws.getRow(assessableIncomeRow);
   assessableR.getCell(1).value = "Assessable Income";
@@ -4850,7 +5165,7 @@ function writeTaxProfitReconciliationSheet(ws, data) {
     formula: `B${profitRow}+B${depnRow}+B${disallowRow}+B${taxDepRow}+B${exemptRow}+B${otherAdjRow}`,
     result: 0
   };
-  assessableR.getCell(2).numFmt = NUMBER_FORMAT;
+  assessableR.getCell(2).numFmt = NUMBER_FORMAT2;
   assessableR.getCell(2).alignment = { horizontal: "right" };
   applyTotalStyle(assessableR.getCell(2));
   const reconciliationCheckRow = row + 1;
@@ -4922,7 +5237,10 @@ function normalizeNotesForExcel(notes, is, bs) {
     const d = item;
     return {
       ...d,
-      netBookValueClosing: d.netBookValueClosing ?? d.nbvClosing ?? Math.max(0, (d.closingCost ?? 0) - (d.closingAccumDepn ?? 0))
+      netBookValueClosing: d.netBookValueClosing ?? d.nbvClosing ?? Math.max(0, (d.closingCost ?? 0) - (d.closingAccumDepn ?? 0)),
+      impairmentLosses: d.impairmentLosses ?? 0,
+      securedAmount: d.securedAmount ?? 0,
+      hasSecuredAssets: d.hasSecuredAssets ?? false
     };
   });
   const note37_inventories = n37?.rawMaterials ? {
@@ -5126,7 +5444,7 @@ function writeNote33_Receivables(ws, note) {
     ["Particulars", "Current Year", "Previous Year"].forEach((label, idx) => {
       const cell = ws.getRow(rowNum).getCell(idx + 1);
       cell.value = label;
-      applySubHeaderStyle(cell);
+      applySubHeaderStyle2(cell);
       applyAllBorders(cell);
       cell.alignment = { horizontal: idx === 0 ? "left" : "right" };
     });
@@ -5141,7 +5459,7 @@ function writeNote33_Receivables(ws, note) {
       applyBodyStyle(cell);
       applyAllBorders(cell);
       if (col > 1) {
-        cell.numFmt = NUMBER_FORMAT;
+        cell.numFmt = NUMBER_FORMAT2;
         cell.alignment = { horizontal: "right" };
       }
       if (bold) applyTotalStyle(cell);
@@ -5209,7 +5527,7 @@ function writeGenericNoteRecord(ws, title, data) {
   ["Particulars", "Current Year", "Previous Year"].forEach((h, i) => {
     const c = hRow.getCell(i + 1);
     c.value = h;
-    applySubHeaderStyle(c);
+    applySubHeaderStyle2(c);
     applyAllBorders(c);
   });
   const entries = Object.entries(safeData);
@@ -5222,7 +5540,7 @@ function writeGenericNoteRecord(ws, title, data) {
     r.getCell(3).value = vals.py || null;
     [2, 3].forEach((ci) => {
       const c = r.getCell(ci);
-      c.numFmt = NUMBER_FORMAT;
+      c.numFmt = NUMBER_FORMAT2;
       c.alignment = { horizontal: "right" };
       applyBodyStyle(c);
     });
@@ -5253,7 +5571,7 @@ function writeGenericNoteRecord(ws, title, data) {
     };
   }
   [cyCell, pyCell].forEach((c) => {
-    c.numFmt = NUMBER_FORMAT;
+    c.numFmt = NUMBER_FORMAT2;
     c.alignment = { horizontal: "right" };
     applyTotalStyle(c);
   });
@@ -5275,8 +5593,8 @@ async function generateNFRSWorkbook(params) {
     };
     writeWorkings(addSheet("Workings", COLORS.LIGHT_GRAY), company, wb);
     writeInstructions(addSheet("Instructions", COLORS.LIGHT_GRAY));
-    writeEnterDetails(addSheet("Enter Details", COLORS.GREEN_INPUT), company);
-    writeTrialBalance(addSheet("Trial Balance", COLORS.BRAND_BLUE), trialBalance);
+    writeEnterDetails(addSheet("Enter Details", COLORS.GREEN_INPUT), company, adjustments);
+    writeTrialBalance(addSheet("Trial Balance", COLORS.BRAND_BLUE), trialBalance, company);
     const bsRowMap = writeBalanceSheet(addSheet("Balance Sheet", COLORS.BRAND_BLUE), balanceSheet, company);
     const isRowMap = writeIncomeStatement(addSheet("Income Statement", COLORS.BRAND_BLUE), incomeStatement, company);
     const ceRowMap = writeChangesInEquity(addSheet("Change in Equity", COLORS.BRAND_BLUE), changesInEquity, company);
@@ -5459,7 +5777,11 @@ async function generateNFRSWorkbook(params) {
       taxCalcSheetName: "Tax Calculation",
       taxCalcAssessableRow: taxCalcMap.assessableIncomeRow ?? 0
     });
-    writeFairValueChangeSheet(addSheet("Fair Value Change", "16A34A"), listedSharesData);
+    writeFairValueChangeSheet(
+      addSheet("Fair Value Change", "16A34A"),
+      listedSharesData,
+      { trialBalanceFvAdjustment: adjustments.totalInvestmentFVAdjustment ?? 0 }
+    );
     writeSundryDebtors(addSheet("Sundry Debtors", "16A34A"), { adjustments, trialBalance });
     writeSundryCreditors(addSheet("Sundry Creditors", "16A34A"), { adjustments, trialBalance });
     writeBankAccounts(addSheet("Bank Accounts", "16A34A"), notes.note38_cashAndEquivalents);
@@ -5523,7 +5845,7 @@ function applyBalanceSheetCrossReferences(wb, balanceSheetSheetName, noteSheetNa
     const cell = ws.getRow(rowNum).getCell(col);
     const existingNumFmt = cell.numFmt;
     cell.value = { formula: formula.replace(/^=/, ""), result: 0 };
-    cell.numFmt = existingNumFmt || NUMBER_FORMAT;
+    cell.numFmt = existingNumFmt || NUMBER_FORMAT2;
     cell.font = { name: "Arial", size: 10 };
     cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE3F2FD" } };
   };
@@ -5581,7 +5903,7 @@ function applyBalanceSheetCrossReferences(wb, balanceSheetSheetName, noteSheetNa
   } else if (rowMap.totalNcaRow && rowMap.totalCaRow) {
     totalAssetsCell.value = { formula: `${cyCol}${rowMap.totalNcaRow}+${cyCol}${rowMap.totalCaRow}`, result: 0 };
   }
-  totalAssetsCell.numFmt = NUMBER_FORMAT;
+  totalAssetsCell.numFmt = NUMBER_FORMAT2;
   applyTotalStyle(totalAssetsCell);
   console.log("[excelWriter] Balance sheet cross-references applied.");
 }
@@ -5593,7 +5915,7 @@ function applyIncomeStatementCrossReferences(wb, isSheetName, noteSheetNames, ro
     const cell = ws.getRow(rowNum).getCell(col);
     const existingNumFmt = cell.numFmt;
     cell.value = { formula: formula.replace(/^=/, ""), result: 0 };
-    cell.numFmt = existingNumFmt || NUMBER_FORMAT;
+    cell.numFmt = existingNumFmt || NUMBER_FORMAT2;
     cell.font = { name: "Arial", size: 10 };
     cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE3F2FD" } };
   };
@@ -5624,7 +5946,7 @@ function applyCashFlowCrossReferences(wb, cfSheetName, isSheetName, cfMap, isMap
     formula: cellRef(isSheetName, cyCol, isMap.profitBeforeTaxRow).replace(/^=/, ""),
     result: cell.value ?? 0
   };
-  cell.numFmt = NUMBER_FORMAT;
+  cell.numFmt = NUMBER_FORMAT2;
   cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE3F2FD" } };
 }
 function applyChangesInEquityCrossReferences(wb, ceSheetName, isSheetName, ceMap, isMap, cyCol = "C") {
@@ -5634,7 +5956,7 @@ function applyChangesInEquityCrossReferences(wb, ceSheetName, isSheetName, ceMap
   for (const col of ["E", "F"]) {
     const cell = ws.getRow(ceMap.profitForYearRow).getCell(col);
     cell.value = { formula: isRef, result: cell.value ?? 0 };
-    cell.numFmt = NUMBER_FORMAT;
+    cell.numFmt = NUMBER_FORMAT2;
     cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE3F2FD" } };
   }
 }
@@ -5644,7 +5966,7 @@ function applyCashFlowReconciliation(wb, cfSheetName, _bsSheetName, rowMap, cyCo
   const closingFormula = `${cyCol}${rowMap.openingCashRow}+${cyCol}${rowMap.netOperatingRow}+${cyCol}${rowMap.netInvestingRow}+${cyCol}${rowMap.netFinancingRow}`;
   const cell = ws.getRow(rowMap.closingCashRow).getCell(cyCol);
   cell.value = { formula: closingFormula, result: 0 };
-  cell.numFmt = NUMBER_FORMAT;
+  cell.numFmt = NUMBER_FORMAT2;
   applyTotalStyle(cell);
   cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: `FF${COLORS.TOTAL_BG}` } };
   console.log("[excelWriter] Cash flow reconciliation formula applied.");
@@ -5668,7 +5990,7 @@ function applyWorkingsValidationRefs(wb, maps) {
   checks.forEach((check, idx) => {
     const resultCell = ws.getRow(valStart + idx).getCell(3);
     resultCell.value = { formula: check.formula, result: 0 };
-    resultCell.numFmt = NUMBER_FORMAT;
+    resultCell.numFmt = NUMBER_FORMAT2;
     applyBodyStyle(resultCell);
   });
 }
@@ -5959,7 +6281,7 @@ function appendComplianceStatement(ws, params, startRow) {
 var TOTAL_COLS = 19;
 var CY_AMOUNT_COLS = [2, 3, 4, 5, 6, 7, 8, 9];
 var PY_AMOUNT_COLS = [12, 13, 14, 15, 16, 17, 18, 19];
-var SECTION_MAP = [
+var SECTION_MAP2 = [
   { prefixes: ["BS Equity"], header: "CAPITAL ACCOUNT & RESERVES" },
   { prefixes: ["BS NCL Borrowings"], header: "NON-CURRENT LIABILITIES - LOANS & BORROWINGS" },
   { prefixes: ["BS NCL Employee Benefits"], header: "NON-CURRENT LIABILITIES - EMPLOYEE BENEFITS" },
@@ -5991,14 +6313,14 @@ var SECTION_MAP = [
   { prefixes: ["IS Tax"], header: "INCOME TAX EXPENSE" }
 ];
 function resolveSectionHeader(statementLine) {
-  for (const { prefixes, header } of SECTION_MAP) {
+  for (const { prefixes, header } of SECTION_MAP2) {
     for (const prefix of prefixes) {
       if (statementLine.startsWith(prefix)) return header;
     }
   }
   return null;
 }
-function buildSectionAccounts() {
+function buildSectionAccounts2() {
   const sectionAccounts = /* @__PURE__ */ new Map();
   const sectionOrder = [];
   for (const entry of CHART_OF_ACCOUNTS) {
@@ -6011,9 +6333,9 @@ function buildSectionAccounts() {
     }
     sectionAccounts.get(header).push({ displayLabel: entry.displayLabel });
   }
-  return SECTION_MAP.map(({ header }) => header).filter((header) => sectionAccounts.has(header)).map((header) => ({ header, accounts: sectionAccounts.get(header) }));
+  return SECTION_MAP2.map(({ header }) => header).filter((header) => sectionAccounts.has(header)).map((header) => ({ header, accounts: sectionAccounts.get(header) }));
 }
-function colLetter(col) {
+function colLetter2(col) {
   let letter = "";
   let n = col;
   while (n > 0) {
@@ -6037,13 +6359,13 @@ async function generateTrialBalanceTemplate() {
     const titleCell = ws.getCell(1, 1);
     titleCell.value = "[COMPANY NAME]";
     titleCell.alignment = { horizontal: "center", vertical: "middle" };
-    applyHeaderStyle(titleCell);
+    applyHeaderStyle2(titleCell);
     ws.getRow(1).height = 26;
     ws.mergeCells(2, 1, 2, TOTAL_COLS);
     const subtitleCell = ws.getCell(2, 1);
     subtitleCell.value = "NAS FOR MEs \u2014 TRIAL BALANCE TEMPLATE";
     subtitleCell.alignment = { horizontal: "center", vertical: "middle" };
-    applyHeaderStyle(subtitleCell);
+    applyHeaderStyle2(subtitleCell);
     ws.mergeCells(3, 1, 3, TOTAL_COLS);
     const noteCell = ws.getCell(3, 1);
     noteCell.value = "Fill in GREEN cells only. Do not rename or delete account labels or section headers. You may insert extra rows within a section to add accounts not listed here.";
@@ -6065,17 +6387,17 @@ async function generateTrialBalanceTemplate() {
     cyHeaders.forEach((h, i) => {
       const c = headerRow.getCell(i + 1);
       c.value = h;
-      applySubHeaderStyle(c);
+      applySubHeaderStyle2(c);
       c.alignment = { horizontal: i === 0 ? "left" : "center", vertical: "middle" };
     });
     cyHeaders.forEach((h, i) => {
       const c = headerRow.getCell(11 + i);
       c.value = h;
-      applySubHeaderStyle(c);
+      applySubHeaderStyle2(c);
       c.alignment = { horizontal: i === 0 ? "left" : "center", vertical: "middle" };
     });
     let currentRow = 6;
-    const sections = buildSectionAccounts();
+    const sections = buildSectionAccounts2();
     for (const { header, accounts } of sections) {
       ws.mergeCells(currentRow, 1, currentRow, TOTAL_COLS);
       const sectionCell = ws.getRow(currentRow).getCell(1);
@@ -6095,8 +6417,8 @@ async function generateTrialBalanceTemplate() {
         for (const col of [...CY_AMOUNT_COLS, ...PY_AMOUNT_COLS]) {
           const cell = row.getCell(col);
           cell.value = null;
-          applyInputStyle(cell);
-          cell.numFmt = NUMBER_FORMAT;
+          applyInputStyle2(cell);
+          cell.numFmt = NUMBER_FORMAT2;
           cell.alignment = { horizontal: "right" };
         }
         currentRow++;
@@ -6110,9 +6432,9 @@ async function generateTrialBalanceTemplate() {
     const doubleTop = { style: "double", color: { argb: "FF1E40AF" } };
     for (const col of [...CY_AMOUNT_COLS, ...PY_AMOUNT_COLS]) {
       const cell = totalRow.getCell(col);
-      const letter = colLetter(col);
+      const letter = colLetter2(col);
       cell.value = { formula: `SUM(${letter}${dataStartRow}:${letter}${dataEndRow})`, result: 0 };
-      cell.numFmt = NUMBER_FORMAT;
+      cell.numFmt = NUMBER_FORMAT2;
       cell.alignment = { horizontal: "right" };
       cell.font = { name: "Arial", size: 10, bold: true };
       cell.border = { top: doubleTop };
