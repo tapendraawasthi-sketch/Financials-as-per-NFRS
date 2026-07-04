@@ -216,8 +216,35 @@ body {
 }
 
 :focus-visible {
-  outline: 2px solid #6366f1;
-  outline-offset: 2px;
+  outline: none;
+  box-shadow: var(--glow-brand);
+}
+
+.helper-text {
+  font-size: var(--text-xs);
+  color: var(--ink-500);
+  line-height: 1.4;
+}
+
+[data-app-theme="dark"] .helper-text {
+  color: var(--ink-600);
+}
+
+.datatable-row-interactive:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--brand-500);
+}
+
+.asset-inline-input:focus-visible,
+.asset-inline-select:focus-visible {
+  outline: none;
+  border-color: var(--brand-500) !important;
+  box-shadow: var(--glow-brand);
+}
+
+.select-option-highlighted {
+  background: var(--surface-hover) !important;
+  box-shadow: inset 0 0 0 1px var(--brand-500);
 }
 
 /* ── Scrollbar ──────────────────────────────────────────── */
@@ -494,6 +521,7 @@ input[type='number'] { -moz-appearance: textfield; }
 @media print {
   .no-print { display: none !important; }
   .sidebar  { display: none !important; }
+  .app-header { display: none !important; }
   body { background: white; font-size: 11pt; color: black !important; }
   .statement-page { border: none; padding: 0; max-width: 100%; box-shadow: none; border-radius: 0; }
   @page { margin: 18mm 15mm; size: A4; }

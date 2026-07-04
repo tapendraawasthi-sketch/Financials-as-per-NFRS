@@ -86,7 +86,7 @@ export default function Sidebar({
 
   return (
     <aside
-      className="sidebar chrome-panel flex flex-col flex-shrink-0 h-screen relative overflow-hidden"
+      className="sidebar chrome-panel no-print flex flex-col flex-shrink-0 h-screen relative overflow-hidden"
       style={{ width: `${sidebarWidth}px`, minWidth: `${sidebarWidth}px`, transition: 'width var(--dur-base) var(--ease-premium), min-width var(--dur-base) var(--ease-premium)' }}
       aria-label="Application navigation"
       aria-expanded={!collapsed}

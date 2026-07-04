@@ -270,7 +270,7 @@ export default function DashboardPage({ onStart, onContinue, hasSession }: Dashb
           className="text-center"
           style={{ maxWidth: '480px', margin: '0 auto 48px', padding: '0 24px' }}
         >
-          <FileText size={40} style={{ color: 'var(--ink-300)', margin: '0 auto 16px' }} />
+          <FileText size={40} style={{ color: 'var(--ink-400)', margin: '0 auto 16px' }} />
           <h2 className="font-display" style={{ fontSize: 'var(--text-lg)', color: 'var(--ink-950)', marginBottom: '8px' }}>
             No engagements yet
           </h2>

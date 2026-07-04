@@ -44,7 +44,7 @@ export default function Header({
 
   return (
     <header
-      className="sticky top-0 z-20 flex items-center justify-between flex-shrink-0"
+      className="app-header no-print sticky top-0 z-20 flex items-center justify-between flex-shrink-0"
       style={{
         height: '64px',
         background: 'var(--surface)',

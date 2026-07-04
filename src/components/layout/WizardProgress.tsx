@@ -34,7 +34,7 @@ export function SlimWizardProgress({
 
   return (
     <div
-      className="relative w-full flex"
+      className="relative w-full flex no-print"
       style={{ height: '4px', background: 'var(--border-hairline)' }}
       role="progressbar"
       aria-valuenow={currentIdx + 1}

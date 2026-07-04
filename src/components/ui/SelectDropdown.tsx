@@ -291,12 +291,15 @@ export default function SelectDropdown({
                   aria-disabled={isDisabled}
                   onMouseEnter={() => !isDisabled && enabledIdx >= 0 && setHighlightedIndex(enabledIdx)}
                   onClick={() => !isDisabled && enabledIdx >= 0 && selectAt(enabledIdx)}
-                  className="flex items-center gap-2 px-3 cursor-pointer transition-colors"
+                  className={[
+                    'flex items-center gap-2 px-3 cursor-pointer transition-colors',
+                    isHighlighted ? 'select-option-highlighted' : '',
+                  ].filter(Boolean).join(' ')}
                   style={{
                     height: '36px',
                     fontSize: 'var(--text-base)',
                     color: isDisabled ? 'var(--ink-300)' : 'var(--ink-800)',
-                    background: isHighlighted ? 'var(--surface-hover)' : 'transparent',
+                    background: isHighlighted ? undefined : 'transparent',
                     cursor: isDisabled ? 'not-allowed' : 'pointer',
                   }}
                 >
@@ -323,7 +326,7 @@ export default function SelectDropdown({
         </p>
       )}
       {!error && helperText && (
-        <p id={helpId} className="leading-snug" style={{ fontSize: 'var(--text-xs)', color: 'var(--ink-400)' }}>
+          <p id={helpId} className="helper-text leading-snug">
           {helperText}
         </p>
       )}

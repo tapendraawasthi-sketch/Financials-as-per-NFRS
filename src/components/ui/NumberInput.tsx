@@ -279,7 +279,7 @@ export default function NumberInput({
           </p>
         )}
         {!displayError && helperText && (
-          <p id={helpId} className="leading-snug" style={{ fontSize: 'var(--text-xs)', color: 'var(--ink-400)' }}>
+          <p id={helpId} className="helper-text leading-snug">
             {helperText}
           </p>
         )}

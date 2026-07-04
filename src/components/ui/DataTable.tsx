@@ -173,7 +173,7 @@ export default function DataTable<T extends Record<string, any>>({
                     }
                     onMouseEnter={() => setHoveredKey(rowKey)}
                     onMouseLeave={() => setHoveredKey(null)}
-                    className={onRowClick ? 'cursor-pointer focus-visible:outline-none' : ''}
+                    className={onRowClick ? 'cursor-pointer datatable-row-interactive focus-visible:outline-none' : ''}
                     style={{
                       borderLeft: rowStatus === 'error'
                         ? '3px solid var(--danger-600)'

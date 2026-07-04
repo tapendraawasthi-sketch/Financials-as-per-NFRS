@@ -198,8 +198,8 @@ export default function AssetRegisterTable({
   const totalAccumDpn = assets.reduce((s, a) => s + (a.accumDepn || 0), 0);
   const totalDepnThisYear = depnResult?.reduce((s, r) => s + r.depnForYear, 0) ?? 0;
 
-  const inCls = 'h-6 text-xs font-mono text-right px-1.5 outline-none transition-colors border-0 border-b border-[var(--border-hairline)] bg-transparent focus:border-[var(--brand-500)] w-full';
-  const selCls = 'h-6 text-xs px-1 border border-[var(--border-strong)] rounded bg-[var(--surface)] text-[var(--ink-700)] outline-none focus:border-[var(--brand-500)] w-full';
+  const inCls = 'asset-inline-input h-6 text-xs font-mono text-right px-1.5 outline-none transition-colors border-0 border-b border-[var(--border-hairline)] bg-transparent w-full';
+  const selCls = 'asset-inline-select h-6 text-xs px-1 border border-[var(--border-strong)] rounded bg-[var(--surface)] text-[var(--ink-700)] outline-none w-full';
 
   const extraCols = (showDisposalColumns ? 3 : 0) + (showMortgagedColumn ? 1 : 0);
 
@@ -379,7 +379,8 @@ export default function AssetRegisterTable({
                       type="checkbox"
                       checked={asset.mortgaged}
                       onChange={(e) => updateRow(asset.id, 'mortgaged', e.target.checked)}
-                      className="h-3.5 w-3.5 rounded border-slate-300 text-blue-600"
+                      className="h-3.5 w-3.5 rounded"
+                      style={{ borderColor: 'var(--border-strong)', accentColor: 'var(--brand-500)' }}
                       aria-label="Asset mortgaged"
                     />
                   </td>
@@ -392,7 +393,8 @@ export default function AssetRegisterTable({
                         type="checkbox"
                         checked={asset.disposed}
                         onChange={(e) => updateRow(asset.id, 'disposed', e.target.checked)}
-                        className="h-3.5 w-3.5 rounded border-slate-300 text-blue-600"
+                        className="h-3.5 w-3.5 rounded"
+                      style={{ borderColor: 'var(--border-strong)', accentColor: 'var(--brand-500)' }}
                         aria-label="Asset disposed"
                       />
                     </td>

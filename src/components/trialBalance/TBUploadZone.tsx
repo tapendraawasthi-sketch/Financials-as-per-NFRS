@@ -443,11 +443,13 @@ export default function TBUploadZone({
               aria-checked={aiOn}
               aria-label="Toggle AI account matching"
               onClick={toggleAI}
-              className="relative w-9 h-5 rounded-full flex-shrink-0 cursor-pointer transition-colors duration-200 focus-visible:outline focus-visible:outline-2"
+              className="relative w-9 h-5 rounded-full flex-shrink-0 cursor-pointer transition-colors duration-200 focus-visible:outline-none"
               style={{
                 background: aiOn ? 'var(--brand-500)' : 'var(--ink-200)',
-                outlineColor: 'var(--brand-400)',
+                boxShadow: 'none',
               }}
+              onFocus={e => { e.currentTarget.style.boxShadow = 'var(--glow-brand)'; }}
+              onBlur={e => { e.currentTarget.style.boxShadow = 'none'; }}
             >
               <span
                 className={[
