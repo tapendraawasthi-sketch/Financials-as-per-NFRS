@@ -55,7 +55,7 @@ export default function Tabs({
               'h-8 px-3.5 rounded-lg font-medium transition-all ease-premium focus-visible:outline-none',
               active === t.id
                 ? 'bg-white text-slate-900 shadow-sm'
-                : 'text-slate-500 hover:text-slate-700',
+                : 'text-slate-600 hover:text-slate-800',
               t.disabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer',
             ].filter(Boolean).join(' ')}
             style={{
@@ -106,12 +106,12 @@ export default function Tabs({
               'premium-tab h-10 px-4 font-medium whitespace-nowrap transition-colors ease-premium',
               active === t.id
                 ? 'text-indigo-600'
-                : 'text-slate-500 hover:text-slate-700',
+                : 'text-slate-600 hover:text-slate-800',
               t.disabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer',
             ].filter(Boolean).join(' ')}
             style={{
               fontSize: '13px',
-              color: active === t.id ? 'var(--brand-600)' : 'var(--ink-500)',
+              color: active === t.id ? 'var(--brand-400)' : 'var(--ink-700)',
               fontWeight: active === t.id ? 600 : 500,
               borderBottom: active === t.id ? '2px solid var(--brand-500)' : '2px solid transparent',
               marginBottom: '-1px',

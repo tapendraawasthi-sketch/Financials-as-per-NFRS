@@ -126,7 +126,7 @@ export default function WizardProgress({
                 <span
                   className="text-[10px] mt-1 whitespace-nowrap font-medium"
                   style={{
-                    color: isActive ? 'var(--brand-600)' : isDone ? 'var(--ink-500)' : 'var(--ink-400)',
+                    color: isActive ? 'var(--brand-400)' : isDone ? 'var(--ink-700)' : 'var(--ink-600)',
                   }}
                   title={step.short}
                 >
