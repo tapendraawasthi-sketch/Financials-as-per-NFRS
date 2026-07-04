@@ -40,6 +40,15 @@ export interface NormalizedTrialBalancePreview extends RawTBParseResult {
   mappingProfileAppliedCount?: number;
   mappingProfileTotalAccounts?: number;
   previousYearData?: RawTBRow[] | null;
+  standardFormatWarnings?: Array<{
+    severity: 'error' | 'warning';
+    category: string;
+    message: string;
+    sheetName?: string;
+    rowNumber?: number;
+    columnLetter?: string;
+    suggestedFix?: string;
+  }>;
 }
 
 // NFRSCategory — the complete taxonomy (see chartOfAccounts.ts)

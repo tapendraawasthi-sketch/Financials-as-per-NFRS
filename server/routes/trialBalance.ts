@@ -14,7 +14,7 @@ import { getFiscalYear } from '../../src/data/fiscalYears';
 import { generateTrialBalanceTemplate } from '../services/tbTemplateWriter.js';
 import { convertRoughTrialBalance } from '../services/aiTbConverter.js';
 import { convertTrialBalanceLocally, heuristicFallbackClassify } from '../services/localTbConverter.js';
-import { validateStandardTemplate } from '../services/tbStandardValidator.js';
+import { validateStandardTemplate, type TbDiagnosticIssue } from '../services/tbStandardValidator.js';
 import { writeNormalizedTrialBalance } from '../services/normalizedTbWriter.js';
 import { finalizeRawTBRows } from '../services/tbHierarchy.js';
 import { mappingProfileKey } from '../services/mappingProfile.js';
@@ -358,6 +358,8 @@ router.post('/:companyId/parse-preview', tbUploadMiddleware, async (req, res, ne
     const mode = req.query.mode === 'ai' ? 'ai' : 'manual';
     let parsed: RawTBParseResult;
 
+    let standardFormatWarnings: TbDiagnosticIssue[] | undefined;
+
     if (mode === 'ai') {
       const ext = (req.file.originalname ?? '').split('.').pop()?.toLowerCase() ?? '';
       const imageExts = new Set(['png', 'jpg', 'jpeg', 'webp']);
@@ -387,6 +389,9 @@ router.post('/:companyId/parse-preview', tbUploadMiddleware, async (req, res, ne
             diagnostics: validationResult,
           });
         }
+        if (validationResult.issues.some((i) => i.severity === 'warning')) {
+          standardFormatWarnings = validationResult.issues.filter((i) => i.severity === 'warning');
+        }
       }
       parsed = await parseTrialBalance(req.file.buffer, req.file.originalname);
       if (!parsed.rows?.length) {
@@ -403,6 +408,7 @@ router.post('/:companyId/parse-preview', tbUploadMiddleware, async (req, res, ne
       importMode: mode,
       mappingProfileAppliedCount: profileHitCount,
       mappingProfileTotalAccounts: parsed.rows.filter((r) => !r.isGroupRow).length,
+      ...(standardFormatWarnings?.length ? { standardFormatWarnings } : {}),
     };
 
     sessionStore.set(req.params.companyId, { rawTrialBalance: preview });
@@ -448,6 +454,11 @@ router.post('/:companyId/confirm-normalized', asyncHandler(async (req: Request, 
     importMode,
     apiKey: process.env.ANTHROPIC_API_KEY,
   });
+
+  const storedStandardWarnings = stored?.standardFormatWarnings as TbDiagnosticIssue[] | undefined;
+  if (storedStandardWarnings?.length) {
+    (tb as Record<string, unknown>).standardFormatWarnings = storedStandardWarnings;
+  }
 
   const validation = tb.validation as ReturnType<typeof validateTrialBalanceTotals>;
   const diff = Math.abs(validation.totalClosingDr - validation.totalClosingCr);

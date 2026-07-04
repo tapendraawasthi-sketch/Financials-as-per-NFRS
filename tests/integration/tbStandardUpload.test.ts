@@ -86,6 +86,58 @@ describe('tbStandardUpload integration', () => {
     assert.ok(json.data?.rows?.length);
   });
 
+  it('passes standardFormatWarnings through manual parse-preview and confirm-normalized', async () => {
+    const templateBuffer = await generateTrialBalanceTemplate();
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(templateBuffer);
+    const ws = workbook.getWorksheet('Trial Balance')!;
+    let filled = 0;
+    for (let rowNum = HEADER_ROW_INDEX + 2; rowNum <= ws.rowCount && filled < 2; rowNum++) {
+      const label = String(ws.getRow(rowNum).getCell(1).value ?? '');
+      if (!label || label.toUpperCase() === label) continue;
+      if (filled === 0) {
+        ws.getRow(rowNum).getCell(8).value = 100000;
+        ws.getRow(rowNum).getCell(9).value = 0;
+      } else {
+        ws.getRow(rowNum).getCell(9).value = 100000;
+        ws.getRow(rowNum).getCell(8).value = 0;
+      }
+      filled++;
+    }
+    const buffer = Buffer.from(await workbook.xlsx.writeBuffer());
+    const boundary = '----testboundary003';
+    const body = buildMultipartBody('warnings.xlsx', buffer, boundary);
+
+    const previewRes = await fetch(
+      `${baseUrl}/api/trial-balance/${COMPANY_ID}/parse-preview?mode=manual`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}` },
+        body,
+      },
+    );
+    assert.equal(previewRes.status, 200);
+    const previewJson = await previewRes.json() as {
+      success: boolean;
+      data?: { rows?: unknown[]; standardFormatWarnings?: unknown[] };
+    };
+    assert.equal(previewJson.success, true);
+    assert.ok(previewJson.data?.standardFormatWarnings?.length);
+
+    const confirmRes = await fetch(`${baseUrl}/api/trial-balance/${COMPANY_ID}/confirm-normalized`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rows: previewJson.data?.rows }),
+    });
+    assert.equal(confirmRes.status, 200);
+    const confirmJson = await confirmRes.json() as {
+      success: boolean;
+      data?: { standardFormatWarnings?: unknown[] };
+    };
+    assert.equal(confirmJson.success, true);
+    assert.ok(confirmJson.data?.standardFormatWarnings?.length);
+  });
+
   it('rejects a malformed template with NOT_STANDARD_FORMAT', async () => {
     const templateBuffer = await generateTrialBalanceTemplate();
     const workbook = new ExcelJS.Workbook();
