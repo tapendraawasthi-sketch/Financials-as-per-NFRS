@@ -472,6 +472,262 @@ var tbUploadMiddleware = uploadMiddleware.single("trialbalance");
 
 // server/services/tbParser.ts
 import ExcelJS from "exceljs";
+
+// server/services/tbHierarchy.ts
+var round2 = (n) => Math.round(n * 100) / 100;
+var AGGREGATE_TOLERANCE = 1;
+function deriveClosingBalances(row) {
+  if (row.isGroupRow) return row;
+  let { closingDr, closingCr, openingDr, openingCr, duringDr, duringCr, adjustmentDr, adjustmentCr } = row;
+  if (closingDr === 0 && closingCr === 0) {
+    const netDr = openingDr + duringDr + adjustmentDr;
+    const netCr = openingCr + duringCr + adjustmentCr;
+    const net = netDr - netCr;
+    if (net >= 0) {
+      closingDr = round2(net);
+      closingCr = 0;
+    } else {
+      closingDr = 0;
+      closingCr = round2(Math.abs(net));
+    }
+  }
+  return { ...row, closingDr, closingCr };
+}
+function tallyChildPrefixes(label) {
+  const trimmed = label.trim();
+  const prefixes = [`${trimmed}:`, `${trimmed} `];
+  const colonMatch = trimmed.match(/^(.+?):\s*(.+)$/);
+  if (colonMatch) {
+    prefixes.push(`${colonMatch[1].trim()} ${colonMatch[2].trim()}:`);
+  }
+  return prefixes;
+}
+function isTallyNamingDescendant(parentLabel, childLabel) {
+  const parent = parentLabel.trim();
+  const child = childLabel.trim();
+  return tallyChildPrefixes(parent).some(
+    (prefix) => child.startsWith(prefix) && child.length > parent.length
+  );
+}
+function closingMatchesAggregate(row, childDr, childCr, tolerance = AGGREGATE_TOLERANCE) {
+  if (row.closingDr > 0 && Math.abs(row.closingDr - childDr) < tolerance) return true;
+  if (row.closingCr > 0 && Math.abs(row.closingCr - childCr) < tolerance) return true;
+  return Math.abs(row.closingDr - row.closingCr - (childDr - childCr)) < tolerance;
+}
+function markGroupRowsByIndentation(rows) {
+  return rows.map((row, i) => {
+    let hasDeeperDescendant = false;
+    for (let j = i + 1; j < rows.length; j++) {
+      if (rows[j].rawIndentSpaces <= row.rawIndentSpaces) break;
+      hasDeeperDescendant = true;
+      break;
+    }
+    return {
+      ...row,
+      isGroupRow: row.isGroupRow || hasDeeperDescendant,
+      rowLevel: hasDeeperDescendant ? 0 : row.rawIndentSpaces > 4 ? 2 : row.rowLevel ?? 1
+    };
+  });
+}
+function markTallyShorthandAggregates(rows) {
+  return rows.map((row, i) => {
+    if (row.isGroupRow) return row;
+    const peers = [];
+    for (let j = i + 1; j < rows.length; j++) {
+      if (rows[j].rawIndentSpaces < row.rawIndentSpaces) break;
+      if (rows[j].rawIndentSpaces === row.rawIndentSpaces) {
+        peers.push(rows[j].rawLabel.trim());
+      }
+    }
+    const isShorthandAggregate = peers.some(
+      (peer) => (peer.startsWith(`${row.rawLabel.trim()}:`) || peer.startsWith(`${row.rawLabel.trim()} `)) && peer.length > row.rawLabel.trim().length
+    );
+    return { ...row, isGroupRow: isShorthandAggregate };
+  });
+}
+function markTallyNamingHierarchy(rows) {
+  return rows.map((row, i) => {
+    if (row.isGroupRow) return row;
+    for (let j = i + 1; j < rows.length; j++) {
+      const other = rows[j];
+      if (other.rawIndentSpaces < row.rawIndentSpaces) break;
+      if (isTallyNamingDescendant(row.rawLabel, other.rawLabel)) {
+        return { ...row, isGroupRow: true, rowLevel: 0 };
+      }
+      if (other.rawIndentSpaces <= row.rawIndentSpaces && !isTallyNamingDescendant(row.rawLabel, other.rawLabel)) {
+        break;
+      }
+    }
+    return row;
+  });
+}
+function markTallyAggregateGroups(rows) {
+  return rows.map((row, i) => {
+    if (row.isGroupRow) return row;
+    if (row.closingDr === 0 && row.closingCr === 0) return row;
+    let childDr = 0;
+    let childCr = 0;
+    let childCount = 0;
+    for (let j = i + 1; j < rows.length; j++) {
+      if (rows[j].rawIndentSpaces <= row.rawIndentSpaces) break;
+      childDr += rows[j].closingDr;
+      childCr += rows[j].closingCr;
+      childCount++;
+    }
+    if (childCount > 0 && closingMatchesAggregate(row, childDr, childCr)) {
+      return { ...row, isGroupRow: true, rowLevel: 0 };
+    }
+    return row;
+  });
+}
+function isLeafWithinRange(rows, idx, start, end) {
+  for (let j = idx + 1; j <= end; j++) {
+    if (rows[j].rawIndentSpaces > rows[idx].rawIndentSpaces) return false;
+  }
+  return true;
+}
+function sumLeafClosingsInRange(rows, start, end) {
+  let dr = 0;
+  let cr = 0;
+  for (let i = start; i <= end; i++) {
+    if (isLeafWithinRange(rows, i, start, end)) {
+      dr += rows[i].closingDr;
+      cr += rows[i].closingCr;
+    }
+  }
+  return { dr, cr };
+}
+function markTallySameIndentSubGroups(rows) {
+  return rows.map((row, i) => {
+    if (row.isGroupRow) return row;
+    if (row.closingDr === 0 && row.closingCr === 0) return row;
+    if (i + 1 >= rows.length) return row;
+    if (rows[i + 1].rawIndentSpaces !== row.rawIndentSpaces) return row;
+    for (let end = i + 1; end < rows.length; end++) {
+      if (rows[end].rawIndentSpaces < row.rawIndentSpaces) break;
+      const { dr, cr } = sumLeafClosingsInRange(rows, i + 1, end);
+      if (closingMatchesAggregate(row, dr, cr)) {
+        return { ...row, isGroupRow: true, rowLevel: 0 };
+      }
+      if (rows[end].rawIndentSpaces === row.rawIndentSpaces && !isTallyNamingDescendant(row.rawLabel, rows[end].rawLabel) && (dr > row.closingDr + AGGREGATE_TOLERANCE || cr > row.closingCr + AGGREGATE_TOLERANCE)) {
+        break;
+      }
+    }
+    return row;
+  });
+}
+function markTallyDuplicateBalanceParents(rows) {
+  return rows.map((row, i) => {
+    if (row.isGroupRow) return row;
+    if (row.closingDr === 0 && row.closingCr === 0) return row;
+    for (let j = i + 1; j < rows.length; j++) {
+      const other = rows[j];
+      if (other.rawIndentSpaces < row.rawIndentSpaces) break;
+      if (other.rawIndentSpaces !== row.rawIndentSpaces) continue;
+      const sameBalance = row.closingDr > 0 && Math.abs(row.closingDr - other.closingDr) < AGGREGATE_TOLERANCE || row.closingCr > 0 && Math.abs(row.closingCr - other.closingCr) < AGGREGATE_TOLERANCE;
+      if (sameBalance && other.isGroupRow) {
+        return { ...row, isGroupRow: true, rowLevel: 0 };
+      }
+      break;
+    }
+    return row;
+  });
+}
+function assignParentGroups(rows) {
+  const groupStack = [];
+  return rows.map((row) => {
+    if (row.isGroupRow) {
+      while (groupStack.length > 0 && groupStack[groupStack.length - 1].indentSpaces >= row.rawIndentSpaces) {
+        groupStack.pop();
+      }
+      groupStack.push({
+        label: row.rawLabel,
+        indentSpaces: row.rawIndentSpaces,
+        level: row.rowLevel
+      });
+      return {
+        ...row,
+        parentGroup: groupStack.length > 1 ? groupStack[groupStack.length - 2].label : ""
+      };
+    }
+    const parentGroup = groupStack.length > 0 ? groupStack[groupStack.length - 1].label : "";
+    return { ...row, parentGroup: row.parentGroup || parentGroup };
+  });
+}
+function postProcessHierarchy(rows) {
+  return assignParentGroups(markTallyShorthandAggregates(markGroupRowsByIndentation(rows)));
+}
+function postProcessTallyGroupedHierarchy(rows) {
+  let processed = markGroupRowsByIndentation(rows);
+  processed = markTallyShorthandAggregates(processed);
+  processed = markTallyNamingHierarchy(processed);
+  processed = markTallyAggregateGroups(processed);
+  processed = markTallySameIndentSubGroups(processed);
+  processed = markTallyDuplicateBalanceParents(processed);
+  return assignParentGroups(processed);
+}
+function computeRawTBTotals(rows) {
+  const leafRows = rows.filter((r) => !r.isGroupRow);
+  let totalOpeningDr = 0;
+  let totalOpeningCr = 0;
+  let totalDuringDr = 0;
+  let totalDuringCr = 0;
+  let totalClosingDr = 0;
+  let totalClosingCr = 0;
+  for (const row of leafRows) {
+    totalOpeningDr += row.openingDr;
+    totalOpeningCr += row.openingCr;
+    totalDuringDr += row.duringDr;
+    totalDuringCr += row.duringCr;
+    totalClosingDr += row.closingDr;
+    totalClosingCr += row.closingCr;
+  }
+  totalClosingDr = round2(totalClosingDr);
+  totalClosingCr = round2(totalClosingCr);
+  const difference = round2(totalClosingDr - totalClosingCr);
+  return {
+    totalOpeningDr: round2(totalOpeningDr),
+    totalOpeningCr: round2(totalOpeningCr),
+    totalDuringDr: round2(totalDuringDr),
+    totalDuringCr: round2(totalDuringCr),
+    totalClosingDr,
+    totalClosingCr,
+    isBalanced: Math.abs(difference) < 1,
+    difference
+  };
+}
+function finalizeRawTBRows(rows, options = {}) {
+  const deriveClosing = options.deriveClosing !== false;
+  const runHierarchy = options.postProcessHierarchy !== false;
+  let processed = rows.map((row, idx) => ({ ...row, rowIndex: idx }));
+  if (deriveClosing) {
+    processed = processed.map(deriveClosingBalances);
+  }
+  if (runHierarchy) {
+    processed = options.tallyGrouped ? postProcessTallyGroupedHierarchy(processed) : postProcessHierarchy(processed);
+  } else {
+    processed = assignParentGroups(processed);
+  }
+  processed = processed.map((row, idx) => ({ ...row, rowIndex: idx }));
+  const totals = computeRawTBTotals(processed);
+  const warnings = [];
+  if (!totals.isBalanced) {
+    warnings.push(
+      `Trial Balance not balanced. Difference: ${Math.abs(totals.difference).toLocaleString("en-IN")}.`
+    );
+  }
+  const derivedCount = rows.filter(
+    (r, i) => !r.isGroupRow && r.closingDr === 0 && r.closingCr === 0 && processed[i] && (processed[i].closingDr > 0 || processed[i].closingCr > 0)
+  ).length;
+  if (derivedCount > 0) {
+    warnings.push(
+      `Closing balances derived for ${derivedCount} account${derivedCount === 1 ? "" : "s"} from opening + movement columns.`
+    );
+  }
+  return { rows: processed, totals, warnings };
+}
+
+// server/services/tbParser.ts
 var COL_HINTS = {
   label: [
     "particular",
@@ -758,39 +1014,14 @@ function detectTallyGroupedExport(matrix) {
   }
   return { isGrouped: false, headerRowIndex: -1, colMap: {} };
 }
-function markGroupRowsByIndentation(rows) {
-  return rows.map((row, i) => {
-    let hasDeeperDescendant = false;
-    for (let j = i + 1; j < rows.length; j++) {
-      if (rows[j].rawIndentSpaces <= row.rawIndentSpaces) break;
-      hasDeeperDescendant = true;
-      break;
-    }
-    return {
-      ...row,
-      isGroupRow: hasDeeperDescendant,
-      rowLevel: hasDeeperDescendant ? 0 : row.rawIndentSpaces > 4 ? 2 : 1
-    };
-  });
-}
-function markTallyShorthandAggregates(rows) {
-  return rows.map((row, i) => {
-    if (row.isGroupRow) return row;
-    const peers = [];
-    for (let j = i + 1; j < rows.length; j++) {
-      if (rows[j].rawIndentSpaces < row.rawIndentSpaces) break;
-      if (rows[j].rawIndentSpaces === row.rawIndentSpaces) {
-        peers.push(rows[j].rawLabel.trim());
-      }
-    }
-    const isShorthandAggregate = peers.some(
-      (peer) => (peer.startsWith(`${row.rawLabel.trim()}:`) || peer.startsWith(`${row.rawLabel.trim()} `)) && peer.length > row.rawLabel.trim().length
-    );
-    return { ...row, isGroupRow: isShorthandAggregate };
-  });
-}
-function postProcessTallyGroupedRows(rows) {
-  return markTallyShorthandAggregates(markGroupRowsByIndentation(rows));
+function applyTallyGroupedFinalization(result) {
+  const finalized = finalizeRawTBRows(result.rows, { tallyGrouped: true });
+  return {
+    ...result,
+    rows: finalized.rows,
+    ...finalized.totals,
+    warnings: [...result.warnings, ...finalized.warnings]
+  };
 }
 function detectFormat(matrix, detection) {
   const groupedCheck = detectTallyGroupedExport(matrix);
@@ -1000,25 +1231,6 @@ function parseCSVText(text) {
     cells.push(current.trim());
     return cells;
   }).filter((row) => row.some((c) => c !== ""));
-}
-function assignParentGroups(rows) {
-  const groupStack = [];
-  return rows.map((row) => {
-    if (row.isGroupRow) {
-      while (groupStack.length > 0 && groupStack[groupStack.length - 1].indentSpaces >= row.rawIndentSpaces) {
-        groupStack.pop();
-      }
-      groupStack.push({
-        label: row.rawLabel,
-        indentSpaces: row.rawIndentSpaces,
-        level: row.rowLevel
-      });
-      return { ...row, parentGroup: groupStack.length > 1 ? groupStack[groupStack.length - 2].label : "" };
-    } else {
-      const parentGroup = groupStack.length > 0 ? groupStack[groupStack.length - 1].label : "";
-      return { ...row, parentGroup };
-    }
-  });
 }
 function worksheetToMatrix(ws) {
   const matrix = [];
@@ -1231,6 +1443,7 @@ function parseMatrixWithColMap(matrix, colMap, headerRowIndex, mode, warningsPre
   const warnings = [...warningsPrefix];
   const rows = [];
   const skippedSubtotals = [];
+  const zeroAmountLeaves = [];
   for (let r = headerRowIndex + 1; r < matrix.length; r++) {
     const matRow = matrix[r] ?? [];
     const labelVal = matRow[colMap["label"] ?? 0];
@@ -1243,19 +1456,46 @@ function parseMatrixWithColMap(matrix, colMap, headerRowIndex, mode, warningsPre
     const row = extractRow(matRow, r, colMap, mode);
     if (!row.rawLabel) continue;
     if (!row.isGroupRow && row.closingDr === 0 && row.closingCr === 0 && row.openingDr === 0 && row.openingCr === 0) {
-      warnings.push(`Zero-amount leaf row skipped or flagged: "${row.rawLabel}"`);
+      zeroAmountLeaves.push(row.rawLabel);
     }
     rows.push(row);
+  }
+  if (zeroAmountLeaves.length > 0) {
+    if (zeroAmountLeaves.length <= 5) {
+      for (const label of zeroAmountLeaves) {
+        warnings.push(`Zero-amount leaf row skipped or flagged: "${label}"`);
+      }
+    } else {
+      warnings.push(
+        `${zeroAmountLeaves.length} zero-amount leaf row(s) flagged (e.g. "${zeroAmountLeaves[0]}", "${zeroAmountLeaves[1]}").`
+      );
+    }
   }
   if (skippedSubtotals.length > 0) {
     warnings.push(`${skippedSubtotals.length} subtotal row(s) skipped.`);
   }
-  const rowsWithParents = assignParentGroups(
-    mode === "tally_grouped" ? postProcessTallyGroupedRows(rows) : rows
-  );
+  const deferTallyHierarchy = mode === "tally_grouped";
+  const rowsWithParents = deferTallyHierarchy ? rows : assignParentGroups(rows);
   const leafRows = rowsWithParents.filter((r) => !r.isGroupRow);
   if (leafRows.length === 0) {
     throw Object.assign(new Error("No data rows found."), { status: 400, code: "NO_DATA_ROWS" });
+  }
+  if (deferTallyHierarchy) {
+    return {
+      rows: rowsWithParents,
+      totalOpeningDr: 0,
+      totalOpeningCr: 0,
+      totalDuringDr: 0,
+      totalDuringCr: 0,
+      totalClosingDr: 0,
+      totalClosingCr: 0,
+      isBalanced: false,
+      difference: 0,
+      warnings,
+      detectedColumns: colMap,
+      headerRowIndex,
+      detectedFormat: mode
+    };
   }
   let totalOpeningDr = 0, totalOpeningCr = 0, totalDuringDr = 0, totalDuringCr = 0;
   let totalClosingDr = 0, totalClosingCr = 0;
@@ -1322,7 +1562,11 @@ function parseMatrix(matrix) {
       { status: 400, code: "NO_HEADERS" }
     );
   }
-  return parseMatrixWithColMap(matrix, colMap, headerRowIndex, mode, warnings);
+  const parsed = parseMatrixWithColMap(matrix, colMap, headerRowIndex, mode, warnings);
+  if (mode === "tally_grouped") {
+    return applyTallyGroupedFinalization(parsed);
+  }
+  return parsed;
 }
 function parseDualYearMatrix(matrix) {
   const dual = detectDualYearColumns(matrix);
@@ -6637,143 +6881,6 @@ async function generateTrialBalanceTemplate() {
 // server/services/aiTbConverter.ts
 import Anthropic2 from "@anthropic-ai/sdk";
 import ExcelJS4 from "exceljs";
-
-// server/services/tbHierarchy.ts
-var round2 = (n) => Math.round(n * 100) / 100;
-function deriveClosingBalances(row) {
-  if (row.isGroupRow) return row;
-  let { closingDr, closingCr, openingDr, openingCr, duringDr, duringCr, adjustmentDr, adjustmentCr } = row;
-  if (closingDr === 0 && closingCr === 0) {
-    const netDr = openingDr + duringDr + adjustmentDr;
-    const netCr = openingCr + duringCr + adjustmentCr;
-    const net = netDr - netCr;
-    if (net >= 0) {
-      closingDr = round2(net);
-      closingCr = 0;
-    } else {
-      closingDr = 0;
-      closingCr = round2(Math.abs(net));
-    }
-  }
-  return { ...row, closingDr, closingCr };
-}
-function markGroupRowsByIndentation2(rows) {
-  return rows.map((row, i) => {
-    let hasDeeperDescendant = false;
-    for (let j = i + 1; j < rows.length; j++) {
-      if (rows[j].rawIndentSpaces <= row.rawIndentSpaces) break;
-      hasDeeperDescendant = true;
-      break;
-    }
-    return {
-      ...row,
-      isGroupRow: row.isGroupRow || hasDeeperDescendant,
-      rowLevel: hasDeeperDescendant ? 0 : row.rawIndentSpaces > 4 ? 2 : row.rowLevel ?? 1
-    };
-  });
-}
-function markTallyShorthandAggregates2(rows) {
-  return rows.map((row, i) => {
-    if (row.isGroupRow) return row;
-    const peers = [];
-    for (let j = i + 1; j < rows.length; j++) {
-      if (rows[j].rawIndentSpaces < row.rawIndentSpaces) break;
-      if (rows[j].rawIndentSpaces === row.rawIndentSpaces) {
-        peers.push(rows[j].rawLabel.trim());
-      }
-    }
-    const isShorthandAggregate = peers.some(
-      (peer) => (peer.startsWith(`${row.rawLabel.trim()}:`) || peer.startsWith(`${row.rawLabel.trim()} `)) && peer.length > row.rawLabel.trim().length
-    );
-    return { ...row, isGroupRow: isShorthandAggregate };
-  });
-}
-function assignParentGroups2(rows) {
-  const groupStack = [];
-  return rows.map((row) => {
-    if (row.isGroupRow) {
-      while (groupStack.length > 0 && groupStack[groupStack.length - 1].indentSpaces >= row.rawIndentSpaces) {
-        groupStack.pop();
-      }
-      groupStack.push({
-        label: row.rawLabel,
-        indentSpaces: row.rawIndentSpaces,
-        level: row.rowLevel
-      });
-      return {
-        ...row,
-        parentGroup: groupStack.length > 1 ? groupStack[groupStack.length - 2].label : ""
-      };
-    }
-    const parentGroup = groupStack.length > 0 ? groupStack[groupStack.length - 1].label : "";
-    return { ...row, parentGroup: row.parentGroup || parentGroup };
-  });
-}
-function postProcessHierarchy(rows) {
-  return assignParentGroups2(markTallyShorthandAggregates2(markGroupRowsByIndentation2(rows)));
-}
-function computeRawTBTotals(rows) {
-  const leafRows = rows.filter((r) => !r.isGroupRow);
-  let totalOpeningDr = 0;
-  let totalOpeningCr = 0;
-  let totalDuringDr = 0;
-  let totalDuringCr = 0;
-  let totalClosingDr = 0;
-  let totalClosingCr = 0;
-  for (const row of leafRows) {
-    totalOpeningDr += row.openingDr;
-    totalOpeningCr += row.openingCr;
-    totalDuringDr += row.duringDr;
-    totalDuringCr += row.duringCr;
-    totalClosingDr += row.closingDr;
-    totalClosingCr += row.closingCr;
-  }
-  totalClosingDr = round2(totalClosingDr);
-  totalClosingCr = round2(totalClosingCr);
-  const difference = round2(totalClosingDr - totalClosingCr);
-  return {
-    totalOpeningDr: round2(totalOpeningDr),
-    totalOpeningCr: round2(totalOpeningCr),
-    totalDuringDr: round2(totalDuringDr),
-    totalDuringCr: round2(totalDuringCr),
-    totalClosingDr,
-    totalClosingCr,
-    isBalanced: Math.abs(difference) < 1,
-    difference
-  };
-}
-function finalizeRawTBRows(rows, options = {}) {
-  const deriveClosing = options.deriveClosing !== false;
-  const runHierarchy = options.postProcessHierarchy !== false;
-  let processed = rows.map((row, idx) => ({ ...row, rowIndex: idx }));
-  if (deriveClosing) {
-    processed = processed.map(deriveClosingBalances);
-  }
-  if (runHierarchy) {
-    processed = postProcessHierarchy(processed);
-  } else {
-    processed = assignParentGroups2(processed);
-  }
-  processed = processed.map((row, idx) => ({ ...row, rowIndex: idx }));
-  const totals = computeRawTBTotals(processed);
-  const warnings = [];
-  if (!totals.isBalanced) {
-    warnings.push(
-      `Trial Balance not balanced. Difference: ${Math.abs(totals.difference).toLocaleString("en-IN")}.`
-    );
-  }
-  const derivedCount = rows.filter(
-    (r, i) => !r.isGroupRow && r.closingDr === 0 && r.closingCr === 0 && processed[i] && (processed[i].closingDr > 0 || processed[i].closingCr > 0)
-  ).length;
-  if (derivedCount > 0) {
-    warnings.push(
-      `Closing balances derived for ${derivedCount} account${derivedCount === 1 ? "" : "s"} from opening + movement columns.`
-    );
-  }
-  return { rows: processed, totals, warnings };
-}
-
-// server/services/aiTbConverter.ts
 var BATCH_SIZE = 100;
 var SYSTEM_PROMPT2 = `You are an expert Nepali chartered accountant assistant. You will be given raw rows extracted from a messy, unstructured, or non-standard trial balance export from Nepali accounting software (Tally, Swastik, Busy, or similar). Extract ALL rows in document order, including section and group header rows (e.g. "Property, Plant & Equipment", "Employee Benefit Expenses") even when they have no numeric balance. For group headers set isGroupRow=true, all amount fields to 0, and infer rawIndentSpaces from leading spaces in the label (2 spaces per indent level). For leaf ledger accounts with balances, set isGroupRow=false and populate amounts. Set parentGroup to the nearest group header above each leaf row. IGNORE: company name/address rows, titles, date ranges, blank rows, and any 'Total'/'Grand Total'/subtotal rows. Balances are sometimes shown as a single combined value like '1,43,51,552.00 Cr' or '9,664.55 Dr' \u2014 split these correctly into the Dr or Cr field based on the suffix and remove commas. If a row has separate Opening/Debit/Credit/Closing columns, map them precisely. If only a closing balance exists, populate closingDr or closingCr only, leave opening/during at 0. If opening and during-period columns exist but closing is missing, leave closing at 0 (the server will derive closing). Never invent numbers you do not see. Respond with ONLY a raw JSON array, no markdown fences, no commentary, no explanation.`;
 function parseAIResponse2(text) {
@@ -7149,14 +7256,14 @@ async function convertTrialBalanceLocally(buffer, filename) {
   } else {
     parsed = parseMatrix(matrix);
   }
-  const finalized = finalizeRawTBRows(parsed.rows);
-  const classified = heuristicFallbackClassify(classifyAll(finalized.rows));
+  const hierarchyResult = parsed.detectedFormat === "tally_grouped" ? { rows: parsed.rows, totals: parsed, warnings: [] } : finalizeRawTBRows(parsed.rows);
+  const classified = heuristicFallbackClassify(classifyAll(hierarchyResult.rows));
   const leafRows = classified.filter((r) => !r.isGroupRow);
   const highConfidence = leafRows.filter((r) => (r.confidence ?? 0) >= 80).length;
   const needsReview = leafRows.filter((r) => r.needsReview).length;
   const warnings = [
     ...parsed.warnings,
-    ...finalized.warnings,
+    ...hierarchyResult.warnings,
     `${highConfidence} of ${leafRows.length} accounts auto-classified with high confidence (\u226580%).`,
     `${needsReview} account(s) flagged for review.`
   ];
@@ -7164,9 +7271,17 @@ async function convertTrialBalanceLocally(buffer, filename) {
     warnings.push(`PDF text extracted from ${pdfMeta.pageCount} page(s).`);
     warnings.push(...pdfMeta.warnings);
   }
+  const totals = parsed.detectedFormat === "tally_grouped" ? parsed : hierarchyResult.totals;
   return {
-    rows: finalized.rows,
-    ...finalized.totals,
+    rows: hierarchyResult.rows,
+    totalOpeningDr: totals.totalOpeningDr,
+    totalOpeningCr: totals.totalOpeningCr,
+    totalDuringDr: totals.totalDuringDr,
+    totalDuringCr: totals.totalDuringCr,
+    totalClosingDr: totals.totalClosingDr,
+    totalClosingCr: totals.totalClosingCr,
+    isBalanced: totals.isBalanced,
+    difference: totals.difference,
     warnings,
     detectedColumns: parsed.detectedColumns,
     headerRowIndex: parsed.headerRowIndex,
