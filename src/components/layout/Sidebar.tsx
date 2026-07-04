@@ -12,6 +12,8 @@ import {
   Check,
   ShieldCheck,
   ChevronDown,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from 'lucide-react';
 import { AppStep } from '../../types';
 import { listStoredSessions, type StoredSessionSummary, formatLastSaved } from '../../hooks/useSessionPersistence';
@@ -44,6 +46,12 @@ const NAV_ITEMS: NavItem[] = [
   { step: 'generate_output',       label: 'Generate Excel',       icon: Download   },
 ];
 
+function getClientInitials(name: string): string {
+  const parts = name.trim().split(/\s+/);
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+  return name.slice(0, 2).toUpperCase();
+}
+
 export default function Sidebar({
   currentStep,
   completedSteps,
@@ -55,6 +63,7 @@ export default function Sidebar({
   lastSavedAt,
 }: SidebarProps) {
   const [switcherOpen, setSwitcherOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
   const [sessions, setSessions] = useState<StoredSessionSummary[]>([]);
   const switcherRef = useRef<HTMLDivElement>(null);
 
@@ -73,31 +82,40 @@ export default function Sidebar({
     return () => document.removeEventListener('mousedown', handleClick);
   }, [switcherOpen]);
 
+  const sidebarWidth = collapsed ? 48 : 268;
+
   return (
     <aside
       className="sidebar chrome-panel flex flex-col flex-shrink-0 h-screen relative overflow-hidden"
-      style={{ width: '268px', minWidth: '268px' }}
+      style={{ width: `${sidebarWidth}px`, minWidth: `${sidebarWidth}px`, transition: 'width var(--dur-base) var(--ease-premium), min-width var(--dur-base) var(--ease-premium)' }}
       aria-label="Application navigation"
+      aria-expanded={!collapsed}
     >
       {/* Brand zone */}
       <div
         className="flex items-center flex-shrink-0"
-        style={{ height: '72px', padding: '20px', gap: '12px' }}
+        style={{
+          height: collapsed ? '48px' : '72px',
+          padding: collapsed ? 'var(--space-2)' : 'var(--space-5)',
+          gap: 'var(--space-3)',
+          justifyContent: collapsed ? 'center' : 'flex-start',
+        }}
       >
         <div
           className="flex items-center justify-center flex-shrink-0"
           style={{
-            width: '36px',
-            height: '36px',
-            borderRadius: '12px',
+            width: collapsed ? '32px' : '36px',
+            height: collapsed ? '32px' : '36px',
+            borderRadius: 'var(--radius-md)',
             background: 'linear-gradient(135deg, var(--brand-400), var(--brand-700) 60%, var(--gold-500))',
           }}
+          title={collapsed ? 'NFRS Reporter' : undefined}
         >
           <span
             style={{
               fontFamily: 'var(--font-display)',
               color: 'white',
-              fontSize: '18px',
+              fontSize: collapsed ? '16px' : '18px',
               fontWeight: 700,
               lineHeight: 1,
             }}
@@ -105,27 +123,66 @@ export default function Sidebar({
             N
           </span>
         </div>
-        <div className="min-w-0">
-          <p style={{ color: 'var(--chrome-text)', fontSize: '14.5px', fontWeight: 700, lineHeight: 1.2 }}>
-            NFRS Reporter
-          </p>
-          <p
+        {!collapsed && (
+          <div className="min-w-0 flex-1">
+            <p style={{ color: 'var(--chrome-text)', fontSize: 'var(--text-md)', fontWeight: 700, lineHeight: 1.2 }}>
+              NFRS Reporter
+            </p>
+            <p
+              style={{
+                color: 'var(--chrome-text-faint)',
+                fontSize: 'var(--text-xs)',
+                textTransform: 'uppercase',
+                letterSpacing: '0.08em',
+                marginTop: '2px',
+              }}
+            >
+              Enterprise Edition
+            </p>
+          </div>
+        )}
+        {!collapsed && (
+          <button
+            type="button"
+            onClick={() => setCollapsed(true)}
+            aria-label="Collapse sidebar"
+            className="flex items-center justify-center flex-shrink-0 transition-colors"
             style={{
+              width: '28px',
+              height: '28px',
+              borderRadius: 'var(--radius-sm)',
               color: 'var(--chrome-text-faint)',
-              fontSize: '10.5px',
-              textTransform: 'uppercase',
-              letterSpacing: '0.08em',
-              marginTop: '2px',
             }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'var(--chrome-800)'; }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
           >
-            Enterprise Edition
-          </p>
-        </div>
+            <PanelLeftClose size={16} />
+          </button>
+        )}
       </div>
 
+      {collapsed && (
+        <button
+          type="button"
+          onClick={() => setCollapsed(false)}
+          aria-label="Expand sidebar"
+          className="flex items-center justify-center mx-auto mb-1 transition-colors"
+          style={{
+            width: '32px',
+            height: '32px',
+            borderRadius: 'var(--radius-sm)',
+            color: 'var(--chrome-text-faint)',
+          }}
+          onMouseEnter={e => { e.currentTarget.style.background = 'var(--chrome-800)'; }}
+          onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+        >
+          <PanelLeftOpen size={16} />
+        </button>
+      )}
+
       {/* Client switcher */}
-      {companyName && (
-        <div ref={switcherRef} className="relative flex-shrink-0" style={{ margin: '12px 16px' }}>
+      {companyName && !collapsed && (
+        <div ref={switcherRef} className="relative flex-shrink-0" style={{ margin: 'var(--space-3) var(--space-4)' }}>
           <button
             type="button"
             onClick={() => {
@@ -136,7 +193,7 @@ export default function Sidebar({
               background: 'var(--chrome-800)',
               border: '1px solid var(--chrome-border)',
               borderRadius: 'var(--radius-md)',
-              padding: '10px 12px',
+              padding: 'var(--space-2) var(--space-3)',
             }}
             aria-expanded={switcherOpen}
             aria-haspopup="listbox"
@@ -148,28 +205,42 @@ export default function Sidebar({
                 style={{
                   width: '28px',
                   height: '28px',
-                  borderRadius: '9999px',
+                  borderRadius: 'var(--radius-full)',
                   background: 'var(--brand-500)',
                   color: 'white',
-                  fontSize: '12px',
+                  fontSize: 'var(--text-xs)',
                   fontWeight: 700,
+                  letterSpacing: '0.02em',
                 }}
               >
-                {companyName.charAt(0).toUpperCase()}
+                {getClientInitials(companyName)}
               </span>
               <div className="min-w-0 flex-1">
-                <p
-                  className="truncate"
-                  style={{ color: 'var(--chrome-text)', fontSize: '13px', fontWeight: 600 }}
-                  title={companyName}
-                >
-                  {companyName}
-                </p>
-                {fiscalYear && (
-                  <p style={{ color: 'var(--chrome-text-muted)', fontSize: '11px', marginTop: '2px' }}>
-                    FY {fiscalYear}
+                <div className="flex items-center gap-2 min-w-0">
+                  <p
+                    className="truncate"
+                    style={{ color: 'var(--chrome-text)', fontSize: 'var(--text-base)', fontWeight: 600 }}
+                    title={companyName}
+                  >
+                    {companyName}
                   </p>
-                )}
+                  {fiscalYear && (
+                    <span
+                      className="flex-shrink-0"
+                      style={{
+                        background: 'var(--gold-100)',
+                        color: 'var(--gold-700)',
+                        fontSize: '10px',
+                        fontWeight: 600,
+                        padding: '2px 6px',
+                        borderRadius: 'var(--radius-full)',
+                        lineHeight: 1.2,
+                      }}
+                    >
+                      FY {fiscalYear}
+                    </span>
+                  )}
+                </div>
               </div>
               {sessions.length > 1 && (
                 <ChevronDown size={14} style={{ color: 'var(--chrome-text-faint)', flexShrink: 0 }} />
@@ -201,12 +272,23 @@ export default function Sidebar({
                       className="w-full px-3 py-2 text-left transition-colors"
                       style={{ color: 'var(--chrome-text)' }}
                     >
-                      <p className="text-xs font-medium truncate">{session.companyName}</p>
-                      {session.fiscalYear && (
-                        <p style={{ color: 'var(--chrome-text-muted)', fontSize: '10px', marginTop: '2px' }}>
-                          FY {session.fiscalYear}
-                        </p>
-                      )}
+                      <div className="flex items-center gap-2">
+                        <p className="text-xs font-medium truncate flex-1">{session.companyName}</p>
+                        {session.fiscalYear && (
+                          <span
+                            style={{
+                              background: 'var(--gold-100)',
+                              color: 'var(--gold-700)',
+                              fontSize: '9px',
+                              fontWeight: 600,
+                              padding: '1px 5px',
+                              borderRadius: 'var(--radius-full)',
+                            }}
+                          >
+                            FY {session.fiscalYear}
+                          </span>
+                        )}
+                      </div>
                     </button>
                   </li>
                 );
@@ -219,9 +301,25 @@ export default function Sidebar({
       {/* Wizard navigation */}
       <nav
         className="flex-1 overflow-y-auto"
-        style={{ padding: '12px' }}
+        style={{ padding: collapsed ? 'var(--space-2) var(--space-1)' : 'var(--space-3)' }}
         aria-label="Workflow steps"
       >
+        {!collapsed && (
+          <p
+            style={{
+              color: 'var(--chrome-text-faint)',
+              fontSize: 'var(--text-xs)',
+              fontWeight: 600,
+              textTransform: 'uppercase',
+              letterSpacing: '0.06em',
+              padding: '0 var(--space-3)',
+              marginBottom: 'var(--space-2)',
+            }}
+          >
+            Workflow
+          </p>
+        )}
+
         {NAV_ITEMS.map(item => {
           const isActive = item.step === currentStep;
           const isDone   = completedSteps.includes(item.step);
@@ -232,97 +330,118 @@ export default function Sidebar({
               key={item.step}
               onClick={() => onNavigate(item.step)}
               aria-current={isActive ? 'step' : undefined}
+              title={collapsed ? item.label : undefined}
               className="w-full flex items-center text-left transition-all ease-premium"
               style={{
-                height: '44px',
+                height: collapsed ? '40px' : '44px',
                 borderRadius: 'var(--radius-md)',
-                padding: '0 12px',
-                gap: '12px',
+                padding: collapsed ? '0' : '0 var(--space-3)',
+                gap: collapsed ? '0' : 'var(--space-3)',
                 marginBottom: '2px',
+                justifyContent: collapsed ? 'center' : 'flex-start',
                 background: isActive ? 'var(--chrome-800)' : 'transparent',
-                borderLeft: isActive ? '3px solid var(--gold-500)' : '3px solid transparent',
+                borderLeft: isActive ? '3px solid var(--brand-500)' : '3px solid transparent',
               }}
               onMouseEnter={e => {
                 if (!isActive) e.currentTarget.style.background = 'rgba(18, 26, 52, 0.5)';
               }}
               onMouseLeave={e => {
-                if (!isActive) e.currentTarget.style.background = 'transparent';
+                if (!isActive) e.currentTarget.style.background = isActive ? 'var(--chrome-800)' : 'transparent';
               }}
             >
               <span
                 className="flex items-center justify-center flex-shrink-0"
                 style={{
-                  width: '26px',
-                  height: '26px',
-                  borderRadius: '9999px',
-                  ...(isDone
-                    ? { background: 'var(--success-600)', color: 'white' }
-                    : isActive
+                  width: collapsed ? '28px' : '26px',
+                  height: collapsed ? '28px' : '26px',
+                  borderRadius: 'var(--radius-full)',
+                  ...(isActive
                     ? {
-                        background: 'var(--gold-500)',
-                        color: 'var(--chrome-950)',
-                        boxShadow: 'var(--glow-gold)',
+                        background: 'var(--brand-500)',
+                        color: 'white',
                       }
                     : {
                         background: 'var(--chrome-800)',
                         border: '1px solid var(--chrome-border)',
-                        color: 'var(--chrome-text-faint)',
+                        color: isDone ? 'var(--chrome-text-muted)' : 'var(--chrome-text-faint)',
                       }),
                 }}
               >
-                {isDone ? <Check size={14} strokeWidth={3} /> : <ItemIcon size={14} />}
+                <ItemIcon size={14} />
               </span>
 
-              <span
-                className="truncate"
-                style={{
-                  fontSize: isActive ? '13.5px' : '13px',
-                  fontWeight: isActive ? 600 : isDone ? 500 : 400,
-                  color: isActive
-                    ? 'var(--chrome-text)'
-                    : isDone
-                    ? 'var(--chrome-text-muted)'
-                    : 'var(--chrome-text-faint)',
-                }}
-              >
-                {item.label}
-              </span>
+              {!collapsed && (
+                <>
+                  <span
+                    className="truncate flex-1 min-w-0"
+                    style={{
+                      fontSize: isActive ? 'var(--text-base)' : 'var(--text-base)',
+                      fontWeight: isActive ? 600 : isDone ? 500 : 400,
+                      color: isActive
+                        ? 'var(--chrome-text)'
+                        : isDone
+                        ? 'var(--chrome-text-muted)'
+                        : 'var(--chrome-text-faint)',
+                    }}
+                  >
+                    {item.label}
+                  </span>
+
+                  {isDone && (
+                    <span
+                      className="flex items-center justify-center flex-shrink-0"
+                      style={{
+                        width: '14px',
+                        height: '14px',
+                        borderRadius: 'var(--radius-full)',
+                        background: 'var(--success-600)',
+                        color: 'white',
+                      }}
+                      aria-hidden="true"
+                    >
+                      <Check size={9} strokeWidth={3} />
+                    </span>
+                  )}
+                </>
+              )}
             </button>
           );
         })}
       </nav>
 
       {/* Bottom zone */}
-      <div
-        className="flex-shrink-0"
-        style={{
-          padding: '16px',
-          borderTop: '1px solid var(--chrome-border)',
-        }}
-      >
-        {lastSavedAt && (
-          <div className="flex items-center gap-2 mb-2">
-            <span
-              className="flex-shrink-0"
-              style={{
-                width: '6px',
-                height: '6px',
-                borderRadius: '9999px',
-                background: 'var(--success-600)',
-              }}
-            />
-            <p style={{ color: 'var(--chrome-text-faint)', fontSize: '11px' }}>
-              Saved {formatLastSaved(lastSavedAt)}
+      {!collapsed && (
+        <div
+          className="flex-shrink-0"
+          style={{
+            padding: 'var(--space-4)',
+            borderTop: '1px solid var(--chrome-border)',
+          }}
+        >
+          {lastSavedAt && (
+            <div className="flex items-center gap-2 mb-2">
+              <span
+                className="flex-shrink-0"
+                style={{
+                  width: '6px',
+                  height: '6px',
+                  borderRadius: 'var(--radius-full)',
+                  background: 'var(--success-600)',
+                }}
+              />
+              <p style={{ color: 'var(--chrome-text-faint)', fontSize: 'var(--text-xs)' }}>
+                Saved {formatLastSaved(lastSavedAt)}
+              </p>
+            </div>
+          )}
+          <div className="flex items-center gap-1.5">
+            <ShieldCheck size={12} style={{ color: 'var(--gold-500)' }} />
+            <p style={{ color: 'var(--gold-500)', fontSize: 'var(--text-xs)', fontWeight: 600 }}>
+              ICAN NAS for MEs Compliant
             </p>
           </div>
-        )}
-        <div className="flex items-center gap-1.5">
-          <ShieldCheck size={12} style={{ color: 'var(--gold-500)' }} />
-          <p style={{ color: 'var(--gold-500)', fontSize: '10.5px', fontWeight: 600 }}>
-            ICAN NAS for MEs Compliant
-          </p>
         </div>
-      </div>
+      )}
     </aside>
   );
 }

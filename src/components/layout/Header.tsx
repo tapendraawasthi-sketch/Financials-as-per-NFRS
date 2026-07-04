@@ -1,7 +1,9 @@
 // src/components/layout/Header.tsx
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Sun, Moon } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 import { useTheme } from '../../hooks/useTheme';
+import { formatLastSaved } from '../../hooks/useSessionPersistence';
 
 interface HeaderProps {
   title:         string;
@@ -26,8 +28,19 @@ export default function Header({
   actions,
   breadcrumb,
   companyName,
+  lastSavedAt,
 }: HeaderProps) {
   const { theme, toggleTheme } = useTheme();
+  const [, setTick] = useState(0);
+
+  useEffect(() => {
+    const id = setInterval(() => setTick(t => t + 1), 15000);
+    return () => clearInterval(id);
+  }, []);
+
+  const isRecentlySaved = lastSavedAt
+    ? Date.now() - lastSavedAt.getTime() < 60_000
+    : false;
 
   return (
     <header
@@ -44,7 +57,7 @@ export default function Header({
         {breadcrumb && breadcrumb.length > 0 && (
           <p
             className="leading-none mb-1"
-            style={{ fontSize: '12.5px' }}
+            style={{ fontSize: 'var(--text-sm)' }}
             aria-label="Breadcrumb"
           >
             {breadcrumb.map((crumb, i) => (
@@ -54,7 +67,7 @@ export default function Header({
                   style={{
                     color: i === breadcrumb.length - 1 ? 'var(--ink-900)' : 'var(--ink-500)',
                     fontWeight: i === breadcrumb.length - 1 ? 600 : 400,
-                    fontSize: '12.5px',
+                    fontSize: 'var(--text-sm)',
                   }}
                 >
                   {crumb}
@@ -67,7 +80,7 @@ export default function Header({
           className="leading-tight truncate"
           style={{
             fontFamily: 'var(--font-display)',
-            fontSize: '20px',
+            fontSize: 'var(--text-lg)',
             fontWeight: 600,
             color: 'var(--ink-950)',
           }}
@@ -77,7 +90,7 @@ export default function Header({
         {subtitle && (
           <p
             className="leading-none mt-0.5 truncate"
-            style={{ color: 'var(--ink-500)', fontSize: '12.5px' }}
+            style={{ color: 'var(--ink-500)', fontSize: 'var(--text-sm)' }}
           >
             {subtitle}
           </p>
@@ -85,6 +98,34 @@ export default function Header({
       </div>
 
       <div className="flex items-center gap-3 ml-4 flex-shrink-0">
+        {lastSavedAt && (
+          <div
+            className="flex items-center gap-2 flex-shrink-0"
+            aria-live="polite"
+            aria-label={`Last saved ${formatLastSaved(lastSavedAt)}`}
+          >
+            <span
+              className={isRecentlySaved ? 'animate-pulse' : undefined}
+              style={{
+                width: '6px',
+                height: '6px',
+                borderRadius: 'var(--radius-full)',
+                background: isRecentlySaved ? 'var(--success-600)' : 'var(--ink-300)',
+                flexShrink: 0,
+              }}
+            />
+            <span
+              style={{
+                fontSize: 'var(--text-xs)',
+                color: isRecentlySaved ? 'var(--ink-600)' : 'var(--ink-400)',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              Saved {formatLastSaved(lastSavedAt)}
+            </span>
+          </div>
+        )}
+
         {actions && (
           <div className="flex items-center gap-2">{actions}</div>
         )}
@@ -97,7 +138,18 @@ export default function Header({
           className="premium-header-btn h-9 w-9 flex items-center justify-center rounded-lg transition-colors"
           style={{ color: 'var(--ink-500)' }}
         >
-          {theme === 'light' ? <Sun size={18} /> : <Moon size={18} />}
+          <AnimatePresence mode="wait" initial={false}>
+            <motion.span
+              key={theme}
+              initial={{ opacity: 0, rotate: -90, scale: 0.8 }}
+              animate={{ opacity: 1, rotate: 0, scale: 1 }}
+              exit={{ opacity: 0, rotate: 90, scale: 0.8 }}
+              transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}
+              className="flex items-center justify-center"
+            >
+              {theme === 'light' ? <Sun size={18} /> : <Moon size={18} />}
+            </motion.span>
+          </AnimatePresence>
         </button>
 
         <span
@@ -114,10 +166,10 @@ export default function Header({
           style={{
             width: '34px',
             height: '34px',
-            borderRadius: '9999px',
+            borderRadius: 'var(--radius-full)',
             background: 'var(--brand-100)',
             color: 'var(--brand-700)',
-            fontSize: '12px',
+            fontSize: 'var(--text-xs)',
             fontWeight: 700,
           }}
           title={companyName}

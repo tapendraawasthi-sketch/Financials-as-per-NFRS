@@ -71,6 +71,7 @@ export default function AppShell({
           breadcrumb={breadcrumb}
           companyName={companyName}
           fiscalYear={fiscalYear}
+          lastSavedAt={lastSavedAt}
         />
 
         <SlimWizardProgress
