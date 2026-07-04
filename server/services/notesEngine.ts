@@ -971,9 +971,9 @@ export function buildNotesData(params: {
 
   const note323_taxExpense: NotesData['note323_taxExpense'] = {
     currentTaxExpense:   round(taxResult.currentTaxExpense),
-    deferredTaxExpense:  0,
+    deferredTaxExpense:  round(adj.deferredTaxExpense ?? 0),
     priorYearAdjustment: 0,
-    totalTaxExpense:     round(taxResult.currentTaxExpense),
+    totalTaxExpense:     round(taxResult.currentTaxExpense + (adj.deferredTaxExpense ?? 0)),
     effectiveTaxRate:    taxResult.effectiveTaxRate,
     reconciliation: {
       profitBeforeTax:      bookProfit,
@@ -988,11 +988,11 @@ export function buildNotesData(params: {
       poolName:           pool.poolName,
       rate:               pool.rate,
       openingBasis:       pool.openingBasis,
-      additions:          pool.additionsFullYear + pool.additionsTwoThirds + pool.additionsOneThird,
-      disposals:          pool.disposals,
-      depreciationBasis:  pool.depreciationBasis,
-      taxDepreciation:    pool.taxDepreciation,
-      closingBasis:       pool.closingBasis,
+      additions:          pool.additions ?? 0,
+      disposals:          pool.disposals ?? 0,
+      depreciationBasis:  pool.depreciationBasis ?? pool.openingBasis ?? 0,
+      taxDepreciation:    pool.taxDepreciation ?? 0,
+      closingBasis:       pool.closingBasis ?? pool.nextYearBasis ?? 0,
     })),
     advanceTaxPaid,
     tdsCreditAvailable: tdsCredit,

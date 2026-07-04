@@ -1080,10 +1080,10 @@ function parseMatrixWithColMap(matrix, colMap, headerRowIndex, mode, warningsPre
     totalClosingDr += row.closingDr;
     totalClosingCr += row.closingCr;
   }
-  const round22 = (n) => Math.round(n * 100) / 100;
-  totalClosingDr = round22(totalClosingDr);
-  totalClosingCr = round22(totalClosingCr);
-  const difference = round22(totalClosingDr - totalClosingCr);
+  const round23 = (n) => Math.round(n * 100) / 100;
+  totalClosingDr = round23(totalClosingDr);
+  totalClosingCr = round23(totalClosingCr);
+  const difference = round23(totalClosingDr - totalClosingCr);
   const isBalanced = Math.abs(difference) < 1;
   if (!isBalanced) {
     warnings.push(
@@ -1091,7 +1091,7 @@ function parseMatrixWithColMap(matrix, colMap, headerRowIndex, mode, warningsPre
     );
   }
   if (mode === "tally_grouped") {
-    const duringDiff = Math.abs(round22(totalDuringDr) - round22(totalDuringCr));
+    const duringDiff = Math.abs(round23(totalDuringDr) - round23(totalDuringCr));
     if (!isBalanced && duringDiff < 1e3) {
       warnings.push(
         "Closing totals differ but during-period movement is balanced (common in Tally/Busy grouped exports)."
@@ -1100,10 +1100,10 @@ function parseMatrixWithColMap(matrix, colMap, headerRowIndex, mode, warningsPre
   }
   return {
     rows: rowsWithParents,
-    totalOpeningDr: round22(totalOpeningDr),
-    totalOpeningCr: round22(totalOpeningCr),
-    totalDuringDr: round22(totalDuringDr),
-    totalDuringCr: round22(totalDuringCr),
+    totalOpeningDr: round23(totalOpeningDr),
+    totalOpeningCr: round23(totalOpeningCr),
+    totalDuringDr: round23(totalDuringDr),
+    totalDuringCr: round23(totalDuringCr),
     totalClosingDr,
     totalClosingCr,
     isBalanced,
@@ -6129,8 +6129,145 @@ async function generateTrialBalanceTemplate() {
 // server/services/aiTbConverter.ts
 import Anthropic2 from "@anthropic-ai/sdk";
 import ExcelJS4 from "exceljs";
+
+// server/services/tbHierarchy.ts
+var round2 = (n) => Math.round(n * 100) / 100;
+function deriveClosingBalances(row) {
+  if (row.isGroupRow) return row;
+  let { closingDr, closingCr, openingDr, openingCr, duringDr, duringCr, adjustmentDr, adjustmentCr } = row;
+  if (closingDr === 0 && closingCr === 0) {
+    const netDr = openingDr + duringDr + adjustmentDr;
+    const netCr = openingCr + duringCr + adjustmentCr;
+    const net = netDr - netCr;
+    if (net >= 0) {
+      closingDr = round2(net);
+      closingCr = 0;
+    } else {
+      closingDr = 0;
+      closingCr = round2(Math.abs(net));
+    }
+  }
+  return { ...row, closingDr, closingCr };
+}
+function markGroupRowsByIndentation2(rows) {
+  return rows.map((row, i) => {
+    let hasDeeperDescendant = false;
+    for (let j = i + 1; j < rows.length; j++) {
+      if (rows[j].rawIndentSpaces <= row.rawIndentSpaces) break;
+      hasDeeperDescendant = true;
+      break;
+    }
+    return {
+      ...row,
+      isGroupRow: row.isGroupRow || hasDeeperDescendant,
+      rowLevel: hasDeeperDescendant ? 0 : row.rawIndentSpaces > 4 ? 2 : row.rowLevel ?? 1
+    };
+  });
+}
+function markTallyShorthandAggregates2(rows) {
+  return rows.map((row, i) => {
+    if (row.isGroupRow) return row;
+    const peers = [];
+    for (let j = i + 1; j < rows.length; j++) {
+      if (rows[j].rawIndentSpaces < row.rawIndentSpaces) break;
+      if (rows[j].rawIndentSpaces === row.rawIndentSpaces) {
+        peers.push(rows[j].rawLabel.trim());
+      }
+    }
+    const isShorthandAggregate = peers.some(
+      (peer) => (peer.startsWith(`${row.rawLabel.trim()}:`) || peer.startsWith(`${row.rawLabel.trim()} `)) && peer.length > row.rawLabel.trim().length
+    );
+    return { ...row, isGroupRow: isShorthandAggregate };
+  });
+}
+function assignParentGroups2(rows) {
+  const groupStack = [];
+  return rows.map((row) => {
+    if (row.isGroupRow) {
+      while (groupStack.length > 0 && groupStack[groupStack.length - 1].indentSpaces >= row.rawIndentSpaces) {
+        groupStack.pop();
+      }
+      groupStack.push({
+        label: row.rawLabel,
+        indentSpaces: row.rawIndentSpaces,
+        level: row.rowLevel
+      });
+      return {
+        ...row,
+        parentGroup: groupStack.length > 1 ? groupStack[groupStack.length - 2].label : ""
+      };
+    }
+    const parentGroup = groupStack.length > 0 ? groupStack[groupStack.length - 1].label : "";
+    return { ...row, parentGroup: row.parentGroup || parentGroup };
+  });
+}
+function postProcessHierarchy(rows) {
+  return assignParentGroups2(markTallyShorthandAggregates2(markGroupRowsByIndentation2(rows)));
+}
+function computeRawTBTotals(rows) {
+  const leafRows = rows.filter((r) => !r.isGroupRow);
+  let totalOpeningDr = 0;
+  let totalOpeningCr = 0;
+  let totalDuringDr = 0;
+  let totalDuringCr = 0;
+  let totalClosingDr = 0;
+  let totalClosingCr = 0;
+  for (const row of leafRows) {
+    totalOpeningDr += row.openingDr;
+    totalOpeningCr += row.openingCr;
+    totalDuringDr += row.duringDr;
+    totalDuringCr += row.duringCr;
+    totalClosingDr += row.closingDr;
+    totalClosingCr += row.closingCr;
+  }
+  totalClosingDr = round2(totalClosingDr);
+  totalClosingCr = round2(totalClosingCr);
+  const difference = round2(totalClosingDr - totalClosingCr);
+  return {
+    totalOpeningDr: round2(totalOpeningDr),
+    totalOpeningCr: round2(totalOpeningCr),
+    totalDuringDr: round2(totalDuringDr),
+    totalDuringCr: round2(totalDuringCr),
+    totalClosingDr,
+    totalClosingCr,
+    isBalanced: Math.abs(difference) < 1,
+    difference
+  };
+}
+function finalizeRawTBRows(rows, options = {}) {
+  const deriveClosing = options.deriveClosing !== false;
+  const runHierarchy = options.postProcessHierarchy !== false;
+  let processed = rows.map((row, idx) => ({ ...row, rowIndex: idx }));
+  if (deriveClosing) {
+    processed = processed.map(deriveClosingBalances);
+  }
+  if (runHierarchy) {
+    processed = postProcessHierarchy(processed);
+  } else {
+    processed = assignParentGroups2(processed);
+  }
+  processed = processed.map((row, idx) => ({ ...row, rowIndex: idx }));
+  const totals = computeRawTBTotals(processed);
+  const warnings = [];
+  if (!totals.isBalanced) {
+    warnings.push(
+      `Trial Balance not balanced. Difference: ${Math.abs(totals.difference).toLocaleString("en-IN")}.`
+    );
+  }
+  const derivedCount = rows.filter(
+    (r, i) => !r.isGroupRow && r.closingDr === 0 && r.closingCr === 0 && processed[i] && (processed[i].closingDr > 0 || processed[i].closingCr > 0)
+  ).length;
+  if (derivedCount > 0) {
+    warnings.push(
+      `Closing balances derived for ${derivedCount} account${derivedCount === 1 ? "" : "s"} from opening + movement columns.`
+    );
+  }
+  return { rows: processed, totals, warnings };
+}
+
+// server/services/aiTbConverter.ts
 var BATCH_SIZE = 100;
-var SYSTEM_PROMPT2 = "You are an expert Nepali chartered accountant assistant. You will be given raw rows extracted from a messy, unstructured, or non-standard trial balance export from Nepali accounting software (Tally, Swastik, Busy, or similar). Identify every genuine LEAF ledger account line that has a numeric balance. IGNORE: company name/address rows, titles, date ranges, blank rows, section/group header rows with no amount, and any 'Total'/'Grand Total'/subtotal rows. Balances are sometimes shown as a single combined value like '1,43,51,552.00 Cr' or '9,664.55 Dr' \u2014 split these correctly into the Dr or Cr field based on the suffix and remove commas. If a row has separate Opening/Debit/Credit/Closing columns, map them precisely. If only a closing balance exists, populate closingDr or closingCr only, leave all other fields 0. Never invent numbers you do not see. Respond with ONLY a raw JSON array, no markdown fences, no commentary, no explanation.";
+var SYSTEM_PROMPT2 = `You are an expert Nepali chartered accountant assistant. You will be given raw rows extracted from a messy, unstructured, or non-standard trial balance export from Nepali accounting software (Tally, Swastik, Busy, or similar). Extract ALL rows in document order, including section and group header rows (e.g. "Property, Plant & Equipment", "Employee Benefit Expenses") even when they have no numeric balance. For group headers set isGroupRow=true, all amount fields to 0, and infer rawIndentSpaces from leading spaces in the label (2 spaces per indent level). For leaf ledger accounts with balances, set isGroupRow=false and populate amounts. Set parentGroup to the nearest group header above each leaf row. IGNORE: company name/address rows, titles, date ranges, blank rows, and any 'Total'/'Grand Total'/subtotal rows. Balances are sometimes shown as a single combined value like '1,43,51,552.00 Cr' or '9,664.55 Dr' \u2014 split these correctly into the Dr or Cr field based on the suffix and remove commas. If a row has separate Opening/Debit/Credit/Closing columns, map them precisely. If only a closing balance exists, populate closingDr or closingCr only, leave opening/during at 0. If opening and during-period columns exist but closing is missing, leave closing at 0 (the server will derive closing). Never invent numbers you do not see. Respond with ONLY a raw JSON array, no markdown fences, no commentary, no explanation.`;
 function parseAIResponse2(text) {
   const cleaned = text.replace(/```json\s*/gi, "").replace(/```\s*/gi, "").trim();
   const start = cleaned.indexOf("[");
@@ -6141,6 +6278,32 @@ function parseAIResponse2(text) {
 }
 function isRowEmpty(row) {
   return row.every((cell) => cell === null || cell === void 0 || String(cell).trim() === "");
+}
+function countLeadingSpaces2(s) {
+  const m = s.match(/^(\s*)/);
+  return m ? m[1].length : 0;
+}
+function toRawTBRow(el, idx) {
+  const rawLabel = String(el.rawLabel ?? "").trim();
+  const rawIndentSpaces = el.rawIndentSpaces ?? countLeadingSpaces2(String(el.rawLabel ?? ""));
+  const isGroupRow = Boolean(el.isGroupRow);
+  const rowLevel = el.rowLevel ?? (isGroupRow ? 0 : rawIndentSpaces > 0 ? 1 : 2);
+  return {
+    rowIndex: idx,
+    rawLabel,
+    openingDr: isGroupRow ? 0 : Number(el.openingDr) || 0,
+    openingCr: isGroupRow ? 0 : Number(el.openingCr) || 0,
+    duringDr: isGroupRow ? 0 : Number(el.duringDr) || 0,
+    duringCr: isGroupRow ? 0 : Number(el.duringCr) || 0,
+    adjustmentDr: 0,
+    adjustmentCr: 0,
+    closingDr: isGroupRow ? 0 : Number(el.closingDr) || 0,
+    closingCr: isGroupRow ? 0 : Number(el.closingCr) || 0,
+    rowLevel,
+    isGroupRow,
+    parentGroup: String(el.parentGroup ?? "").trim(),
+    rawIndentSpaces
+  };
 }
 async function convertRoughTrialBalance(buffer, filename, apiKey) {
   const ext = filename.toLowerCase().slice(filename.lastIndexOf("."));
@@ -6160,6 +6323,7 @@ async function convertRoughTrialBalance(buffer, filename, apiKey) {
   const warnings = [];
   const merged = [];
   const client = new Anthropic2({ apiKey });
+  const rowSchema = '{"rawLabel": string, "openingDr": number, "openingCr": number, "duringDr": number, "duringCr": number, "closingDr": number, "closingCr": number, "isGroupRow": boolean, "parentGroup": string, "rawIndentSpaces": number, "rowLevel": number}';
   for (let i = 0; i < nonEmptyRows.length; i += BATCH_SIZE) {
     const chunk = nonEmptyRows.slice(i, i + BATCH_SIZE);
     const batchNum = Math.floor(i / BATCH_SIZE) + 1;
@@ -6171,10 +6335,10 @@ async function convertRoughTrialBalance(buffer, filename, apiKey) {
         messages: [
           {
             role: "user",
-            content: `Extract ledger rows from this raw data. Return a JSON array where each element is exactly: {"rawLabel": string, "openingDr": number, "openingCr": number, "duringDr": number, "duringCr": number, "closingDr": number, "closingCr": number}.
+            content: `Extract trial balance rows from this raw data. Return a JSON array where each element is exactly: ${rowSchema}. Preserve document order. Include group header rows with isGroupRow=true. Set parentGroup on every leaf row.
 
 Raw rows:
-` + JSON.stringify(chunk)
+${JSON.stringify(chunk)}`
           }
         ]
       });
@@ -6188,34 +6352,15 @@ Raw rows:
       );
     }
   }
-  const elements = merged.map((el) => ({
-    rawLabel: String(el.rawLabel ?? "").trim(),
-    openingDr: Number(el.openingDr) || 0,
-    openingCr: Number(el.openingCr) || 0,
-    duringDr: Number(el.duringDr) || 0,
-    duringCr: Number(el.duringCr) || 0,
-    closingDr: Number(el.closingDr) || 0,
-    closingCr: Number(el.closingCr) || 0
-  })).filter(
-    (el) => el.rawLabel && !(el.openingDr === 0 && el.openingCr === 0 && el.duringDr === 0 && el.duringCr === 0 && el.closingDr === 0 && el.closingCr === 0)
-  );
-  const rows = elements.map((el, idx) => ({
-    rowIndex: idx,
-    rawLabel: el.rawLabel,
-    openingDr: el.openingDr,
-    openingCr: el.openingCr,
-    duringDr: el.duringDr,
-    duringCr: el.duringCr,
-    adjustmentDr: 0,
-    adjustmentCr: 0,
-    closingDr: el.closingDr,
-    closingCr: el.closingCr,
-    rowLevel: 2,
-    isGroupRow: false,
-    parentGroup: "",
-    rawIndentSpaces: 0
-  }));
-  if (rows.length === 0) {
+  const rawRows = merged.map((el) => ({
+    ...el,
+    rawLabel: String(el.rawLabel ?? "").trim()
+  })).filter((el) => {
+    if (!el.rawLabel) return false;
+    if (el.isGroupRow) return true;
+    return !(el.openingDr === 0 && el.openingCr === 0 && el.duringDr === 0 && el.duringCr === 0 && el.closingDr === 0 && el.closingCr === 0);
+  }).map((el, idx) => toRawTBRow(el, idx));
+  if (rawRows.filter((r) => !r.isGroupRow).length === 0) {
     throw Object.assign(
       new Error(
         "AI could not extract any account balances from this file. Please try Manual Upload (Standard Format) instead."
@@ -6223,36 +6368,18 @@ Raw rows:
       { status: 422 }
     );
   }
-  let totalOpeningDr = 0, totalOpeningCr = 0, totalDuringDr = 0, totalDuringCr = 0;
-  let totalClosingDr = 0, totalClosingCr = 0;
-  for (const row of rows) {
-    totalOpeningDr += row.openingDr;
-    totalOpeningCr += row.openingCr;
-    totalDuringDr += row.duringDr;
-    totalDuringCr += row.duringCr;
-    totalClosingDr += row.closingDr;
-    totalClosingCr += row.closingCr;
-  }
-  const round22 = (n) => Math.round(n * 100) / 100;
-  totalClosingDr = round22(totalClosingDr);
-  totalClosingCr = round22(totalClosingCr);
-  const difference = round22(totalClosingDr - totalClosingCr);
-  const isBalanced = Math.abs(difference) < 1;
-  if (!isBalanced) {
+  const finalized = finalizeRawTBRows(rawRows);
+  warnings.push(...finalized.warnings);
+  const parentGroupCount = finalized.rows.filter((r) => !r.isGroupRow && r.parentGroup).length;
+  const leafCount = finalized.rows.filter((r) => !r.isGroupRow).length;
+  if (leafCount > 0 && parentGroupCount === 0) {
     warnings.push(
-      `Trial Balance not balanced. Difference: ${Math.abs(difference).toLocaleString("en-IN")}.`
+      "No parent group context was detected. Account classification may be less accurate for ambiguous accounts."
     );
   }
   return {
-    rows,
-    totalOpeningDr: round22(totalOpeningDr),
-    totalOpeningCr: round22(totalOpeningCr),
-    totalDuringDr: round22(totalDuringDr),
-    totalDuringCr: round22(totalDuringCr),
-    totalClosingDr,
-    totalClosingCr,
-    isBalanced,
-    difference,
+    rows: finalized.rows,
+    ...finalized.totals,
     warnings,
     detectedColumns: {},
     headerRowIndex: 0,
@@ -6260,8 +6387,143 @@ Raw rows:
   };
 }
 
+// server/services/normalizedTbWriter.ts
+import ExcelJS5 from "exceljs";
+var HEADERS = [
+  "Account Name",
+  "Opening Dr",
+  "Opening Cr",
+  "During Dr",
+  "During Cr",
+  "Adjustment Dr",
+  "Adjustment Cr",
+  "Closing Dr",
+  "Closing Cr",
+  "Parent Group"
+];
+async function writeNormalizedTrialBalance(rows, meta) {
+  const wb = new ExcelJS5.Workbook();
+  const ws = wb.addWorksheet("Trial Balance");
+  if (meta?.companyName) {
+    ws.addRow([meta.companyName]);
+    ws.getRow(1).font = { bold: true, size: 14 };
+  }
+  if (meta?.fiscalYear) {
+    ws.addRow([`Fiscal Year: ${meta.fiscalYear}`]);
+  }
+  ws.addRow([]);
+  const headerRow = ws.addRow(HEADERS);
+  headerRow.font = { bold: true };
+  headerRow.fill = {
+    type: "pattern",
+    pattern: "solid",
+    fgColor: { argb: "FFE2EFDA" }
+  };
+  for (const row of rows) {
+    const indent = "  ".repeat(Math.min(4, Math.floor(row.rawIndentSpaces / 2)));
+    const label = row.isGroupRow ? row.rawLabel.toUpperCase() : `${indent}${row.rawLabel}`;
+    const dataRow = ws.addRow([
+      label,
+      row.isGroupRow ? "" : row.openingDr || "",
+      row.isGroupRow ? "" : row.openingCr || "",
+      row.isGroupRow ? "" : row.duringDr || "",
+      row.isGroupRow ? "" : row.duringCr || "",
+      row.isGroupRow ? "" : row.adjustmentDr || "",
+      row.isGroupRow ? "" : row.adjustmentCr || "",
+      row.isGroupRow ? "" : row.closingDr || "",
+      row.isGroupRow ? "" : row.closingCr || "",
+      row.parentGroup || ""
+    ]);
+    if (row.isGroupRow) {
+      dataRow.font = { bold: true };
+    }
+  }
+  ws.columns = [
+    { width: 40 },
+    { width: 14 },
+    { width: 14 },
+    { width: 14 },
+    { width: 14 },
+    { width: 14 },
+    { width: 14 },
+    { width: 14 },
+    { width: 14 },
+    { width: 24 }
+  ];
+  for (let c = 2; c <= 9; c++) {
+    ws.getColumn(c).numFmt = "#,##0.00";
+  }
+  const buffer = await wb.xlsx.writeBuffer();
+  return Buffer.from(buffer);
+}
+
 // server/routes/trialBalance.ts
 var router2 = Router2();
+function ensureSession(req) {
+  let session = sessionStore.get(req.params.companyId);
+  if (!session) {
+    const companyRaw = req.body?.company;
+    if (typeof companyRaw === "string") {
+      try {
+        const company = JSON.parse(companyRaw);
+        sessionStore.set(req.params.companyId, { company: { ...company, id: req.params.companyId } });
+        session = sessionStore.get(req.params.companyId);
+      } catch {
+      }
+    }
+  }
+  if (!session) return null;
+  return { companyId: req.params.companyId, session };
+}
+function countMappingProfileHits(rows, profile) {
+  if (!profile || Object.keys(profile).length === 0) return 0;
+  return rows.filter(
+    (r) => !r.isGroupRow && profile[mappingProfileKey(r.rawLabel, r.parentGroup)]
+  ).length;
+}
+async function classifyAndBuildTB(companyId, parsed, options) {
+  const session = sessionStore.get(companyId);
+  if (!session) throw Object.assign(new Error("Company session not found."), { status: 404 });
+  const leafRows = parsed.rows.filter((r) => !r.isGroupRow);
+  const profileHitCount = countMappingProfileHits(parsed.rows, session.mappingProfile);
+  let rows = classifyAll(parsed.rows);
+  rows = applyMappingProfile(rows, session.mappingProfile);
+  if (options.useAI && options.apiKey) {
+    try {
+      rows = await classifyWithAI(rows, options.apiKey);
+    } catch (aiErr) {
+      console.warn("[trialBalance] AI matching failed:", aiErr);
+    }
+  }
+  const tb = {
+    rows,
+    companyName: session.company?.name ?? session.company?.companyName ?? "",
+    fiscalYear: session.company?.fiscalYearCurrent ?? session.company?.fiscalYear?.bsFY ?? "",
+    isBalanced: parsed.isBalanced,
+    totalAssets: 0,
+    totalLiabilities: 0,
+    totalEquity: 0,
+    warnings: parsed.warnings,
+    companyId,
+    uploadedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    uploadedFileName: options.uploadedFileName,
+    totalClosingDr: parsed.totalClosingDr,
+    totalClosingCr: parsed.totalClosingCr,
+    difference: parsed.difference,
+    detectedFormat: parsed.detectedFormat,
+    detectedColumns: parsed.detectedColumns,
+    headerRowIndex: parsed.headerRowIndex,
+    previousYearData: parsed.previousYearData ?? null,
+    leafAccountCount: leafRows.length,
+    groupRowCount: parsed.rows.filter((r) => r.isGroupRow).length,
+    mappingProfileAppliedCount: profileHitCount,
+    mappingProfileTotalAccounts: leafRows.length,
+    importMode: options.importMode
+  };
+  const validation = validateTrialBalanceTotals(rows);
+  tb.validation = validation;
+  return tb;
+}
 router2.get("/template/download", asyncHandler(async (req, res) => {
   const buffer = await generateTrialBalanceTemplate();
   res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
@@ -6339,46 +6601,19 @@ router2.post("/:companyId/upload", tbUploadMiddleware, async (req, res, next) =>
         error: "No data rows found in the uploaded file. Please check your export settings and ensure the file contains account entries."
       });
     }
-    let rows = classifyAll(parsed.rows);
-    rows = applyMappingProfile(rows, session.mappingProfile);
-    if (req.query.useAI === "true" && process.env.ANTHROPIC_API_KEY) {
-      try {
-        rows = await classifyWithAI(rows, process.env.ANTHROPIC_API_KEY);
-      } catch (aiErr) {
-        console.warn("[trialBalance.upload] AI matching failed:", aiErr);
-      }
-    }
-    const tb = {
-      rows,
-      companyName: session.company?.name ?? session.company?.companyName ?? "",
-      fiscalYear: session.company?.fiscalYearCurrent ?? session.company?.fiscalYear?.bsFY ?? "",
-      isBalanced: parsed.isBalanced,
-      totalAssets: 0,
-      totalLiabilities: 0,
-      totalEquity: 0,
-      warnings: parsed.warnings,
-      companyId: req.params.companyId,
-      uploadedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    const tb = await classifyAndBuildTB(req.params.companyId, parsed, {
+      useAI: req.query.useAI === "true",
       uploadedFileName: req.file.originalname,
-      totalClosingDr: parsed.totalClosingDr,
-      totalClosingCr: parsed.totalClosingCr,
-      difference: parsed.difference,
-      detectedFormat: parsed.detectedFormat,
-      detectedColumns: parsed.detectedColumns,
-      headerRowIndex: parsed.headerRowIndex,
-      previousYearData: parsed.previousYearData ?? null,
-      leafAccountCount: rows.filter((r) => !r.isGroupRow).length,
-      groupRowCount: rows.filter((r) => r.isGroupRow).length
-    };
-    const validation = validateTrialBalanceTotals(rows);
-    tb.validation = validation;
+      importMode: "manual",
+      apiKey: process.env.ANTHROPIC_API_KEY
+    });
+    const validation = tb.validation;
     const diff = Math.abs(validation.totalClosingDr - validation.totalClosingCr);
     if (diff > 1e3) {
       return res.status(422).json({
         success: false,
         error: `Trial balance has a significant imbalance of NPR ${diff.toLocaleString("en-IN")}. Please check your accounting export before proceeding. Rounding differences up to NPR 1,000 are auto-adjusted.`,
         data: tb
-        // still return data so user can review
       });
     }
     sessionStore.set(req.params.companyId, { trialBalance: tb });
@@ -6416,43 +6651,144 @@ router2.post("/:companyId/ai-convert", tbUploadMiddleware, async (req, res, next
       });
     }
     const parsed = await convertRoughTrialBalance(req.file.buffer, req.file.originalname, apiKey);
-    let rows = classifyAll(parsed.rows);
-    rows = applyMappingProfile(rows, session.mappingProfile);
-    try {
-      rows = await classifyWithAI(rows, apiKey);
-    } catch (aiErr) {
-      console.warn("[trialBalance.ai-convert] classification pass failed:", aiErr);
-    }
-    const tb = {
-      rows,
-      companyName: session.company?.name ?? session.company?.companyName ?? "",
-      fiscalYear: session.company?.fiscalYearCurrent ?? session.company?.fiscalYear?.bsFY ?? "",
-      isBalanced: parsed.isBalanced,
-      totalAssets: 0,
-      totalLiabilities: 0,
-      totalEquity: 0,
-      warnings: parsed.warnings,
-      companyId: req.params.companyId,
-      uploadedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    const tb = await classifyAndBuildTB(req.params.companyId, parsed, {
+      useAI: true,
       uploadedFileName: req.file.originalname,
-      totalClosingDr: parsed.totalClosingDr,
-      totalClosingCr: parsed.totalClosingCr,
-      difference: parsed.difference,
-      detectedFormat: parsed.detectedFormat,
-      detectedColumns: parsed.detectedColumns,
-      headerRowIndex: parsed.headerRowIndex,
-      previousYearData: null,
-      leafAccountCount: rows.filter((r) => !r.isGroupRow).length,
-      groupRowCount: rows.filter((r) => r.isGroupRow).length
-    };
-    const validation = validateTrialBalanceTotals(rows);
-    tb.validation = validation;
+      importMode: "ai",
+      apiKey
+    });
     sessionStore.set(req.params.companyId, { trialBalance: tb });
     res.json({ success: true, data: tb });
   } catch (err) {
     next(err);
   }
 });
+router2.post("/:companyId/parse-preview", tbUploadMiddleware, async (req, res, next) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, error: "No file uploaded." });
+    }
+    const ensured = ensureSession(req);
+    if (!ensured) {
+      return res.status(404).json({
+        success: false,
+        error: "Company session not found on server. Save company details first.",
+        code: "SESSION_NOT_FOUND"
+      });
+    }
+    const mode = req.query.mode === "ai" ? "ai" : "manual";
+    let parsed;
+    if (mode === "ai") {
+      const apiKey = process.env.ANTHROPIC_API_KEY;
+      if (!apiKey) {
+        return res.status(503).json({
+          success: false,
+          error: "AI import is not configured. Use manual upload instead."
+        });
+      }
+      parsed = await convertRoughTrialBalance(req.file.buffer, req.file.originalname, apiKey);
+    } else {
+      parsed = await parseTrialBalance(req.file.buffer, req.file.originalname);
+      if (!parsed.rows?.length) {
+        return res.status(422).json({ success: false, error: "No data rows found in the uploaded file." });
+      }
+    }
+    const profileHitCount = countMappingProfileHits(parsed.rows, ensured.session.mappingProfile);
+    const preview = {
+      ...parsed,
+      companyId: req.params.companyId,
+      uploadedAt: (/* @__PURE__ */ new Date()).toISOString(),
+      uploadedFileName: req.file.originalname,
+      importMode: mode,
+      mappingProfileAppliedCount: profileHitCount,
+      mappingProfileTotalAccounts: parsed.rows.filter((r) => !r.isGroupRow).length
+    };
+    sessionStore.set(req.params.companyId, { rawTrialBalance: preview });
+    res.json({ success: true, data: preview });
+  } catch (err) {
+    next(err);
+  }
+});
+router2.post("/:companyId/confirm-normalized", asyncHandler(async (req, res) => {
+  const ensured = ensureSession(req);
+  if (!ensured) {
+    return res.status(404).json({ success: false, error: "Company session not found.", code: "SESSION_NOT_FOUND" });
+  }
+  const inputRows = req.body.rows ?? [];
+  if (!inputRows.length) {
+    return res.status(400).json({ success: false, error: "No trial balance rows provided." });
+  }
+  const stored = ensured.session.rawTrialBalance;
+  const importMode = stored?.importMode ?? "manual";
+  const useAI = req.body.useAI === true || importMode === "ai";
+  const finalized = finalizeRawTBRows(inputRows);
+  const parsed = {
+    rows: finalized.rows,
+    ...finalized.totals,
+    warnings: [
+      ...stored?.warnings ?? [],
+      ...finalized.warnings
+    ],
+    detectedColumns: stored?.detectedColumns ?? {},
+    headerRowIndex: stored?.headerRowIndex ?? 0,
+    detectedFormat: stored?.detectedFormat ?? "full",
+    previousYearData: stored?.previousYearData ?? null
+  };
+  const tb = await classifyAndBuildTB(req.params.companyId, parsed, {
+    useAI,
+    uploadedFileName: stored?.uploadedFileName,
+    importMode,
+    apiKey: process.env.ANTHROPIC_API_KEY
+  });
+  const validation = tb.validation;
+  const diff = Math.abs(validation.totalClosingDr - validation.totalClosingCr);
+  if (importMode === "manual" && diff > 1e3) {
+    return res.status(422).json({
+      success: false,
+      error: `Trial balance has a significant imbalance of NPR ${diff.toLocaleString("en-IN")}.`,
+      data: tb
+    });
+  }
+  sessionStore.set(req.params.companyId, { trialBalance: tb, rawTrialBalance: void 0 });
+  res.json({ success: true, data: tb });
+}));
+router2.post("/:companyId/normalized/save", asyncHandler(async (req, res) => {
+  const session = sessionStore.get(req.params.companyId);
+  if (!session?.rawTrialBalance) {
+    return res.status(404).json({ error: "No normalized preview in session." });
+  }
+  const inputRows = req.body.rows ?? [];
+  if (!inputRows.length) {
+    return res.status(400).json({ error: "No rows provided." });
+  }
+  const finalized = finalizeRawTBRows(inputRows);
+  const existing = session.rawTrialBalance;
+  const updated = {
+    ...existing,
+    rows: finalized.rows,
+    ...finalized.totals,
+    warnings: [...existing.warnings ?? [], ...finalized.warnings]
+  };
+  sessionStore.set(req.params.companyId, { rawTrialBalance: updated });
+  res.json({ success: true, data: updated });
+}));
+router2.get("/:companyId/normalized/export", asyncHandler(async (req, res) => {
+  const session = sessionStore.get(req.params.companyId);
+  const raw = session?.rawTrialBalance;
+  const rows = raw?.rows ?? session?.trialBalance?.rows;
+  if (!rows?.length) {
+    return res.status(404).json({ error: "No normalized trial balance available to export." });
+  }
+  const company = session?.company;
+  const buffer = await writeNormalizedTrialBalance(rows, {
+    companyName: company?.companyName,
+    fiscalYear: company?.fiscalYear?.bsFY,
+    filename: raw?.uploadedFileName
+  });
+  res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  res.setHeader("Content-Disposition", 'attachment; filename="Normalized_Trial_Balance.xlsx"');
+  return res.send(buffer);
+}));
 router2.get("/:companyId", asyncHandler(async (req, res) => {
   const session = sessionStore.get(req.params.companyId);
   if (!session?.trialBalance) return res.status(404).json({ error: "No trial balance loaded for this company." });
@@ -6932,12 +7268,12 @@ function buildPPENote(assets, policies) {
   };
 }
 function computeTaxDepPool(assets, openingBases, taxableIncome, repairExpenses = {}) {
-  return TAX_POOLS.map((pool) => {
+  const poolResults = TAX_POOLS.map((pool) => {
     const poolAssets = assets.filter((a) => pool.classes.includes(a.assetClass));
     let additions = 0;
     let disposals = 0;
     for (const a of poolAssets) {
-      additions += a.additionsCY + a.originalCost;
+      additions += a.additionsCY ?? 0;
       disposals += a.disposalValue ?? 0;
     }
     const openingBasis = openingBases[pool.poolName] ?? 0;
@@ -6946,22 +7282,42 @@ function computeTaxDepPool(assets, openingBases, taxableIncome, repairExpenses =
     const capitalizedRepairs = Math.max(0, repairExpense - repairThreshold);
     additions += capitalizedRepairs;
     const depreciationBasis = openingBasis + additions - disposals;
-    const absorbed = additions;
     const depreciation = depreciationBasis * pool.rate;
     const netDepreciation = depreciation;
-    const unabsorbed = Math.max(0, netDepreciation - taxableIncome * (2 / 3));
-    const taxableDepreciation = netDepreciation - unabsorbed;
-    const nextYearBasis = depreciationBasis - taxableDepreciation;
     return {
       poolName: pool.poolName,
+      pool: pool.poolName,
       rate: pool.rate,
       openingBasis,
       additions,
       disposals,
-      absorbed,
-      unabsorbed: Math.round(unabsorbed * 100) / 100,
-      nextYearBasis: Math.round(Math.max(0, nextYearBasis) * 100) / 100,
+      depreciationBasis: Math.round(depreciationBasis * 100) / 100,
+      netDepreciation: Math.round(netDepreciation * 100) / 100,
       repairExpense
+    };
+  });
+  const totalNetDep = poolResults.reduce((s, p) => s + p.netDepreciation, 0);
+  const maxAllowable = taxableIncome * (2 / 3);
+  const totalUnabsorbed = Math.max(0, totalNetDep - maxAllowable);
+  return poolResults.map((pool) => {
+    const share = totalNetDep > 0 ? pool.netDepreciation / totalNetDep : 0;
+    const unabsorbed = Math.round(totalUnabsorbed * share * 100) / 100;
+    const taxableDepreciation = Math.round((pool.netDepreciation - unabsorbed) * 100) / 100;
+    const nextYearBasis = Math.max(0, pool.depreciationBasis - taxableDepreciation);
+    return {
+      poolName: pool.poolName,
+      pool: pool.poolName,
+      rate: pool.rate,
+      openingBasis: pool.openingBasis,
+      additions: pool.additions,
+      disposals: pool.disposals,
+      absorbed: taxableDepreciation,
+      unabsorbed,
+      taxDepreciation: taxableDepreciation,
+      depreciationBasis: pool.depreciationBasis,
+      closingBasis: Math.round(nextYearBasis * 100) / 100,
+      nextYearBasis: Math.round(nextYearBasis * 100) / 100,
+      repairExpense: pool.repairExpense
     };
   });
 }
@@ -7014,8 +7370,12 @@ function calculateDepreciationSummary(assets, _categories, _fiscalYear) {
     summary
   };
 }
-function calculateTaxDepreciation(assets, _categories, openingPoolBases) {
-  return computeDepreciation(assets, void 0, { taxOpeningBases: openingPoolBases }).taxDepSchedule;
+function calculateTaxDepreciation(assets, _categories, openingPoolBases, taxableIncome = 0, repairExpenses) {
+  return computeDepreciation(assets, void 0, {
+    taxOpeningBases: openingPoolBases,
+    taxableIncome,
+    repairExpenses
+  }).taxDepSchedule;
 }
 
 // server/routes/adjustments.ts
@@ -7048,6 +7408,7 @@ var emptyAdj = (companyId, fiscalYear) => ({
   investmentAdjustments: [],
   provisions: [],
   journalEntries: [],
+  disallowedForTax: [],
   totalDepreciationExpense: 0,
   totalInventoryImpairment: 0,
   totalInvestmentFVAdjustment: 0,
@@ -7078,7 +7439,24 @@ router3.post("/:companyId/calculate-depreciation", asyncHandler(async (req, res)
   const gainOnDisposals = results.filter((r) => (r.gainLossOnDisposal ?? 0) > 0).reduce((s, r) => s + (r.gainLossOnDisposal ?? 0), 0);
   const lossOnDisposals = results.filter((r) => (r.gainLossOnDisposal ?? 0) < 0).reduce((s, r) => s + Math.abs(r.gainLossOnDisposal ?? 0), 0);
   const openingPoolBases = req.body.openingPoolBases ?? {};
-  const taxPools = calculateTaxDepreciation(toDepreciationAssets(adj.assets ?? []), assetCategories, openingPoolBases);
+  const taxableIncome = req.body.taxableIncome ?? 0;
+  const repairExpenses = req.body.repairExpenses ?? {};
+  let effectiveTaxableIncome = taxableIncome;
+  if (!effectiveTaxableIncome && session.trialBalance) {
+    const tbRows = session.trialBalance.rows ?? [];
+    const sumCr2 = (cats) => tbRows.filter((r) => cats.includes(String(r.nfrsCategory ?? ""))).reduce((s, r) => s + (r.closingCr ?? 0), 0);
+    const sumDr2 = (cats) => tbRows.filter((r) => cats.includes(String(r.nfrsCategory ?? ""))).reduce((s, r) => s + (r.closingDr ?? 0), 0);
+    const revenue = sumCr2(["revenue", "sales", "service_income"]);
+    const expenses = sumDr2(["cost_of_sales", "admin_expenses", "employee_benefits", "finance_costs", "depreciation_expense"]);
+    effectiveTaxableIncome = Math.max(0, revenue - expenses);
+  }
+  const taxPools = calculateTaxDepreciation(
+    toDepreciationAssets(adj.assets ?? []),
+    assetCategories,
+    openingPoolBases,
+    effectiveTaxableIncome,
+    repairExpenses
+  );
   const updatedAdj = {
     ...adj,
     depreciationResults: results,
@@ -7106,6 +7484,14 @@ router3.post("/:companyId/provisions", asyncHandler(async (req, res) => {
   const totalProvisions = provisions.reduce((s, p) => s + p.additionForYear, 0);
   sessionStore.set(req.params.companyId, { adjustments: { ...adj, provisions, totalProvisions } });
   return res.json({ message: "Provisions saved.", count: provisions.length, total: totalProvisions });
+}));
+router3.post("/:companyId/disallowed-tax", asyncHandler(async (req, res) => {
+  const session = sessionStore.get(req.params.companyId);
+  if (!session) return res.status(404).json({ error: "Company not found." });
+  const disallowedForTax = req.body.disallowedForTax ?? [];
+  const adj = session.adjustments ?? emptyAdj(req.params.companyId, session.company?.fiscalYear?.bsFY ?? "");
+  sessionStore.set(req.params.companyId, { adjustments: { ...adj, disallowedForTax } });
+  return res.json({ message: "Disallowed tax items saved.", count: disallowedForTax.length });
 }));
 router3.post("/:companyId/inventory", asyncHandler(async (req, res) => {
   const session = sessionStore.get(req.params.companyId);
@@ -8035,9 +8421,9 @@ function buildNotesData(params) {
   });
   const note323_taxExpense = {
     currentTaxExpense: round(taxResult.currentTaxExpense),
-    deferredTaxExpense: 0,
+    deferredTaxExpense: round(adj.deferredTaxExpense ?? 0),
     priorYearAdjustment: 0,
-    totalTaxExpense: round(taxResult.currentTaxExpense),
+    totalTaxExpense: round(taxResult.currentTaxExpense + (adj.deferredTaxExpense ?? 0)),
     effectiveTaxRate: taxResult.effectiveTaxRate,
     reconciliation: {
       profitBeforeTax: bookProfit,
@@ -8052,11 +8438,11 @@ function buildNotesData(params) {
       poolName: pool.poolName,
       rate: pool.rate,
       openingBasis: pool.openingBasis,
-      additions: pool.additionsFullYear + pool.additionsTwoThirds + pool.additionsOneThird,
-      disposals: pool.disposals,
-      depreciationBasis: pool.depreciationBasis,
-      taxDepreciation: pool.taxDepreciation,
-      closingBasis: pool.closingBasis
+      additions: pool.additions ?? 0,
+      disposals: pool.disposals ?? 0,
+      depreciationBasis: pool.depreciationBasis ?? pool.openingBasis ?? 0,
+      taxDepreciation: pool.taxDepreciation ?? 0,
+      closingBasis: pool.closingBasis ?? pool.nextYearBasis ?? 0
     })),
     advanceTaxPaid,
     tdsCreditAvailable: tdsCredit,
@@ -8187,7 +8573,7 @@ function sumOpeningCr(rows, ...categories) {
 function netBalance(rows, ...categories) {
   return sumDr(rows, ...categories) - sumCr(rows, ...categories);
 }
-var round2 = (n) => Math.round(n * 100) / 100;
+var round22 = (n) => Math.round(n * 100) / 100;
 function splitCashAndOverdrafts(rows) {
   const cashCats = /* @__PURE__ */ new Set(["cash_in_hand", "bank_current_account", "bank_fixed_deposit_current"]);
   let cash = 0;
@@ -8198,7 +8584,7 @@ function splitCashAndOverdrafts(rows) {
     if (net >= 0) cash += net;
     else overdrafts += -net;
   }
-  return { cash: round2(cash), overdrafts: round2(overdrafts) };
+  return { cash: round22(cash), overdrafts: round22(overdrafts) };
 }
 var ADMIN_CATEGORIES = CHART_OF_ACCOUNTS.filter((e) => e.statementLine === "IS Admin" && !e.isGroup).map((e) => e.category).concat([
   "admin_electricity",
@@ -8217,41 +8603,41 @@ function inventoryFromAdj(adj, rows) {
 }
 function computeIncomeStatement(tb, adj, company, previousYearIS = {}) {
   const rows = tb.rows;
-  const revenue = round2(sumCr(rows, "revenue_sales", "revenue_services"));
-  const interestIncome = round2(
+  const revenue = round22(sumCr(rows, "revenue_sales", "revenue_services"));
+  const interestIncome = round22(
     sumCr(rows, "other_income_interest", "interest_income")
   );
-  const otherIncome = round2(
+  const otherIncome = round22(
     sumCr(rows, "other_income_dividend", "other_income_rental", "other_income_misc", "other_income_disposal_gain", "commission_income", "insurance_claim_income") + (adj.gainOnDisposals ?? 0) + (adj.investmentAdjustments ?? []).filter((i) => (i.fairValueGainLoss ?? 0) > 0).reduce((s, i) => s + (i.fairValueGainLoss ?? 0), 0)
   );
-  const totalIncome = round2(revenue + interestIncome + otherIncome);
+  const totalIncome = round22(revenue + interestIncome + otherIncome);
   const { openingPY, closingCY } = inventoryFromAdj(adj, rows);
-  const materialConsumed = round2(
+  const materialConsumed = round22(
     openingPY + sumDr(rows, "cogs_purchases", "cogs_opening_stock", "materials_consumed", "purchase") - closingCY
   );
-  const directExpenses = round2(sumDr(rows, "direct_wages", "direct_expenses_other"));
-  const staffBonusProvision = adj.staffBonusProvision ?? round2(sumDr(rows, "emp_expense_bonus"));
-  const employeeBenefitExpense = round2(
+  const directExpenses = round22(sumDr(rows, "direct_wages", "direct_expenses_other"));
+  const staffBonusProvision = adj.staffBonusProvision ?? round22(sumDr(rows, "emp_expense_bonus"));
+  const employeeBenefitExpense = round22(
     sumDr(rows, "emp_expense_salaries", "emp_expense_welfare", "allowances_expense") + sumDr(rows, "emp_expense_pf", "emp_expense_gratuity", "emp_expense_other") + staffBonusProvision + sumDr(rows, "emp_expense_leave")
   );
-  const financeCharges = round2(sumDr(rows, "finance_cost_interest", "finance_cost_bank_charges"));
-  const depreciation = round2(adj.totalDepreciationExpense ?? 0);
-  const impairment = round2(
+  const financeCharges = round22(sumDr(rows, "finance_cost_interest", "finance_cost_bank_charges"));
+  const depreciation = round22(adj.totalDepreciationExpense ?? 0);
+  const impairment = round22(
     sumDr(rows, "impairment_expense") + (adj.investmentAdjustments ?? []).reduce((s, i) => s + (i.impairmentAmount ?? 0), 0) + (adj.investmentAdjustments ?? []).filter((i) => (i.fairValueGainLoss ?? 0) < 0).reduce((s, i) => s + Math.abs(i.fairValueGainLoss ?? 0), 0)
   );
-  const adminAndOtherExpenses = round2(
+  const adminAndOtherExpenses = round22(
     ADMIN_CATEGORIES.reduce((s, cat) => s + sumDr(rows, cat), 0)
   );
-  const totalExpenses = round2(
+  const totalExpenses = round22(
     materialConsumed + directExpenses + employeeBenefitExpense + financeCharges + depreciation + impairment + adminAndOtherExpenses
   );
-  const profitBeforeStaffBonus = round2(totalIncome - (totalExpenses - staffBonusProvision));
-  const staffBonus = round2(staffBonusProvision);
-  const profitBeforeTax = round2(profitBeforeStaffBonus - staffBonus);
-  const incomeTaxExpense = round2(
+  const profitBeforeStaffBonus = round22(totalIncome - (totalExpenses - staffBonusProvision));
+  const staffBonus = round22(staffBonusProvision);
+  const profitBeforeTax = round22(profitBeforeStaffBonus - staffBonus);
+  const incomeTaxExpense = round22(
     adj.incomeTaxProvision ?? adj.currentTaxExpense ?? sumDr(rows, "income_tax_expense")
   );
-  const netProfit = round2(profitBeforeTax - incomeTaxExpense);
+  const netProfit = round22(profitBeforeTax - incomeTaxExpense);
   return {
     revenue,
     interestIncome,
@@ -8304,9 +8690,9 @@ function computeBalanceSheet(tb, adj, is, company, previousYearBS = {}) {
     "ppe_cwip"
   );
   const accumDepn = sumCr(rows, "accum_depreciation");
-  const depnInTB = round2(sumCr(rows, "accum_depreciation") - sumOpeningCr(rows, "accum_depreciation"));
+  const depnInTB = round22(sumCr(rows, "accum_depreciation") - sumOpeningCr(rows, "accum_depreciation"));
   const totalAccumDepn = depnInTB >= adj.totalDepreciationExpense * 0.99 ? accumDepn : accumDepn + adj.totalDepreciationExpense;
-  const nca_ppe = round2(Math.max(0, grossPPE - totalAccumDepn));
+  const nca_ppe = round22(Math.max(0, grossPPE - totalAccumDepn));
   const listedFVAdj = (adj.investmentAdjustments ?? []).filter((i) => i.investmentType === "listed_trading" || i.investmentType === "listed_ats").reduce((s, i) => s + (i.fairValueGainLoss ?? 0), 0);
   const unlistedImpair = (adj.investmentAdjustments ?? []).filter((i) => i.investmentType === "unlisted").reduce((s, i) => s + (i.impairmentAmount ?? 0), 0);
   const invImpairmentProvision = sumCr(
@@ -8314,26 +8700,26 @@ function computeBalanceSheet(tb, adj, is, company, previousYearBS = {}) {
     "provision_impairment_investment",
     "provision_impairment_investments"
   );
-  const investmentListedTrading = round2(Math.max(0, sumDr(rows, "investment_listed_trading") + listedFVAdj));
+  const investmentListedTrading = round22(Math.max(0, sumDr(rows, "investment_listed_trading") + listedFVAdj));
   const investmentUnlisted = sumDr(rows, "investment_unlisted") - unlistedImpair;
   const investmentFD_NC = sumDr(rows, "investment_fixed_deposit_noncurrent");
-  const nca_investments = round2(Math.max(
+  const nca_investments = round22(Math.max(
     0,
     investmentUnlisted + investmentFD_NC - invImpairmentProvision
   ));
-  const nca_receivables = round2(
+  const nca_receivables = round22(
     sumDr(rows, "nca_deposits", "nca_loans_advances")
   );
-  const nca_other = round2(
+  const nca_other = round22(
     sumDr(rows, "biological_assets", "other_noncurrent_assets", "nca_other")
   );
-  const totalNonCurrentAssets = round2(nca_ppe + nca_investments + nca_receivables + nca_other);
+  const totalNonCurrentAssets = round22(nca_ppe + nca_investments + nca_receivables + nca_other);
   const ca_investments = investmentListedTrading;
   const { closingCY } = inventoryFromAdj(adj, rows);
-  const ca_inventories = round2(Math.max(0, closingCY - (adj.totalInventoryImpairment ?? 0)));
+  const ca_inventories = round22(Math.max(0, closingCY - (adj.totalInventoryImpairment ?? 0)));
   const tradeRec = sumDr(rows, "trade_receivables");
   const impairmentOnRec = sumCr(rows, "provision_impairment_debtors");
-  const ca_tradeReceivables = round2(Math.max(
+  const ca_tradeReceivables = round22(Math.max(
     0,
     tradeRec - impairmentOnRec + sumDr(rows, "related_party_receivable") + sumDr(
       rows,
@@ -8346,32 +8732,38 @@ function computeBalanceSheet(tb, adj, is, company, previousYearBS = {}) {
   ));
   const { cash: cashNet, overdrafts: bankOverdrafts } = splitCashAndOverdrafts(rows);
   const ca_cashAndEquivalents = cashNet;
-  const ca_other = round2(sumDr(rows, "lc_bg_margin", "other_current_assets", "nca_held_for_sale"));
-  const totalCurrentAssets = round2(
+  const ca_other = round22(sumDr(rows, "lc_bg_margin", "other_current_assets", "nca_held_for_sale"));
+  const totalCurrentAssets = round22(
     ca_investments + ca_inventories + ca_tradeReceivables + ca_cashAndEquivalents + ca_other
   );
-  const totalAssets = round2(totalNonCurrentAssets + totalCurrentAssets);
-  const shareCapital = round2(sumCr(rows, "share_capital"));
-  const sharePremium = round2(sumCr(rows, "share_premium"));
-  const reserves = round2(sumCr(rows, "capital_reserve", "revaluation_reserve"));
-  const dividendDeclared = adj.dividendPayable ?? sumCr(rows, "dividend_payable") ?? round2((company.dividendDeclaredPercent ?? 0) / 100 * shareCapital);
-  const openingRE = round2(
+  const totalAssets = round22(totalNonCurrentAssets + totalCurrentAssets);
+  const shareCapital = round22(sumCr(rows, "share_capital"));
+  const sharePremium = round22(sumCr(rows, "share_premium"));
+  const reserves = round22(sumCr(rows, "capital_reserve", "revaluation_reserve"));
+  const dividendDeclared = adj.dividendPayable ?? sumCr(rows, "dividend_payable") ?? round22((company.dividendDeclaredPercent ?? 0) / 100 * shareCapital);
+  const openingRE = round22(
     sumOpeningCr(rows, "retained_earnings", "general_reserve") - sumOpeningDr(rows, "retained_earnings", "general_reserve")
   );
-  const eq_retainedEarnings = round2(openingRE + is.netProfit - dividendDeclared);
-  const eq_shareCapital = round2(shareCapital + sharePremium);
-  const eq_reserves = round2(reserves);
-  const totalEquity = round2(eq_shareCapital + eq_reserves + eq_retainedEarnings);
-  const ncl_borrowings = round2(
+  const eq_retainedEarnings = round22(openingRE + is.netProfit - dividendDeclared);
+  const eq_shareCapital = round22(shareCapital + sharePremium);
+  const eq_reserves = round22(reserves);
+  const totalEquity = round22(eq_shareCapital + eq_reserves + eq_retainedEarnings);
+  const ncl_borrowings = round22(
     sumCr(rows, "borrowings_noncurrent_bank", "borrowings_noncurrent_other", "borrowings_noncurrent_related")
   );
-  const ncl_employeeBenefits = round2(sumCr(rows, "employee_benefit_noncurrent", "employee_benefit_gratuity"));
+  const ncl_employeeBenefits = round22(sumCr(rows, "employee_benefit_noncurrent", "employee_benefit_gratuity"));
   const ncl_provisions = 0;
-  const ncl_deferredTax = 0;
-  const totalNonCurrentLiabilities = round2(
+  const bookDepForDeferred = adj.totalDepreciationExpense ?? is.depreciation ?? 0;
+  const taxDepForDeferred = adj.taxDepreciationPools?.reduce((s, p) => s + (p.taxDepreciation ?? 0), 0) ?? 0;
+  const taxRateForDeferred = (company.accountingPolicies?.incomeTaxRatePercent ?? 25) / 100;
+  const timingDifference = bookDepForDeferred - taxDepForDeferred;
+  const computedDeferredTax = round22(Math.max(0, timingDifference) * taxRateForDeferred);
+  const tbDeferredTax = sumCr(rows, "deferred_tax_liability");
+  const ncl_deferredTax = round22(Math.max(tbDeferredTax, computedDeferredTax));
+  const totalNonCurrentLiabilities = round22(
     ncl_borrowings + ncl_employeeBenefits + ncl_provisions + ncl_deferredTax
   );
-  const cl_borrowings = round2(
+  const cl_borrowings = round22(
     sumCr(
       rows,
       "borrowings_current_od",
@@ -8382,7 +8774,7 @@ function computeBalanceSheet(tb, adj, is, company, previousYearBS = {}) {
       "related_party_payable"
     ) + bankOverdrafts
   );
-  const cl_tradePayables = round2(
+  const cl_tradePayables = round22(
     sumCr(
       rows,
       "trade_payables_creditors",
@@ -8394,13 +8786,13 @@ function computeBalanceSheet(tb, adj, is, company, previousYearBS = {}) {
       "vat_payable"
     )
   );
-  const incomeTaxPayable = round2(sumCr(rows, "income_tax_payable"));
-  const advanceTax = round2(sumDr(rows, "advance_tax_paid", "other_receivables_tds"));
-  const cl_incomeTaxPayable = round2(Math.max(
+  const incomeTaxPayable = round22(sumCr(rows, "income_tax_payable"));
+  const advanceTax = round22(sumDr(rows, "advance_tax_paid", "other_receivables_tds"));
+  const cl_incomeTaxPayable = round22(Math.max(
     0,
     incomeTaxPayable - advanceTax - (adj.incomeTaxPaidPY ?? 0) + Math.max(0, (adj.incomeTaxProvision ?? 0) - sumDr(rows, "income_tax_expense"))
   ));
-  const cl_provisions = round2(
+  const cl_provisions = round22(
     sumCr(
       rows,
       "provisions_csr",
@@ -8410,12 +8802,12 @@ function computeBalanceSheet(tb, adj, is, company, previousYearBS = {}) {
       "employee_payables_bonus"
     )
   );
-  const cl_other = round2(sumCr(rows, "advance_from_customers", "dividend_payable"));
-  const totalCurrentLiabilities = round2(
+  const cl_other = round22(sumCr(rows, "advance_from_customers", "dividend_payable"));
+  const totalCurrentLiabilities = round22(
     cl_borrowings + cl_tradePayables + cl_incomeTaxPayable + cl_provisions + cl_other
   );
-  const totalEquityAndLiabilities = round2(totalEquity + totalNonCurrentLiabilities + totalCurrentLiabilities);
-  const checkDifference = round2(totalAssets - totalEquityAndLiabilities);
+  const totalEquityAndLiabilities = round22(totalEquity + totalNonCurrentLiabilities + totalCurrentLiabilities);
+  const checkDifference = round22(totalAssets - totalEquityAndLiabilities);
   return {
     nca_ppe,
     nca_investments,
@@ -8485,28 +8877,28 @@ function computeChangesInEquity(tb, adj, is, company, previousCIE) {
   const openingShareCapital = sumOpeningCr(rows, "share_capital");
   const openingSharePremium = sumOpeningCr(rows, "share_premium");
   const openingOtherReserves = sumOpeningCr(rows, "general_reserve", "capital_reserve", "revaluation_reserve");
-  const openingRetained = round2(
+  const openingRetained = round22(
     sumOpeningCr(rows, "retained_earnings", "general_reserve") - sumOpeningDr(rows, "retained_earnings", "general_reserve")
   );
-  const shareIssued = company.shareIssuedDuringYear ? round2(company.shareIssuedDuringYear * 100) : round2(shareCapital - openingShareCapital);
-  const dividendDeclared = adj.dividendPayable ?? sumCr(rows, "dividend_payable") ?? round2((company.dividendDeclaredPercent ?? 0) / 100 * openingShareCapital);
-  const closingRetained = round2(openingRetained + is.netProfit - dividendDeclared);
+  const shareIssued = company.shareIssuedDuringYear ? round22(company.shareIssuedDuringYear * 100) : round22(shareCapital - openingShareCapital);
+  const dividendDeclared = adj.dividendPayable ?? sumCr(rows, "dividend_payable") ?? round22((company.dividendDeclaredPercent ?? 0) / 100 * openingShareCapital);
+  const closingRetained = round22(openingRetained + is.netProfit - dividendDeclared);
   return {
-    cyOpeningShareCapital: round2(openingShareCapital),
-    cyOpeningSharePremium: round2(openingSharePremium),
-    cyOpeningGeneralReserve: round2(openingOtherReserves),
-    cyOpeningRetainedEarnings: round2(openingRetained),
-    cyOpeningTotal: round2(openingShareCapital + openingSharePremium + openingOtherReserves + openingRetained),
-    cyNetProfit: round2(is.netProfit),
+    cyOpeningShareCapital: round22(openingShareCapital),
+    cyOpeningSharePremium: round22(openingSharePremium),
+    cyOpeningGeneralReserve: round22(openingOtherReserves),
+    cyOpeningRetainedEarnings: round22(openingRetained),
+    cyOpeningTotal: round22(openingShareCapital + openingSharePremium + openingOtherReserves + openingRetained),
+    cyNetProfit: round22(is.netProfit),
     cyShareCapitalIssued: shareIssued,
-    cySharePremiumReceived: round2(sharePremium - openingSharePremium),
+    cySharePremiumReceived: round22(sharePremium - openingSharePremium),
     cyTransferToReserve: 0,
-    cyDividends: round2(dividendDeclared),
-    cyClosingShareCapital: round2(shareCapital),
-    cyClosingSharePremium: round2(sharePremium),
-    cyClosingGeneralReserve: round2(otherReserves),
+    cyDividends: round22(dividendDeclared),
+    cyClosingShareCapital: round22(shareCapital),
+    cyClosingSharePremium: round22(sharePremium),
+    cyClosingGeneralReserve: round22(otherReserves),
     cyClosingRetainedEarnings: closingRetained,
-    cyClosingTotal: round2(shareCapital + sharePremium + otherReserves + closingRetained),
+    cyClosingTotal: round22(shareCapital + sharePremium + otherReserves + closingRetained),
     ...previousCIE
   };
 }
@@ -8524,7 +8916,7 @@ function computeCashFlow(tb, adj, is, bs, previousCF) {
   const fvGain = (adj.investmentAdjustments ?? []).filter((i) => (i.fairValueGainLoss ?? 0) > 0).reduce((s, i) => s + (i.fairValueGainLoss ?? 0), 0);
   const addFVLossOnInvestment = fvLoss;
   const lessFVGainOnInvestment = -fvGain;
-  const prevTradeRec = previousCF?.decreaseIncreaseReceivables !== void 0 ? bs.ca_tradeReceivables + previousCF.decreaseIncreaseReceivables : round2(
+  const prevTradeRec = previousCF?.decreaseIncreaseReceivables !== void 0 ? bs.ca_tradeReceivables + previousCF.decreaseIncreaseReceivables : round22(
     sumOpeningDr(
       rows,
       "trade_receivables",
@@ -8535,12 +8927,12 @@ function computeCashFlow(tb, adj, is, bs, previousCF) {
       "related_party_receivable"
     ) - sumOpeningCr(rows, "provision_impairment_debtors")
   );
-  const decreaseIncreaseReceivables = round2(prevTradeRec - bs.ca_tradeReceivables);
+  const decreaseIncreaseReceivables = round22(prevTradeRec - bs.ca_tradeReceivables);
   const { openingPY, closingCY } = inventoryFromAdj(adj, rows);
   const prevInv = previousCF?.decreaseIncreaseInventory !== void 0 ? bs.ca_inventories + previousCF.decreaseIncreaseInventory : openingPY;
-  const decreaseIncreaseInventory = round2(prevInv - bs.ca_inventories);
+  const decreaseIncreaseInventory = round22(prevInv - bs.ca_inventories);
   const prevOtherCA = sumOpeningDr(rows, "other_current_assets", "nca_held_for_sale");
-  const decreaseIncreaseOtherCurrentAssets = round2(prevOtherCA - bs.ca_other);
+  const decreaseIncreaseOtherCurrentAssets = round22(prevOtherCA - bs.ca_other);
   const prevPayables = sumOpeningCr(
     rows,
     "trade_payables_creditors",
@@ -8549,9 +8941,9 @@ function computeCashFlow(tb, adj, is, bs, previousCF) {
     "audit_fee_payable",
     "trade_payables_advance_customers"
   );
-  const increaseDecreasePayables = round2(bs.cl_tradePayables - prevPayables);
+  const increaseDecreasePayables = round22(bs.cl_tradePayables - prevPayables);
   const prevTaxPayable = sumOpeningCr(rows, "income_tax_payable");
-  const increaseDecreaseIncomeTaxPayable = round2(bs.cl_incomeTaxPayable - prevTaxPayable);
+  const increaseDecreaseIncomeTaxPayable = round22(bs.cl_incomeTaxPayable - prevTaxPayable);
   const prevEmpLiab = sumOpeningCr(
     rows,
     "employee_payables_pf",
@@ -8559,20 +8951,20 @@ function computeCashFlow(tb, adj, is, bs, previousCF) {
     "employee_payables_salary",
     "employee_benefit_noncurrent"
   );
-  const currentEmpLiab = round2(
+  const currentEmpLiab = round22(
     sumCr(rows, "employee_payables_pf", "employee_payables_bonus", "employee_payables_salary") + (adj.staffBonusProvision ?? is.staffBonus)
   );
-  const increaseDecreaseEmployeeLiability = round2(currentEmpLiab - prevEmpLiab);
+  const increaseDecreaseEmployeeLiability = round22(currentEmpLiab - prevEmpLiab);
   const prevProvisions = sumOpeningCr(rows, "provisions_csr", "provisions_current");
-  const increaseDecreaseProvisions = round2(bs.cl_provisions - prevProvisions - (adj.staffBonusProvision ?? 0));
-  const cashGeneratedFromOperations = round2(
+  const increaseDecreaseProvisions = round22(bs.cl_provisions - prevProvisions - (adj.staffBonusProvision ?? 0));
+  const cashGeneratedFromOperations = round22(
     profitBeforeTax + addDepreciation + addImpairment + lessInterestIncome + lessDividendIncome + addInterestExpense + addLossOnDisposal + lessGainOnDisposal + addFVLossOnInvestment + lessFVGainOnInvestment + decreaseIncreaseReceivables + decreaseIncreaseInventory + decreaseIncreaseOtherCurrentAssets + increaseDecreasePayables + increaseDecreaseIncomeTaxPayable + increaseDecreaseEmployeeLiability + increaseDecreaseProvisions
   );
   const interestPaid = -Math.abs(is.financeCharges);
   const incomeTaxPaid = -Math.abs(
     sumDr(rows, "advance_tax_paid") + (adj.incomeTaxPaidPY ?? 0)
   );
-  const netCashFromOperating = round2(cashGeneratedFromOperations + interestPaid + incomeTaxPaid);
+  const netCashFromOperating = round22(cashGeneratedFromOperations + interestPaid + incomeTaxPaid);
   const proceedsFromPPEDisposal = (adj.depreciationResults ?? []).reduce((s, r) => s + (r.disposalProceeds ?? 0), 0);
   const proceedsFromInvestmentDisposal = 0;
   const interestReceived = is.interestIncome;
@@ -8582,28 +8974,33 @@ function computeCashFlow(tb, adj, is, bs, previousCF) {
     0,
     netBalance(rows, "investment_listed_trading", "investment_unlisted", "investment_fixed_deposit_noncurrent") - (sumOpeningDr(rows, "investment_listed_trading", "investment_unlisted", "investment_fixed_deposit_noncurrent") - sumOpeningCr(rows, "investment_listed_trading", "investment_unlisted", "investment_fixed_deposit_noncurrent"))
   );
-  const netCashFromInvesting = round2(
+  const netCashFromInvesting = round22(
     proceedsFromPPEDisposal + proceedsFromInvestmentDisposal + interestReceived + dividendReceived + purchaseOfPPE + purchaseOfInvestments
   );
-  const proceedsFromShareIssue = round2(
+  const proceedsFromShareIssue = round22(
     sumCr(rows, "share_capital") - sumOpeningCr(rows, "share_capital") + (sumCr(rows, "share_premium") - sumOpeningCr(rows, "share_premium"))
   );
   const ncBorrowChange = sumCr(rows, "borrowings_noncurrent_bank", "borrowings_noncurrent_other") - sumOpeningCr(rows, "borrowings_noncurrent_bank", "borrowings_noncurrent_other");
-  const proceedsFromBorrowingsNonCurrent = round2(Math.max(0, ncBorrowChange));
-  const repaymentOfBorrowingsNonCurrent = round2(Math.min(0, ncBorrowChange));
+  const proceedsFromBorrowingsNonCurrent = round22(Math.max(0, ncBorrowChange));
+  const repaymentOfBorrowingsNonCurrent = round22(Math.min(0, ncBorrowChange));
   const cBorrowChange = sumCr(rows, "borrowings_current_od", "borrowings_current_cc", "borrowings_current_wc") - sumOpeningCr(rows, "borrowings_current_od", "borrowings_current_cc", "borrowings_current_wc");
-  const proceedsFromBorrowingsCurrent = round2(Math.max(0, cBorrowChange));
-  const repaymentOfBorrowingsCurrent = round2(Math.min(0, cBorrowChange));
-  const dividendPaid = -round2(adj.incomeTaxPaidPY ? 0 : adj.dividendPayable ?? sumCr(rows, "dividend_payable"));
-  const netCashFromFinancing = round2(
+  const proceedsFromBorrowingsCurrent = round22(Math.max(0, cBorrowChange));
+  const repaymentOfBorrowingsCurrent = round22(Math.min(0, cBorrowChange));
+  const openingDivPayable = sumOpeningCr(rows, "dividend_payable");
+  const closingDivPayable = sumCr(rows, "dividend_payable");
+  const dividendDeclared = adj.dividendPayable ?? 0;
+  const impliedCashPaid = Math.max(0, openingDivPayable - closingDivPayable);
+  const cashDividendsPaid = Math.max(0, openingDivPayable + dividendDeclared - closingDivPayable, impliedCashPaid);
+  const dividendPaid = -round22(cashDividendsPaid);
+  const netCashFromFinancing = round22(
     proceedsFromShareIssue + proceedsFromBorrowingsNonCurrent + repaymentOfBorrowingsNonCurrent + proceedsFromBorrowingsCurrent + repaymentOfBorrowingsCurrent + dividendPaid
   );
-  const netIncreaseDecrease = round2(netCashFromOperating + netCashFromInvesting + netCashFromFinancing);
-  const openingCash = round2(
+  const netIncreaseDecrease = round22(netCashFromOperating + netCashFromInvesting + netCashFromFinancing);
+  const openingCash = round22(
     sumOpeningDr(rows, "cash_in_hand", "bank_current_account", "bank_fixed_deposit_current") - sumOpeningCr(rows, "bank_current_account")
   );
   const closingCash = bs.ca_cashAndEquivalents;
-  const reconciliationDifference = round2(closingCash - (openingCash + netIncreaseDecrease));
+  const reconciliationDifference = round22(closingCash - (openingCash + netIncreaseDecrease));
   return {
     profitBeforeTax,
     addDepreciation,
@@ -8674,7 +9071,7 @@ function computeAllFinancials(tb, adj, company, previousYearData) {
   if (enrichedAdj.staffBonusProvision == null && incomeStatement.profitBeforeStaffBonus > 0) {
     enrichedAdj.staffBonusProvision = computeStaffBonus(incomeStatement.profitBeforeStaffBonus);
     incomeStatement.staffBonus = enrichedAdj.staffBonusProvision;
-    incomeStatement.profitBeforeTax = round2(incomeStatement.profitBeforeStaffBonus - incomeStatement.staffBonus);
+    incomeStatement.profitBeforeTax = round22(incomeStatement.profitBeforeStaffBonus - incomeStatement.staffBonus);
   }
   if (enrichedAdj.incomeTaxProvision == null && incomeStatement.profitBeforeTax > 0) {
     const taxRate = (company.accountingPolicies?.incomeTaxRatePercent ?? 25) / 100;
@@ -8691,8 +9088,16 @@ function computeAllFinancials(tb, adj, company, previousYearData) {
     });
     enrichedAdj.incomeTaxProvision = taxResult.currentTaxExpense;
     enrichedAdj.currentTaxExpense = taxResult.currentTaxExpense;
-    incomeStatement.incomeTaxExpense = taxResult.currentTaxExpense;
-    incomeStatement.netProfit = round2(incomeStatement.profitBeforeTax - incomeStatement.incomeTaxExpense);
+    const bookDep = enrichedAdj.totalDepreciationExpense ?? incomeStatement.depreciation ?? 0;
+    const taxDep = enrichedAdj.taxDepreciationPools?.reduce((s, p) => s + (p.taxDepreciation ?? 0), 0) ?? 0;
+    const timingDiff = bookDep - taxDep;
+    const pyDeferredTax = 0;
+    const computedDTL = round22(Math.max(0, timingDiff) * taxRate);
+    enrichedAdj.deferredTaxExpense = round22(Math.max(0, computedDTL - pyDeferredTax));
+    incomeStatement.incomeTaxExpense = round22(
+      taxResult.currentTaxExpense + (enrichedAdj.deferredTaxExpense ?? 0)
+    );
+    incomeStatement.netProfit = round22(incomeStatement.profitBeforeTax - incomeStatement.incomeTaxExpense);
   }
   const balanceSheet = computeBalanceSheet(tb, enrichedAdj, incomeStatement, company, pyBS);
   const changesInEquity = computeChangesInEquity(tb, enrichedAdj, incomeStatement, company);

@@ -286,7 +286,15 @@ export function computeBalanceSheet(
   );
   const ncl_employeeBenefits = round2(sumCr(rows, 'employee_benefit_noncurrent', 'employee_benefit_gratuity'));
   const ncl_provisions = 0;
-  const ncl_deferredTax = 0;
+
+  const bookDepForDeferred = adj.totalDepreciationExpense ?? is.depreciation ?? 0;
+  const taxDepForDeferred = adj.taxDepreciationPools?.reduce((s, p) => s + (p.taxDepreciation ?? 0), 0) ?? 0;
+  const taxRateForDeferred = (company.accountingPolicies?.incomeTaxRatePercent ?? 25) / 100;
+  const timingDifference = bookDepForDeferred - taxDepForDeferred;
+  const computedDeferredTax = round2(Math.max(0, timingDifference) * taxRateForDeferred);
+  const tbDeferredTax = sumCr(rows, 'deferred_tax_liability');
+  const ncl_deferredTax = round2(Math.max(tbDeferredTax, computedDeferredTax));
+
   const totalNonCurrentLiabilities = round2(
     ncl_borrowings + ncl_employeeBenefits + ncl_provisions + ncl_deferredTax,
   );
@@ -529,7 +537,12 @@ export function computeCashFlow(
   const proceedsFromBorrowingsCurrent = round2(Math.max(0, cBorrowChange));
   const repaymentOfBorrowingsCurrent = round2(Math.min(0, cBorrowChange));
 
-  const dividendPaid = -round2(adj.incomeTaxPaidPY ? 0 : (adj.dividendPayable ?? sumCr(rows, 'dividend_payable')));
+  const openingDivPayable = sumOpeningCr(rows, 'dividend_payable');
+  const closingDivPayable = sumCr(rows, 'dividend_payable');
+  const dividendDeclared = adj.dividendPayable ?? 0;
+  const impliedCashPaid = Math.max(0, openingDivPayable - closingDivPayable);
+  const cashDividendsPaid = Math.max(0, openingDivPayable + dividendDeclared - closingDivPayable, impliedCashPaid);
+  const dividendPaid = -round2(cashDividendsPaid);
 
   const netCashFromFinancing = round2(
     proceedsFromShareIssue + proceedsFromBorrowingsNonCurrent + repaymentOfBorrowingsNonCurrent
@@ -627,7 +640,17 @@ export function computeAllFinancials(
     });
     enrichedAdj.incomeTaxProvision = taxResult.currentTaxExpense;
     enrichedAdj.currentTaxExpense = taxResult.currentTaxExpense;
-    incomeStatement.incomeTaxExpense = taxResult.currentTaxExpense;
+
+    const bookDep = enrichedAdj.totalDepreciationExpense ?? incomeStatement.depreciation ?? 0;
+    const taxDep = enrichedAdj.taxDepreciationPools?.reduce((s, p) => s + (p.taxDepreciation ?? 0), 0) ?? 0;
+    const timingDiff = bookDep - taxDep;
+    const pyDeferredTax = 0;
+    const computedDTL = round2(Math.max(0, timingDiff) * taxRate);
+    enrichedAdj.deferredTaxExpense = round2(Math.max(0, computedDTL - pyDeferredTax));
+
+    incomeStatement.incomeTaxExpense = round2(
+      taxResult.currentTaxExpense + (enrichedAdj.deferredTaxExpense ?? 0),
+    );
     incomeStatement.netProfit = round2(incomeStatement.profitBeforeTax - incomeStatement.incomeTaxExpense);
   }
 

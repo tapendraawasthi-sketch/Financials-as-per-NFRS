@@ -5,6 +5,7 @@ export interface SessionData {
   lastAccessAt: Date;
   company?: unknown;
   trialBalance?: unknown;
+  rawTrialBalance?: unknown;
   adjustments?: unknown;
   policies?: unknown;
   statements?: unknown;

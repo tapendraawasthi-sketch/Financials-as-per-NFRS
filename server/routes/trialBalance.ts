@@ -12,8 +12,95 @@ import type { CompanyProfile, ParsedTrialBalance, NFRSCategory } from '../../src
 import { getFiscalYear } from '../../src/data/fiscalYears';
 import { generateTrialBalanceTemplate } from '../services/tbTemplateWriter.js';
 import { convertRoughTrialBalance } from '../services/aiTbConverter.js';
+import { writeNormalizedTrialBalance } from '../services/normalizedTbWriter.js';
+import { finalizeRawTBRows } from '../services/tbHierarchy.js';
+import { mappingProfileKey } from '../services/mappingProfile.js';
+import type { RawTBParseResult, RawTBRow } from '../../src/types/trialBalance.js';
 
 const router = Router();
+
+function ensureSession(req: Request): { companyId: string; session: NonNullable<ReturnType<typeof sessionStore.get>> } | null {
+  let session = sessionStore.get(req.params.companyId);
+  if (!session) {
+    const companyRaw = req.body?.company;
+    if (typeof companyRaw === 'string') {
+      try {
+        const company = JSON.parse(companyRaw) as CompanyProfile;
+        sessionStore.set(req.params.companyId, { company: { ...company, id: req.params.companyId } });
+        session = sessionStore.get(req.params.companyId);
+      } catch {
+        // ignore malformed company snapshot
+      }
+    }
+  }
+  if (!session) return null;
+  return { companyId: req.params.companyId, session };
+}
+
+function countMappingProfileHits(rows: RawTBRow[], profile?: Record<string, unknown> | null): number {
+  if (!profile || Object.keys(profile).length === 0) return 0;
+  return rows.filter(
+    (r) => !r.isGroupRow && profile[mappingProfileKey(r.rawLabel, r.parentGroup)],
+  ).length;
+}
+
+async function classifyAndBuildTB(
+  companyId: string,
+  parsed: RawTBParseResult,
+  options: {
+    useAI?: boolean;
+    uploadedFileName?: string;
+    importMode?: 'manual' | 'ai';
+    apiKey?: string;
+  },
+): Promise<ParsedTrialBalance & Record<string, unknown>> {
+  const session = sessionStore.get(companyId);
+  if (!session) throw Object.assign(new Error('Company session not found.'), { status: 404 });
+
+  const leafRows = parsed.rows.filter((r) => !r.isGroupRow);
+  const profileHitCount = countMappingProfileHits(parsed.rows, session.mappingProfile);
+
+  let rows = classifyAll(parsed.rows);
+  rows = applyMappingProfile(rows, session.mappingProfile);
+
+  if (options.useAI && options.apiKey) {
+    try {
+      rows = await classifyWithAI(rows, options.apiKey);
+    } catch (aiErr) {
+      console.warn('[trialBalance] AI matching failed:', aiErr);
+    }
+  }
+
+  const tb: ParsedTrialBalance & Record<string, unknown> = {
+    rows,
+    companyName: session.company?.name ?? session.company?.companyName ?? '',
+    fiscalYear: session.company?.fiscalYearCurrent ?? session.company?.fiscalYear?.bsFY ?? '',
+    isBalanced: parsed.isBalanced,
+    totalAssets: 0,
+    totalLiabilities: 0,
+    totalEquity: 0,
+    warnings: parsed.warnings,
+    companyId,
+    uploadedAt: new Date().toISOString(),
+    uploadedFileName: options.uploadedFileName,
+    totalClosingDr: parsed.totalClosingDr,
+    totalClosingCr: parsed.totalClosingCr,
+    difference: parsed.difference,
+    detectedFormat: parsed.detectedFormat,
+    detectedColumns: parsed.detectedColumns,
+    headerRowIndex: parsed.headerRowIndex,
+    previousYearData: parsed.previousYearData ?? null,
+    leafAccountCount: leafRows.length,
+    groupRowCount: parsed.rows.filter((r) => r.isGroupRow).length,
+    mappingProfileAppliedCount: profileHitCount,
+    mappingProfileTotalAccounts: leafRows.length,
+    importMode: options.importMode,
+  };
+
+  const validation = validateTrialBalanceTotals(rows);
+  tb.validation = validation;
+  return tb;
+}
 
 router.get('/template/download', asyncHandler(async (req: Request, res: Response) => {
   const buffer = await generateTrialBalanceTemplate();
@@ -107,42 +194,14 @@ router.post('/:companyId/upload', tbUploadMiddleware, async (req: Request, res: 
       });
     }
 
-    let rows = classifyAll(parsed.rows);
-    rows = applyMappingProfile(rows, session.mappingProfile);
-
-    if (req.query.useAI === 'true' && process.env.ANTHROPIC_API_KEY) {
-      try {
-        rows = await classifyWithAI(rows, process.env.ANTHROPIC_API_KEY);
-      } catch (aiErr) {
-        console.warn('[trialBalance.upload] AI matching failed:', aiErr);
-      }
-    }
-
-    const tb: ParsedTrialBalance & Record<string, unknown> = {
-      rows,
-      companyName: session.company?.name ?? session.company?.companyName ?? '',
-      fiscalYear: session.company?.fiscalYearCurrent ?? session.company?.fiscalYear?.bsFY ?? '',
-      isBalanced: parsed.isBalanced,
-      totalAssets: 0,
-      totalLiabilities: 0,
-      totalEquity: 0,
-      warnings: parsed.warnings,
-      companyId: req.params.companyId,
-      uploadedAt: new Date().toISOString(),
+    const tb = await classifyAndBuildTB(req.params.companyId, parsed, {
+      useAI: req.query.useAI === 'true',
       uploadedFileName: req.file.originalname,
-      totalClosingDr: parsed.totalClosingDr,
-      totalClosingCr: parsed.totalClosingCr,
-      difference: parsed.difference,
-      detectedFormat: parsed.detectedFormat,
-      detectedColumns: parsed.detectedColumns,
-      headerRowIndex: parsed.headerRowIndex,
-      previousYearData: parsed.previousYearData ?? null,
-      leafAccountCount: rows.filter((r) => !r.isGroupRow).length,
-      groupRowCount: rows.filter((r) => r.isGroupRow).length,
-    };
+      importMode: 'manual',
+      apiKey: process.env.ANTHROPIC_API_KEY,
+    });
 
-    const validation = validateTrialBalanceTotals(rows);
-    (tb as any).validation = validation;
+    const validation = tb.validation as ReturnType<typeof validateTrialBalanceTotals>;
 
     // ── Significant imbalance check
     const diff = Math.abs(validation.totalClosingDr - validation.totalClosingCr);
@@ -150,7 +209,7 @@ router.post('/:companyId/upload', tbUploadMiddleware, async (req: Request, res: 
       return res.status(422).json({
         success: false,
         error: `Trial balance has a significant imbalance of NPR ${diff.toLocaleString('en-IN')}. Please check your accounting export before proceeding. Rounding differences up to NPR 1,000 are auto-adjusted.`,
-        data: tb, // still return data so user can review
+        data: tb,
       });
     }
 
@@ -192,39 +251,12 @@ router.post('/:companyId/ai-convert', tbUploadMiddleware, async (req, res, next)
 
     const parsed = await convertRoughTrialBalance(req.file.buffer, req.file.originalname, apiKey);
 
-    let rows = classifyAll(parsed.rows);
-    rows = applyMappingProfile(rows, session.mappingProfile);
-    try {
-      rows = await classifyWithAI(rows, apiKey);
-    } catch (aiErr) {
-      console.warn('[trialBalance.ai-convert] classification pass failed:', aiErr);
-    }
-
-    const tb: ParsedTrialBalance & Record<string, unknown> = {
-      rows,
-      companyName: session.company?.name ?? session.company?.companyName ?? '',
-      fiscalYear: session.company?.fiscalYearCurrent ?? session.company?.fiscalYear?.bsFY ?? '',
-      isBalanced: parsed.isBalanced,
-      totalAssets: 0,
-      totalLiabilities: 0,
-      totalEquity: 0,
-      warnings: parsed.warnings,
-      companyId: req.params.companyId,
-      uploadedAt: new Date().toISOString(),
+    const tb = await classifyAndBuildTB(req.params.companyId, parsed, {
+      useAI: true,
       uploadedFileName: req.file.originalname,
-      totalClosingDr: parsed.totalClosingDr,
-      totalClosingCr: parsed.totalClosingCr,
-      difference: parsed.difference,
-      detectedFormat: parsed.detectedFormat,
-      detectedColumns: parsed.detectedColumns,
-      headerRowIndex: parsed.headerRowIndex,
-      previousYearData: null,
-      leafAccountCount: rows.filter((r) => !r.isGroupRow).length,
-      groupRowCount: rows.filter((r) => r.isGroupRow).length,
-    };
-
-    const validation = validateTrialBalanceTotals(rows);
-    (tb as any).validation = validation;
+      importMode: 'ai',
+      apiKey,
+    });
 
     sessionStore.set(req.params.companyId, { trialBalance: tb as any });
     res.json({ success: true, data: tb });
@@ -232,6 +264,157 @@ router.post('/:companyId/ai-convert', tbUploadMiddleware, async (req, res, next)
     next(err);
   }
 });
+
+// POST /:companyId/parse-preview — parse only, no classification (normalized TB checkpoint)
+router.post('/:companyId/parse-preview', tbUploadMiddleware, async (req, res, next) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, error: 'No file uploaded.' });
+    }
+
+    const ensured = ensureSession(req);
+    if (!ensured) {
+      return res.status(404).json({
+        success: false,
+        error: 'Company session not found on server. Save company details first.',
+        code: 'SESSION_NOT_FOUND',
+      });
+    }
+
+    const mode = req.query.mode === 'ai' ? 'ai' : 'manual';
+    let parsed: RawTBParseResult;
+
+    if (mode === 'ai') {
+      const apiKey = process.env.ANTHROPIC_API_KEY;
+      if (!apiKey) {
+        return res.status(503).json({
+          success: false,
+          error: 'AI import is not configured. Use manual upload instead.',
+        });
+      }
+      parsed = await convertRoughTrialBalance(req.file.buffer, req.file.originalname, apiKey);
+    } else {
+      parsed = await parseTrialBalance(req.file.buffer, req.file.originalname);
+      if (!parsed.rows?.length) {
+        return res.status(422).json({ success: false, error: 'No data rows found in the uploaded file.' });
+      }
+    }
+
+    const profileHitCount = countMappingProfileHits(parsed.rows, ensured.session.mappingProfile);
+    const preview = {
+      ...parsed,
+      companyId: req.params.companyId,
+      uploadedAt: new Date().toISOString(),
+      uploadedFileName: req.file.originalname,
+      importMode: mode,
+      mappingProfileAppliedCount: profileHitCount,
+      mappingProfileTotalAccounts: parsed.rows.filter((r) => !r.isGroupRow).length,
+    };
+
+    sessionStore.set(req.params.companyId, { rawTrialBalance: preview });
+    res.json({ success: true, data: preview });
+  } catch (err: any) {
+    next(err);
+  }
+});
+
+// POST /:companyId/confirm-normalized — accept edited raw rows, then classify
+router.post('/:companyId/confirm-normalized', asyncHandler(async (req: Request, res: Response) => {
+  const ensured = ensureSession(req);
+  if (!ensured) {
+    return res.status(404).json({ success: false, error: 'Company session not found.', code: 'SESSION_NOT_FOUND' });
+  }
+
+  const inputRows: RawTBRow[] = req.body.rows ?? [];
+  if (!inputRows.length) {
+    return res.status(400).json({ success: false, error: 'No trial balance rows provided.' });
+  }
+
+  const stored = ensured.session.rawTrialBalance as Record<string, unknown> | undefined;
+  const importMode = (stored?.importMode as 'manual' | 'ai') ?? 'manual';
+  const useAI = req.body.useAI === true || importMode === 'ai';
+
+  const finalized = finalizeRawTBRows(inputRows);
+  const parsed: RawTBParseResult = {
+    rows: finalized.rows,
+    ...finalized.totals,
+    warnings: [
+      ...((stored?.warnings as string[]) ?? []),
+      ...finalized.warnings,
+    ],
+    detectedColumns: (stored?.detectedColumns as Record<string, number>) ?? {},
+    headerRowIndex: (stored?.headerRowIndex as number) ?? 0,
+    detectedFormat: (stored?.detectedFormat as RawTBParseResult['detectedFormat']) ?? 'full',
+    previousYearData: (stored?.previousYearData as RawTBRow[] | null) ?? null,
+  };
+
+  const tb = await classifyAndBuildTB(req.params.companyId, parsed, {
+    useAI,
+    uploadedFileName: stored?.uploadedFileName as string | undefined,
+    importMode,
+    apiKey: process.env.ANTHROPIC_API_KEY,
+  });
+
+  const validation = tb.validation as ReturnType<typeof validateTrialBalanceTotals>;
+  const diff = Math.abs(validation.totalClosingDr - validation.totalClosingCr);
+  if (importMode === 'manual' && diff > 1000) {
+    return res.status(422).json({
+      success: false,
+      error: `Trial balance has a significant imbalance of NPR ${diff.toLocaleString('en-IN')}.`,
+      data: tb,
+    });
+  }
+
+  sessionStore.set(req.params.companyId, { trialBalance: tb as any, rawTrialBalance: undefined });
+  res.json({ success: true, data: tb });
+}));
+
+// POST /:companyId/normalized/save — persist edited preview rows without classifying
+router.post('/:companyId/normalized/save', asyncHandler(async (req: Request, res: Response) => {
+  const session = sessionStore.get(req.params.companyId);
+  if (!session?.rawTrialBalance) {
+    return res.status(404).json({ error: 'No normalized preview in session.' });
+  }
+
+  const inputRows: RawTBRow[] = req.body.rows ?? [];
+  if (!inputRows.length) {
+    return res.status(400).json({ error: 'No rows provided.' });
+  }
+
+  const finalized = finalizeRawTBRows(inputRows);
+  const existing = session.rawTrialBalance as Record<string, unknown>;
+  const updated = {
+    ...existing,
+    rows: finalized.rows,
+    ...finalized.totals,
+    warnings: [...((existing.warnings as string[]) ?? []), ...finalized.warnings],
+  };
+
+  sessionStore.set(req.params.companyId, { rawTrialBalance: updated });
+  res.json({ success: true, data: updated });
+}));
+
+// GET /:companyId/normalized/export — download normalized TB as Excel
+router.get('/:companyId/normalized/export', asyncHandler(async (req: Request, res: Response) => {
+  const session = sessionStore.get(req.params.companyId);
+  const raw = session?.rawTrialBalance as Record<string, unknown> | undefined;
+  const rows = (raw?.rows ?? session?.trialBalance?.rows) as RawTBRow[] | undefined;
+
+  if (!rows?.length) {
+    return res.status(404).json({ error: 'No normalized trial balance available to export.' });
+  }
+
+  const company = session?.company as CompanyProfile | undefined;
+  const buffer = await writeNormalizedTrialBalance(rows, {
+    companyName: company?.companyName,
+    fiscalYear: company?.fiscalYear?.bsFY,
+    filename: raw?.uploadedFileName as string | undefined,
+  });
+
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', 'attachment; filename="Normalized_Trial_Balance.xlsx"');
+  return res.send(buffer);
+}));
 
 // GET /:companyId
 router.get('/:companyId', asyncHandler(async (req: Request, res: Response) => {

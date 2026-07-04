@@ -39,6 +39,7 @@ const emptyAdj = (companyId: string, fiscalYear: string): YearEndAdjustments => 
   companyId, fiscalYear,
   assets: [], depreciationResults: [], depreciationSummary: [], taxDepreciationPools: [],
   inventoryAdjustments: [], investmentAdjustments: [], provisions: [], journalEntries: [],
+  disallowedForTax: [],
   totalDepreciationExpense: 0, totalInventoryImpairment: 0, totalInvestmentFVAdjustment: 0,
   totalProvisions: 0, gainOnDisposals: 0, lossOnDisposals: 0,
 });
@@ -72,7 +73,31 @@ router.post('/:companyId/calculate-depreciation', asyncHandler(async (req: Reque
   const lossOnDisposals = results.filter((r) => (r.gainLossOnDisposal ?? 0) < 0).reduce((s, r) => s + Math.abs(r.gainLossOnDisposal ?? 0), 0);
 
   const openingPoolBases: Record<string, number> = req.body.openingPoolBases ?? {};
-  const taxPools = calculateTaxDepreciation(toDepreciationAssets(adj.assets ?? []), assetCategories, openingPoolBases);
+  const taxableIncome: number = req.body.taxableIncome ?? 0;
+  const repairExpenses: Record<string, number> = req.body.repairExpenses ?? {};
+
+  // If taxable income not supplied, estimate from trial balance PBT proxy
+  let effectiveTaxableIncome = taxableIncome;
+  if (!effectiveTaxableIncome && session.trialBalance) {
+    const tbRows = (session.trialBalance as { rows?: Array<{ nfrsCategory?: string; closingDr?: number; closingCr?: number }> }).rows ?? [];
+    const sumCr = (cats: string[]) => tbRows
+      .filter((r) => cats.includes(String(r.nfrsCategory ?? '')))
+      .reduce((s, r) => s + (r.closingCr ?? 0), 0);
+    const sumDr = (cats: string[]) => tbRows
+      .filter((r) => cats.includes(String(r.nfrsCategory ?? '')))
+      .reduce((s, r) => s + (r.closingDr ?? 0), 0);
+    const revenue = sumCr(['revenue', 'sales', 'service_income']);
+    const expenses = sumDr(['cost_of_sales', 'admin_expenses', 'employee_benefits', 'finance_costs', 'depreciation_expense']);
+    effectiveTaxableIncome = Math.max(0, revenue - expenses);
+  }
+
+  const taxPools = calculateTaxDepreciation(
+    toDepreciationAssets(adj.assets ?? []),
+    assetCategories,
+    openingPoolBases,
+    effectiveTaxableIncome,
+    repairExpenses,
+  );
 
   const updatedAdj: YearEndAdjustments = {
     ...adj, depreciationResults: results, depreciationSummary: summary,
@@ -99,6 +124,16 @@ router.post('/:companyId/provisions', asyncHandler(async (req: Request, res: Res
   const totalProvisions = provisions.reduce((s, p) => s + p.additionForYear, 0);
   sessionStore.set(req.params.companyId, { adjustments: { ...adj, provisions, totalProvisions } });
   return res.json({ message: 'Provisions saved.', count: provisions.length, total: totalProvisions });
+}));
+
+// POST /:companyId/disallowed-tax
+router.post('/:companyId/disallowed-tax', asyncHandler(async (req: Request, res: Response) => {
+  const session = sessionStore.get(req.params.companyId);
+  if (!session) return res.status(404).json({ error: 'Company not found.' });
+  const disallowedForTax = req.body.disallowedForTax ?? [];
+  const adj = session.adjustments ?? emptyAdj(req.params.companyId, session.company?.fiscalYear?.bsFY ?? '');
+  sessionStore.set(req.params.companyId, { adjustments: { ...adj, disallowedForTax } });
+  return res.json({ message: 'Disallowed tax items saved.', count: disallowedForTax.length });
 }));
 
 // POST /:companyId/inventory

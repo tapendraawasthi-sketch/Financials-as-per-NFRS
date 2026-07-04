@@ -12,6 +12,7 @@ import ProvisionInputs from '../components/adjustments/ProvisionInputs';
 import InventoryInputPanel from '../components/adjustments/InventoryInputPanel';
 import InvestmentInputPanel from '../components/adjustments/InvestmentInputPanel';
 import AdjustmentJournalView from '../components/adjustments/AdjustmentJournalView';
+import DisallowedExpensesPanel from '../components/adjustments/DisallowedExpensesPanel';
 import { useToast } from '../components/ui/Toast';
 import { detectAdjustmentRelevance } from '../utils/adjustmentRelevance';
 import { assetItemToRow, assetRowToAssetItem } from '../utils/assetMapping';
@@ -344,6 +345,33 @@ export default function AdjustmentsPage() {
                 ]),
               )}
             />
+            <div className="card">
+              <div className="card-header">
+                <h3 className="text-xs font-bold uppercase tracking-wider" style={{ color: 'var(--ink-700)' }}>
+                  Disallowed Expenses (Section 21 ITA)
+                </h3>
+              </div>
+              <div className="card-body">
+                <DisallowedExpensesPanel
+                  items={state.adjustments?.disallowedForTax ?? []}
+                  onChange={(items) => {
+                    dispatch({
+                      type: 'SET_ADJUSTMENTS',
+                      payload: { ...(state.adjustments ?? {}), disallowedForTax: items } as YearEndAdjustments,
+                    });
+                  }}
+                  onSave={async (items) => {
+                    if (!state.company?.id) return;
+                    await adjustmentsApi.saveDisallowedForTax(state.company.id, items);
+                    dispatch({
+                      type: 'SET_ADJUSTMENTS',
+                      payload: { ...(state.adjustments ?? {}), disallowedForTax: items } as YearEndAdjustments,
+                    });
+                    showToast('Disallowed tax items saved', 'success');
+                  }}
+                />
+              </div>
+            </div>
           </div>
         )}
 

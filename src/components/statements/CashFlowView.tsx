@@ -77,7 +77,7 @@ export default function CashFlowView() {
   const repaymentLoans   = (cf.repaymentOfBorrowingsNonCurrent ?? 0) + (cf.repaymentOfBorrowingsCurrent ?? 0);
   const proceedsShareCap = cf.proceedsFromShareIssue ?? 0;
   const dividendPaid     = cf.dividendPaid ?? 0;
-  const netFinancing     = proceedsLoans - repaymentLoans + proceedsShareCap - dividendPaid;
+  const netFinancing     = proceedsLoans + repaymentLoans + proceedsShareCap + dividendPaid;
 
   const netChange         = netOperating + netInvesting + netFinancing;
   const openingCash       = cf.openingCash ?? 0;

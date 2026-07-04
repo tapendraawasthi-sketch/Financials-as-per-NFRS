@@ -27,7 +27,19 @@ export interface RawTBParseResult {
   warnings: string[];
   detectedColumns: Record<string, number>;
   headerRowIndex: number;
-  detectedFormat: 'full' | '3col' | '2col' | '1col' | 'tally_prime' | 'tally_grouped';
+  detectedFormat: 'full' | '3col' | '2col' | '1col' | 'tally_prime' | 'tally_grouped' | 'ai_converted';
+  previousYearData?: RawTBRow[] | null;
+}
+
+// Intermediate parse result before classification — shown in normalized preview step
+export interface NormalizedTrialBalancePreview extends RawTBParseResult {
+  companyId?: string;
+  uploadedAt?: string;
+  uploadedFileName?: string;
+  importMode?: 'manual' | 'ai';
+  mappingProfileAppliedCount?: number;
+  mappingProfileTotalAccounts?: number;
+  previousYearData?: RawTBRow[] | null;
 }
 
 // NFRSCategory — the complete taxonomy (see chartOfAccounts.ts)
@@ -64,4 +76,7 @@ export interface ParsedTrialBalance {
   difference?: number;
   uploadedAt?: string;
   uploadedFileName?: string;
+  mappingProfileAppliedCount?: number;
+  mappingProfileTotalAccounts?: number;
+  importMode?: 'manual' | 'ai';
 }
