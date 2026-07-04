@@ -688,6 +688,7 @@ function writeInstructions(ws: ExcelJS.Worksheet): void {
     ['Related Party', 'Receivable/payable balances and transaction amounts per party.'],
     ['Fair Value Change', 'Per-script tracking. Deduct sold-unit P&L already in trial balance to avoid double-counting.'],
     ['Disallow for Tax', 'Each item tagged income-side (Note I) or expense-side (Note II) for reconciliation tie-out.'],
+    ['Tax Notes', 'Note I (income exclusions) and Note II (expense disallowances) — must tie to Disallow for Tax totals.'],
     ['Green cells', 'Input cells — enter values here only.'],
     ['Blue/grey headers', 'Calculated — do not overwrite formulas.'],
     ['Before finalising', 'Confirm: BS balances, CF reconciles, TB profit = IS profit, tax recon True/False all zero.'],

@@ -17,7 +17,7 @@ function getSystemAdjustments(adj: YearEndAdjustments) {
     dividendDeclared: adj.dividendPayable ?? 0,
     tdsOnDividend: (adj.dividendPayable ?? 0) * 0.05,
     investmentFVGainLoss: (adj.investmentAdjustments ?? [])
-      .reduce((s, i) => s + (i.gainLossOnFV ?? 0), 0),
+      .reduce((s, i) => s + (i.fairValueGainLoss ?? i.gainLossOnFV ?? 0), 0),
   };
 }
 
