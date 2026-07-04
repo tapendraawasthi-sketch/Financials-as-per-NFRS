@@ -13,15 +13,15 @@ type Variant =
   | 'unbalanced';
 
 const V: Record<Variant, React.CSSProperties> = {
-  default:    { background: '#f1f5f9', color: '#475569' },
-  blue:       { background: '#eff6ff', color: '#1d4ed8', boxShadow: 'inset 0 0 0 1px #bfdbfe' },
-  green:      { background: '#f0fdfa', color: '#0d9488', boxShadow: 'inset 0 0 0 1px #99f6e4' },
-  amber:      { background: '#fffbeb', color: '#92400e', boxShadow: 'inset 0 0 0 1px #fde68a' },
-  red:        { background: '#fef2f2', color: '#991b1b', boxShadow: 'inset 0 0 0 1px #fecaca' },
-  purple:     { background: '#f5f3ff', color: '#5b21b6', boxShadow: 'inset 0 0 0 1px #ddd6fe' },
-  slate:      { background: '#f1f5f9', color: '#64748b' },
-  balanced:   { background: '#f0fdfa', color: '#0d9488', boxShadow: 'inset 0 0 0 1px #5eead4', fontWeight: 600 },
-  unbalanced: { background: '#fef2f2', color: '#991b1b', boxShadow: 'inset 0 0 0 1px #fca5a5', fontWeight: 600 },
+  default:    { background: 'var(--surface-sunken)', color: 'var(--ink-600)' },
+  blue:       { background: 'var(--brand-50)', color: 'var(--brand-700)', boxShadow: 'inset 0 0 0 1px var(--brand-100)' },
+  green:      { background: 'var(--success-100)', color: 'var(--success-700)', boxShadow: 'inset 0 0 0 1px var(--success-600)' },
+  amber:      { background: 'var(--warning-100)', color: 'var(--warning-700)', boxShadow: 'inset 0 0 0 1px var(--gold-400)' },
+  red:        { background: 'var(--danger-100)', color: 'var(--danger-700)', boxShadow: 'inset 0 0 0 1px var(--danger-600)' },
+  purple:     { background: 'var(--brand-100)', color: 'var(--brand-800)', boxShadow: 'inset 0 0 0 1px var(--brand-300)' },
+  slate:      { background: 'var(--surface-sunken)', color: 'var(--ink-500)' },
+  balanced:   { background: 'var(--success-100)', color: 'var(--success-700)', boxShadow: 'inset 0 0 0 1px var(--success-600)', fontWeight: 600 },
+  unbalanced: { background: 'var(--danger-100)', color: 'var(--danger-700)', boxShadow: 'inset 0 0 0 1px var(--danger-600)', fontWeight: 600 },
 };
 
 const SIZE_NORMAL  = { fontSize: '11px', padding: '2px 8px' };

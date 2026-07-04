@@ -79,8 +79,8 @@ export default function ClientSwitcher({
           aria-label="Saved clients"
           className="absolute left-0 right-0 top-full z-50 mt-1 max-h-48 overflow-y-auto rounded-xl py-1 shadow-xl"
           style={{
-            background: '#0f172a',
-            border: '1px solid rgba(99,102,241,0.30)',
+            background: 'var(--chrome-900)',
+            border: '1px solid var(--chrome-border)',
           }}
         >
           {sessions.map((session) => {

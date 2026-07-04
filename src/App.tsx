@@ -53,11 +53,11 @@ function PrereqBanner({
       role="alert"
       className="mx-7 mt-4 mb-2 rounded-xl border px-4 py-3.5 flex items-start gap-3"
       style={{
-        background: 'linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%)',
-        borderColor: '#fcd34d',
+        background: 'var(--warning-100)',
+        borderColor: 'var(--gold-400)',
       }}
     >
-      <AlertTriangle size={17} className="flex-shrink-0 mt-0.5" style={{ color: '#d97706' }} />
+      <AlertTriangle size={17} className="flex-shrink-0 mt-0.5" style={{ color: 'var(--warning-600)' }} />
       <div className="flex-1 min-w-0">
         <p className="text-sm font-semibold text-amber-800">
           Complete earlier steps to fill data here
@@ -72,9 +72,9 @@ function PrereqBanner({
                 onClick={() => onGoTo(p.step)}
                 className="inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium transition-colors"
                 style={{
-                  background: '#fef08a',
-                  color: '#92400e',
-                  border: '1px solid #fcd34d',
+                  background: 'var(--warning-100)',
+                  color: 'var(--warning-700)',
+                  border: '1px solid var(--gold-400)',
                 }}
               >
                 {p.label}

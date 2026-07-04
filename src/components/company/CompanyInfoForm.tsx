@@ -575,7 +575,7 @@ export default function CompanyInfoForm({
           <div className="col-span-2">
             <p
               className="leading-none mb-1.5"
-              style={{ fontSize: '10.5px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.10em', color: '#64748b' }}
+              style={{ fontSize: '10.5px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.10em', color: 'var(--ink-500)' }}
             >
               Directors
             </p>
