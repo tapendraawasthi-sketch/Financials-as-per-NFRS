@@ -24,6 +24,7 @@ import { assetItemToRow, assetRowToAssetItem } from '../utils/assetMapping';
 import { isAssetRegisterEmpty, prefillAssetsFromTrialBalance } from '../utils/ppePrefill';
 
 type TabId = 'assets' | 'provisions' | 'journal';
+type ProvisionTabId = 'inventory' | 'investments' | 'provisions' | 'tax';
 
 export default function AdjustmentsPage() {
   const { state, dispatch } = useAppStore();
@@ -36,6 +37,7 @@ export default function AdjustmentsPage() {
   } = useAdjustments();
   const { show: showToast } = useToast();
   const [activeTab, setActiveTab] = useState<TabId>('assets');
+  const [provisionTab, setProvisionTab] = useState<ProvisionTabId>('provisions');
   const [useAIRelevance, setUseAIRelevance] = useState(false);
   const [serverRelevance, setServerRelevance] = useState<AdjustmentRelevance | null>(null);
   const ppePrefillDone = useRef(false);
@@ -284,6 +286,25 @@ export default function AdjustmentsPage() {
 
   const effectiveTab = tabs.some((tab) => tab.id === activeTab) ? activeTab : tabs[0]?.id ?? 'provisions';
 
+  const provisionTabs = useMemo(() => {
+    const items: Array<{ id: ProvisionTabId; label: string }> = [];
+    if (relevance.hasInventory) items.push({ id: 'inventory', label: 'Inventory' });
+    if (relevance.hasInvestments) items.push({ id: 'investments', label: 'Investments' });
+    items.push({ id: 'provisions', label: 'Provisions & Staff' });
+    if (
+      relevance.sectionVisibility.relatedPartyLoan
+      || relevance.sectionVisibility.disallowedTax
+      || relevance.sectionVisibility.advanceTax
+    ) {
+      items.push({ id: 'tax', label: 'Tax & Compliance' });
+    }
+    return items;
+  }, [relevance]);
+
+  const effectiveProvisionTab = provisionTabs.some((t) => t.id === provisionTab)
+    ? provisionTab
+    : provisionTabs[0]?.id ?? 'provisions';
+
   const depnSummary = state.adjustments?.depreciationSummary ?? [];
 
   return (
@@ -357,87 +378,105 @@ export default function AdjustmentsPage() {
 
         {effectiveTab === 'provisions' && (
           <div className="space-y-5">
-            {relevance.hasInventory && (
+            {provisionTabs.length > 1 && (
+              <Tabs
+                tabs={provisionTabs}
+                active={effectiveProvisionTab}
+                onChange={(id) => setProvisionTab(id as ProvisionTabId)}
+                variant="line"
+              />
+            )}
+
+            {effectiveProvisionTab === 'inventory' && relevance.hasInventory && (
               <InventoryInputPanel
                 trialBalanceRows={state.trialBalance?.rows}
                 initialItems={state.adjustments?.inventoryAdjustments}
                 onSave={handleSaveInventory}
               />
             )}
-            {relevance.hasInvestments && (
+
+            {effectiveProvisionTab === 'investments' && relevance.hasInvestments && (
               <InvestmentInputPanel
                 trialBalanceRows={state.trialBalance?.rows}
                 initialItems={state.adjustments?.investmentAdjustments}
                 onSave={handleSaveInvestments}
               />
             )}
-            <ProvisionInputs
-              onSave={handleSaveProvisions}
-              provisionApplicability={relevance.provisionApplicability}
-              initialData={Object.fromEntries(
-                (state.adjustments?.provisions ?? []).map((provision) => [
-                  provision.id ?? provision.provisionType,
-                  provision.openingBalance,
-                ]),
-              )}
-            />
-            {relevance.sectionVisibility.relatedPartyLoan && (
-              <RelatedPartyLoanPanel
-                isCurrent={state.adjustments?.relatedPartyLoanCurrent === true}
-                onSave={async (relatedPartyLoanCurrent) => {
-                  if (!state.company?.id) return;
-                  await adjustmentsApi.saveAdjustmentSettings(state.company.id, { relatedPartyLoanCurrent });
-                  dispatch({
-                    type: 'SET_ADJUSTMENTS',
-                    payload: { ...(state.adjustments ?? {}), relatedPartyLoanCurrent } as YearEndAdjustments,
-                  });
-                  showToast('Related-party loan classification saved', 'success');
-                }}
+
+            {effectiveProvisionTab === 'provisions' && (
+              <ProvisionInputs
+                onSave={handleSaveProvisions}
+                provisionApplicability={relevance.provisionApplicability}
+                initialData={Object.fromEntries(
+                  (state.adjustments?.provisions ?? []).map((provision) => [
+                    provision.id ?? provision.provisionType,
+                    provision.openingBalance,
+                  ]),
+                )}
               />
             )}
-            {relevance.sectionVisibility.disallowedTax && (
-              <div className="card">
-                <div className="card-header">
-                  <h3 className="text-xs font-bold uppercase tracking-wider" style={{ color: 'var(--ink-700)' }}>
-                    Disallowed Expenses (Section 21 ITA)
-                  </h3>
-                </div>
-                <div className="card-body">
-                  <DisallowedExpensesPanel
-                    items={state.adjustments?.disallowedForTax ?? []}
-                    onChange={(items) => {
-                      dispatch({
-                        type: 'SET_ADJUSTMENTS',
-                        payload: { ...(state.adjustments ?? {}), disallowedForTax: items } as YearEndAdjustments,
-                      });
-                    }}
-                    onSave={async (items) => {
+
+            {effectiveProvisionTab === 'tax' && (
+              <>
+                {relevance.sectionVisibility.relatedPartyLoan && (
+                  <RelatedPartyLoanPanel
+                    isCurrent={state.adjustments?.relatedPartyLoanCurrent === true}
+                    onSave={async (relatedPartyLoanCurrent) => {
                       if (!state.company?.id) return;
-                      await adjustmentsApi.saveDisallowedForTax(state.company.id, items);
+                      await adjustmentsApi.saveAdjustmentSettings(state.company.id, { relatedPartyLoanCurrent });
                       dispatch({
                         type: 'SET_ADJUSTMENTS',
-                        payload: { ...(state.adjustments ?? {}), disallowedForTax: items } as YearEndAdjustments,
+                        payload: { ...(state.adjustments ?? {}), relatedPartyLoanCurrent } as YearEndAdjustments,
                       });
-                      showToast('Disallowed tax items saved', 'success');
+                      showToast('Related-party loan classification saved', 'success');
                     }}
                   />
-                </div>
-              </div>
-            )}
-            {relevance.sectionVisibility.advanceTax && (
-              <AdvanceTaxInstallmentsPanel
-                initialData={state.adjustments ?? undefined}
-                estimatedTaxLiability={state.adjustments?.currentTaxExpense ?? state.adjustments?.incomeTaxProvision ?? 0}
-                onSave={async (data) => {
-                  if (!state.company?.id) return;
-                  await adjustmentsApi.saveAdvanceTax(state.company.id, data);
-                  dispatch({
-                    type: 'SET_ADJUSTMENTS',
-                    payload: { ...(state.adjustments ?? {}), ...data } as YearEndAdjustments,
-                  });
-                  showToast('Advance tax installments saved', 'success');
-                }}
-              />
+                )}
+                {relevance.sectionVisibility.disallowedTax && (
+                  <div className="card">
+                    <div className="card-header">
+                      <h3 className="text-xs font-bold uppercase tracking-wider" style={{ color: 'var(--ink-700)' }}>
+                        Disallowed Expenses (Section 21 ITA)
+                      </h3>
+                    </div>
+                    <div className="card-body">
+                      <DisallowedExpensesPanel
+                        items={state.adjustments?.disallowedForTax ?? []}
+                        onChange={(items) => {
+                          dispatch({
+                            type: 'SET_ADJUSTMENTS',
+                            payload: { ...(state.adjustments ?? {}), disallowedForTax: items } as YearEndAdjustments,
+                          });
+                        }}
+                        onSave={async (items) => {
+                          if (!state.company?.id) return;
+                          await adjustmentsApi.saveDisallowedForTax(state.company.id, items);
+                          dispatch({
+                            type: 'SET_ADJUSTMENTS',
+                            payload: { ...(state.adjustments ?? {}), disallowedForTax: items } as YearEndAdjustments,
+                          });
+                          showToast('Disallowed tax items saved', 'success');
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
+                {relevance.sectionVisibility.advanceTax && (
+                  <AdvanceTaxInstallmentsPanel
+                    initialData={state.adjustments ?? undefined}
+                    estimatedTaxLiability={state.adjustments?.currentTaxExpense ?? state.adjustments?.incomeTaxProvision ?? 0}
+                    onSave={async (data) => {
+                      if (!state.company?.id) return;
+                      await adjustmentsApi.saveAdvanceTax(state.company.id, data);
+                      dispatch({
+                        type: 'SET_ADJUSTMENTS',
+                        payload: { ...(state.adjustments ?? {}), ...data } as YearEndAdjustments,
+                      });
+                      showToast('Advance tax installments saved', 'success');
+                    }}
+                  />
+                )}
+              </>
             )}
           </div>
         )}

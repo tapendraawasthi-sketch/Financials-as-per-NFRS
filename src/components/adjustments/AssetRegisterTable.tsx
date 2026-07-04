@@ -3,6 +3,8 @@ import React, { useState, useEffect } from 'react';
 import Button from '../ui/Button';
 import { DepreciationSummary } from '../../types';
 import type { AssetRow } from '../../utils/assetMapping';
+import { previewAnnualDepreciation } from '../../utils/depreciationPreview';
+import { formatNPR } from '../../utils/numberFormat';
 
 interface AssetRegisterTableProps {
   fiscalYear: string;
@@ -323,7 +325,7 @@ export default function AssetRegisterTable({
                   />
                 </td>
 
-                <td className="px-1">
+                <td className="px-1 align-top">
                   <input
                     type="number"
                     value={asset.usefulLife || ''}
@@ -334,9 +336,14 @@ export default function AssetRegisterTable({
                     className={`${inCls} ${asset.method === 'WDV' ? 'text-[var(--ink-300)]' : ''}`}
                     aria-label="Useful life in years"
                   />
+                  {asset.method === 'SLM' && asset.cost > 0 && (
+                    <p className="mt-0.5 num" style={{ fontSize: '10px', color: 'var(--ink-400)' }}>
+                      ≈ Rs. {formatNPR(previewAnnualDepreciation(asset))}/yr
+                    </p>
+                  )}
                 </td>
 
-                <td className="px-1">
+                <td className="px-1 align-top">
                   <select
                     value={asset.method}
                     onChange={(e) => updateRow(asset.id, 'method', e.target.value as 'SLM' | 'WDV')}
@@ -348,7 +355,7 @@ export default function AssetRegisterTable({
                   </select>
                 </td>
 
-                <td className="px-1">
+                <td className="px-1 align-top">
                   <input
                     type="number"
                     value={asset.method === 'WDV' ? (asset.wdvRate || '') : ''}
@@ -359,6 +366,11 @@ export default function AssetRegisterTable({
                     className={`${inCls} ${asset.method !== 'WDV' ? 'text-[var(--ink-300)]' : ''}`}
                     aria-label="WDV rate percentage"
                   />
+                  {asset.method === 'WDV' && asset.cost > 0 && (
+                    <p className="mt-0.5 num" style={{ fontSize: '10px', color: 'var(--ink-400)' }}>
+                      ≈ Rs. {formatNPR(previewAnnualDepreciation(asset))}/yr
+                    </p>
+                  )}
                 </td>
 
                 {showMortgagedColumn && (

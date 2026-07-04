@@ -110,8 +110,8 @@ export default function Tabs({
               t.disabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer',
             ].filter(Boolean).join(' ')}
             style={{
-              fontSize: '13px',
-              color: active === t.id ? 'var(--brand-400)' : 'var(--ink-700)',
+              fontSize: 'var(--text-base)',
+              color: active === t.id ? 'var(--brand-500)' : 'var(--ink-500)',
               fontWeight: active === t.id ? 600 : 500,
               borderBottom: active === t.id ? '2px solid var(--brand-500)' : '2px solid transparent',
               marginBottom: '-1px',
