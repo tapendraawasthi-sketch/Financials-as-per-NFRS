@@ -1,5 +1,6 @@
 // src/components/ui/Modal.tsx
 import React, { useEffect, useRef, useId } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import { X } from 'lucide-react';
 
 interface ModalProps {
@@ -58,78 +59,80 @@ export default function Modal({
     };
   }, [isOpen, onClose]);
 
-  if (!isOpen) return null;
-
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-start justify-center pt-12 px-4 pb-8"
-      style={{ background: 'rgba(10,14,26,0.55)', backdropFilter: 'blur(4px)' }}
-      onClick={e => { if (e.target === e.currentTarget) onClose(); }}
-      aria-modal="true"
-      role="dialog"
-      aria-labelledby={titleId}
-    >
-      <style>{`
-        @keyframes modalEnter {
-          from { opacity: 0; transform: scale(0.96); }
-          to   { opacity: 1; transform: scale(1); }
-        }
-        .modal-enter { animation: modalEnter var(--dur-base) var(--ease-premium) forwards; }
-      `}</style>
-
-      <div
-        ref={panelRef}
-        tabIndex={-1}
-        className={[
-          'modal-enter relative w-full',
-          WIDTHS[size],
-          'flex flex-col max-h-[85vh] outline-none',
-        ].join(' ')}
-        style={{
-          background: 'var(--surface)',
-          borderRadius: 'var(--radius-lg)',
-          boxShadow: 'var(--shadow-xl)',
-        }}
-      >
-        <div
-          className="flex items-center justify-between px-6 py-4 flex-shrink-0"
-          style={{ borderBottom: '1px solid var(--border-hairline)' }}
+    <AnimatePresence>
+      {isOpen && (
+        <motion.div
+          className="fixed inset-0 z-50 flex items-start justify-center pt-12 px-4 pb-8"
+          style={{ background: 'rgba(10,14,26,0.55)', backdropFilter: 'blur(2px)' }}
+          onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+          aria-modal="true"
+          role="dialog"
+          aria-labelledby={titleId}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.24, ease: [0.16, 1, 0.3, 1] }}
         >
-          <h2 id={titleId} className="font-semibold text-slate-900" style={{ fontSize: '15px' }}>
-            {title}
-          </h2>
-          <button
-            onClick={onClose}
-            aria-label="Close dialog"
-            className="modal-close-btn h-8 w-8 flex items-center justify-center rounded-full text-slate-400 transition-colors focus-visible:outline-none"
-            style={{ width: '32px', height: '32px' }}
-          >
-            <X size={16} />
-          </button>
-        </div>
-
-        <style>{`
-          .modal-close-btn:hover { background: var(--surface-hover); color: var(--ink-700); }
-          .modal-close-btn:focus-visible { box-shadow: var(--glow-brand); }
-        `}</style>
-
-        <div className="flex-1 overflow-y-auto px-6 py-5 min-h-[120px]">
-          {children}
-        </div>
-
-        {footer && (
-          <div
-            className="flex-shrink-0 px-6 py-4 flex items-center justify-end gap-3"
+          <motion.div
+            ref={panelRef}
+            tabIndex={-1}
+            initial={{ opacity: 0, scale: 0.97 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.97 }}
+            transition={{ duration: 0.24, ease: [0.16, 1, 0.3, 1] }}
+            className={[
+              'relative w-full',
+              WIDTHS[size],
+              'flex flex-col max-h-[85vh] outline-none',
+            ].join(' ')}
             style={{
-              borderTop: '1px solid var(--border-hairline)',
-              background: 'var(--surface-sunken)',
-              borderRadius: '0 0 var(--radius-lg) var(--radius-lg)',
+              background: 'var(--surface)',
+              borderRadius: 'var(--radius-xl)',
+              boxShadow: 'var(--shadow-xl)',
             }}
           >
-            {footer}
-          </div>
-        )}
-      </div>
-    </div>
+            <div
+              className="flex items-center justify-between px-6 py-4 flex-shrink-0"
+              style={{ borderBottom: '1px solid var(--border-hairline)' }}
+            >
+              <h2 id={titleId} className="font-semibold" style={{ fontSize: 'var(--text-md)', color: 'var(--ink-950)' }}>
+                {title}
+              </h2>
+              <button
+                onClick={onClose}
+                aria-label="Close dialog"
+                className="modal-close-btn flex items-center justify-center rounded-full transition-colors focus-visible:outline-none"
+                style={{ width: '32px', height: '32px', color: 'var(--ink-400)' }}
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <style>{`
+              .modal-close-btn:hover { background: var(--surface-hover); color: var(--ink-700); }
+              .modal-close-btn:focus-visible { box-shadow: var(--glow-brand); }
+            `}</style>
+
+            <div className="flex-1 overflow-y-auto px-6 py-5 min-h-[120px]">
+              {children}
+            </div>
+
+            {footer && (
+              <div
+                className="flex-shrink-0 px-6 py-4 flex items-center justify-end gap-3"
+                style={{
+                  borderTop: '1px solid var(--border-hairline)',
+                  background: 'var(--surface-sunken)',
+                  borderRadius: '0 0 var(--radius-xl) var(--radius-xl)',
+                }}
+              >
+                {footer}
+              </div>
+            )}
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }

@@ -1,5 +1,6 @@
 // src/components/ui/Toast.tsx
-import React, { createContext, useContext, useReducer, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useReducer, useCallback } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import { CheckCircle2, XCircle, Info, AlertTriangle, X } from 'lucide-react';
 
 export type ToastVariant = 'success' | 'error' | 'info' | 'warning';
@@ -63,7 +64,7 @@ export function useToast(): ToastContextValue {
   return ctx;
 }
 
-const VARIANT_BORDER: Record<ToastVariant, string> = {
+const VARIANT_ACCENT: Record<ToastVariant, string> = {
   success: 'var(--success-600)',
   error:   'var(--danger-600)',
   info:    'var(--brand-500)',
@@ -78,31 +79,36 @@ const VARIANT_ICONS: Record<ToastVariant, React.ComponentType<{ size?: number; c
 };
 
 function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string) => void }) {
-  const borderColor = VARIANT_BORDER[toast.variant];
+  const accentColor = VARIANT_ACCENT[toast.variant];
   const Icon = VARIANT_ICONS[toast.variant];
   const hasDuration = toast.duration > 0;
 
   return (
-    <div
+    <motion.div
       role="status"
       aria-live="polite"
-      className="toast-item flex items-center gap-3 px-4 py-3 pointer-events-auto relative overflow-hidden"
+      layout
+      initial={{ opacity: 0, x: 24, y: 8 }}
+      animate={{ opacity: 1, x: 0, y: 0 }}
+      exit={{ opacity: 0, x: 24, y: 8 }}
+      transition={{ duration: 0.24, ease: [0.16, 1, 0.3, 1] }}
+      className="flex items-center gap-3 px-4 py-3 pointer-events-auto relative overflow-hidden"
       style={{
         minWidth: '260px',
         maxWidth: '380px',
         background: 'var(--surface)',
-        borderLeft: `3px solid ${borderColor}`,
+        borderLeft: `4px solid ${accentColor}`,
         borderRadius: 'var(--radius-md)',
         boxShadow: 'var(--shadow-lg)',
       }}
     >
-      <span className="flex-shrink-0" style={{ color: borderColor }}>
+      <span className="flex-shrink-0" style={{ color: accentColor }}>
         <Icon size={16} />
       </span>
 
       <p
         className="flex-1 font-medium leading-snug min-w-0"
-        style={{ fontSize: '13px', color: 'var(--ink-800)' }}
+        style={{ fontSize: 'var(--text-base)', color: 'var(--ink-800)' }}
       >
         {toast.message}
       </p>
@@ -110,7 +116,8 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string)
       <button
         onClick={() => onDismiss(toast.id)}
         aria-label="Dismiss notification"
-        className="flex-shrink-0 text-slate-400 hover:text-slate-700 rounded transition-colors"
+        className="flex-shrink-0 rounded transition-colors"
+        style={{ color: 'var(--ink-400)' }}
       >
         <X size={14} />
       </button>
@@ -119,14 +126,15 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string)
         <span
           className="absolute bottom-0 left-0"
           style={{
-            height: '3px',
+            height: '2px',
             width: '100%',
-            background: borderColor,
-            animation: `shrink ${toast.duration}ms linear forwards`,
+            background: accentColor,
+            transformOrigin: 'left center',
+            animation: `toast-progress ${toast.duration}ms linear forwards`,
           }}
         />
       )}
-    </div>
+    </motion.div>
   );
 }
 
@@ -137,30 +145,23 @@ function ToastContainer({
   toasts:    Toast[];
   onDismiss: (id: string) => void;
 }) {
-  if (toasts.length === 0) return null;
-
   return (
     <>
       <style>{`
-        @keyframes shrink {
-          from { width: 100%; }
-          to   { width: 0%;   }
-        }
-        @keyframes toastSlideIn {
-          from { opacity: 0; transform: translateX(24px); }
-          to   { opacity: 1; transform: translateX(0); }
-        }
-        .toast-item {
-          animation: toastSlideIn var(--dur-base) var(--ease-premium) forwards;
+        @keyframes toast-progress {
+          from { transform: scaleX(1); }
+          to   { transform: scaleX(0); }
         }
       `}</style>
       <div
         aria-label="Notifications"
         className="fixed bottom-5 right-5 z-[9999] flex flex-col gap-2.5 pointer-events-none"
       >
-        {toasts.map(t => (
-          <ToastItem key={t.id} toast={t} onDismiss={onDismiss} />
-        ))}
+        <AnimatePresence mode="popLayout">
+          {toasts.map(t => (
+            <ToastItem key={t.id} toast={t} onDismiss={onDismiss} />
+          ))}
+        </AnimatePresence>
       </div>
     </>
   );
