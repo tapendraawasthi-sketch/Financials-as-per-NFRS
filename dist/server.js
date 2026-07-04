@@ -161,6 +161,11 @@ var sessionStore = new SessionStore();
 // server/routes/company.ts
 import crypto from "crypto";
 
+// src/utils/companyProfile.ts
+function resolveCompanyName(company) {
+  return (company?.companyName ?? company?.name ?? "").trim();
+}
+
 // src/utils/validation.ts
 function validateTrialBalanceTotals(rows) {
   const errors = [];
@@ -211,7 +216,7 @@ function validateTrialBalanceTotals(rows) {
 function validateCompanyProfile(data) {
   const errors = [];
   const warnings = [];
-  if (!data.companyName?.trim()) errors.push("Company name is required.");
+  if (!resolveCompanyName(data)) errors.push("Company name is required.");
   return {
     isValid: errors.length === 0,
     errors,
@@ -330,6 +335,10 @@ function getFiscalYearOptions() {
 }
 
 // server/routes/company.ts
+function withCompanyName(body) {
+  const companyName = (body.companyName ?? body.name ?? "").trim();
+  return companyName ? { ...body, companyName, name: body.name ?? companyName } : body;
+}
 var router = Router();
 router.post("/ensure", asyncHandler(async (req, res) => {
   const body = req.body;
@@ -338,7 +347,7 @@ router.post("/ensure", asyncHandler(async (req, res) => {
   const existing = sessionStore.get(id);
   const company = {
     ...existing?.company,
-    ...body,
+    ...withCompanyName(body),
     id,
     createdAt: existing?.company?.createdAt ?? (/* @__PURE__ */ new Date()).toISOString(),
     updatedAt: (/* @__PURE__ */ new Date()).toISOString()
@@ -355,7 +364,7 @@ router.post("/", asyncHandler(async (req, res) => {
   const id = crypto.randomUUID();
   const now = (/* @__PURE__ */ new Date()).toISOString();
   const company = {
-    ...body,
+    ...withCompanyName(body),
     id,
     createdAt: now,
     updatedAt: now
@@ -377,7 +386,11 @@ router.put("/:companyId", asyncHandler(async (req, res) => {
     return res.status(400).json({ error: "Validation failed", errors: validation.errors });
   }
   const updated = sessionStore.set(req.params.companyId, {
-    company: { ...session.company, ...body, updatedAt: (/* @__PURE__ */ new Date()).toISOString() }
+    company: {
+      ...session.company,
+      ...withCompanyName(body),
+      updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+    }
   });
   return res.json(updated?.company);
 }));

@@ -1,6 +1,7 @@
 // src/hooks/useSessionPersistence.ts
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAppStore, type AppState } from '../store/appStore';
+import { resolveCompanyName } from '../utils/companyProfile';
 
 const SAVE_THROTTLE_MS = 30_000;
 const sessionKey = (companyId: string) => `me_session_${companyId}`;
@@ -84,7 +85,7 @@ export function listStoredSessions(): StoredSessionSummary[] {
       const state = JSON.parse(raw) as AppState;
       sessions.push({
         companyId,
-        companyName: state.company?.companyName?.trim()
+        companyName: resolveCompanyName(state.company)
           || `Client ${companyId.slice(0, 8)}`,
         fiscalYear: state.company?.fiscalYear?.bsFY,
         currentStep: state.currentStep,

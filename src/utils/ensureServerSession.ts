@@ -1,4 +1,5 @@
 import type { CompanyProfile } from '../types';
+import { hasCompanyName, normalizeCompanyProfile, resolveCompanyName } from './companyProfile';
 
 /**
  * Sync company profile to the server in-memory session store.
@@ -7,12 +8,16 @@ import type { CompanyProfile } from '../types';
 export async function ensureServerSession(
   company: CompanyProfile | null | undefined,
 ): Promise<CompanyProfile | null> {
-  if (!company?.companyName?.trim()) return null;
+  const normalized = company ? normalizeCompanyProfile(company) : null;
+  if (!hasCompanyName(normalized)) return null;
 
   const response = await fetch('/api/company/ensure', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(company),
+    body: JSON.stringify({
+      ...normalized,
+      companyName: resolveCompanyName(normalized),
+    }),
   });
 
   if (!response.ok) {
@@ -26,5 +31,6 @@ export async function ensureServerSession(
     throw new Error(message);
   }
 
-  return response.json() as Promise<CompanyProfile>;
+  const saved = await response.json() as CompanyProfile;
+  return normalizeCompanyProfile(saved);
 }

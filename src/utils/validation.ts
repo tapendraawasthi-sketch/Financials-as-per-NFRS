@@ -1,6 +1,7 @@
 // src/utils/validation.ts
 
 import type { MappedTBRow, CompanyProfile, AccountingPolicies } from '../types';
+import { resolveCompanyName } from './companyProfile';
 
 export interface ValidationResult {
   isValid: boolean;
@@ -76,7 +77,7 @@ export function validateCompanyProfile(data: Partial<CompanyProfile>): Validatio
   const errors: string[] = [];
   const warnings: string[] = [];
 
-  if (!data.companyName?.trim()) errors.push('Company name is required.');
+  if (!resolveCompanyName(data)) errors.push('Company name is required.');
 
   return {
     isValid: errors.length === 0,

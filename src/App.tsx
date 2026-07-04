@@ -11,31 +11,32 @@ import { useToast } from './components/ui/Toast';
 import { AlertTriangle, ArrowRight } from 'lucide-react';
 import { loadSession, saveSession, useSessionPersistence } from './hooks/useSessionPersistence';
 import useKeyboardShortcuts from './hooks/useKeyboardShortcuts';
+import { hasCompanyName, normalizeCompanyProfile, resolveCompanyName } from './utils/companyProfile';
 
 // ── Prerequisite definitions ───────────────────────────────────────────────────
 interface Prereq { label: string; step: AppStep; met: (s: AppState) => boolean }
 
 const PREREQS: Partial<Record<AppStep, Prereq[]>> = {
   trial_balance_upload: [
-    { label: 'Company Setup', step: 'company_setup', met: s => Boolean(s.company?.companyName) },
+    { label: 'Company Setup', step: 'company_setup', met: s => hasCompanyName(s.company) },
   ],
   trial_balance_mapping: [
-    { label: 'Company Setup', step: 'company_setup', met: s => Boolean(s.company?.companyName) },
+    { label: 'Company Setup', step: 'company_setup', met: s => hasCompanyName(s.company) },
     { label: 'Upload Trial Balance', step: 'trial_balance_upload', met: s => Boolean(s.trialBalance) },
   ],
   subledger_details: [
     { label: 'Upload Trial Balance', step: 'trial_balance_upload', met: s => Boolean(s.trialBalance) },
   ],
   year_end_adjustments: [
-    { label: 'Company Setup', step: 'company_setup', met: s => Boolean(s.company?.companyName) },
+    { label: 'Company Setup', step: 'company_setup', met: s => hasCompanyName(s.company) },
     { label: 'Upload & Map Trial Balance', step: 'trial_balance_mapping', met: s => Boolean(s.trialBalance) },
   ],
   review_statements: [
-    { label: 'Company Setup', step: 'company_setup', met: s => Boolean(s.company?.companyName) },
+    { label: 'Company Setup', step: 'company_setup', met: s => hasCompanyName(s.company) },
     { label: 'Upload Trial Balance', step: 'trial_balance_upload', met: s => Boolean(s.trialBalance) },
   ],
   generate_output: [
-    { label: 'Company Setup', step: 'company_setup', met: s => Boolean(s.company?.companyName) },
+    { label: 'Company Setup', step: 'company_setup', met: s => hasCompanyName(s.company) },
     { label: 'Upload Trial Balance', step: 'trial_balance_upload', met: s => Boolean(s.trialBalance) },
   ],
 };
@@ -192,8 +193,19 @@ async function mergeServerSession(
     `/api/company/${companyId}`,
   );
   if (companyResult.data) {
-    dispatch({ type: 'SET_COMPANY', payload: companyResult.data as unknown as CompanyProfile });
-    localStorage.setItem('me_last_company_id', companyId);
+    const serverCompany = companyResult.data as unknown as CompanyProfile;
+    const merged = normalizeCompanyProfile({
+      ...(localState?.company ?? {}),
+      ...serverCompany,
+      companyName:
+        resolveCompanyName(serverCompany)
+        || resolveCompanyName(localState?.company)
+        || serverCompany.companyName,
+    } as CompanyProfile);
+    dispatch({ type: 'SET_COMPANY', payload: merged });
+    localStorage.setItem('me_last_company_id', merged.id ?? companyId);
+  } else if (localState?.company && hasCompanyName(localState.company)) {
+    dispatch({ type: 'SET_COMPANY', payload: normalizeCompanyProfile(localState.company) });
   }
 
   const tbResult = await fetchWithStatus<Record<string, unknown>>(
@@ -222,6 +234,29 @@ async function mergeServerSession(
   }
 }
 
+function loadBestLocalSession(preferredCompanyId: string): {
+  companyId: string;
+  state: AppState;
+} | null {
+  const preferred = loadSession(preferredCompanyId);
+  if (preferred && hasCompanyName(preferred.company)) {
+    return { companyId: preferredCompanyId, state: preferred };
+  }
+
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (!key?.startsWith('me_session_')) continue;
+    const companyId = key.slice('me_session_'.length);
+    if (companyId === preferredCompanyId) continue;
+    const candidate = loadSession(companyId);
+    if (candidate && hasCompanyName(candidate.company)) {
+      return { companyId, state: candidate };
+    }
+  }
+
+  return preferred ? { companyId: preferredCompanyId, state: preferred } : null;
+}
+
 const AppInner: React.FC = () => {
   const { state, dispatch } = useAppStore();
   const { show: showToast } = useToast();
@@ -240,14 +275,16 @@ const AppInner: React.FC = () => {
     let cancelled = false;
 
     (async () => {
-      const localState = loadSession(companyId);
+      const restored = loadBestLocalSession(companyId);
+      const localState = restored?.state ?? null;
+      const sessionCompanyId = restored?.companyId ?? companyId;
       if (localState && !cancelled) {
         dispatch({ type: 'HYDRATE_STATE', payload: localState });
-        localStorage.setItem('me_last_company_id', companyId);
+        localStorage.setItem('me_last_company_id', sessionCompanyId);
       }
 
       try {
-        await mergeServerSession(companyId, dispatch, localState, !localState);
+        await mergeServerSession(sessionCompanyId, dispatch, localState, !localState);
       } catch (err: unknown) {
         if (!cancelled) {
           const message = err instanceof Error ? err.message : 'Failed to restore session from server.';

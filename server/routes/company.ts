@@ -7,6 +7,11 @@ import { validateCompanyProfile, validateAccountingPolicies } from '../../src/ut
 import { getFiscalYearOptions } from '../../src/data/fiscalYears';
 import type { CompanyProfile } from '../../src/types';
 
+function withCompanyName(body: Partial<CompanyProfile>): Partial<CompanyProfile> {
+  const companyName = (body.companyName ?? body.name ?? '').trim();
+  return companyName ? { ...body, companyName, name: body.name ?? companyName } : body;
+}
+
 const router = Router();
 
 // POST /ensure — Create or refresh in-memory session (survives Render cold starts)
@@ -18,7 +23,7 @@ router.post('/ensure', asyncHandler(async (req: Request, res: Response) => {
 
   const company: CompanyProfile = {
     ...(existing?.company as CompanyProfile | undefined),
-    ...body,
+    ...withCompanyName(body),
     id,
     createdAt: (existing?.company as CompanyProfile | undefined)?.createdAt ?? new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -39,7 +44,7 @@ router.post('/', asyncHandler(async (req: Request, res: Response) => {
   const id = crypto.randomUUID();
   const now = new Date().toISOString();
   const company: CompanyProfile = {
-    ...body,
+    ...withCompanyName(body),
     id,
     createdAt: now,
     updatedAt: now,
@@ -69,7 +74,11 @@ router.put('/:companyId', asyncHandler(async (req: Request, res: Response) => {
   }
 
   const updated = sessionStore.set(req.params.companyId, {
-    company: { ...session.company, ...body, updatedAt: new Date().toISOString() } as CompanyProfile,
+    company: {
+      ...session.company,
+      ...withCompanyName(body),
+      updatedAt: new Date().toISOString(),
+    } as CompanyProfile,
   });
   return res.json(updated?.company);
 }));

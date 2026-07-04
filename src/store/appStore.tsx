@@ -11,6 +11,7 @@ import type {
   CashFlowStatement,
   NotesData,
 } from '../types';
+import { normalizeCompanyProfile } from '../utils/companyProfile';
 
 // ── State ─────────────────────────────────────────────────────────────────────
 
@@ -83,7 +84,7 @@ function appReducer(state: AppState, action: AppAction): AppState {
       return { ...state, completedSteps: [...state.completedSteps, action.payload] };
 
     case 'SET_COMPANY':
-      return { ...state, company: action.payload };
+      return { ...state, company: normalizeCompanyProfile(action.payload) };
 
     case 'SET_TRIAL_BALANCE':
       return { ...state, trialBalance: action.payload };

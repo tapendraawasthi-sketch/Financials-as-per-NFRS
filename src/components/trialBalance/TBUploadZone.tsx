@@ -7,6 +7,8 @@ import TBStandardFormatDiagnostics, { type TbStandardValidationResult } from './
 import { SAMPLE_TRIAL_BALANCE_CSV } from '../../data/sampleData';
 import { tbApi } from '../../api/client';
 import { ensureServerSession } from '../../utils/ensureServerSession';
+import { hasCompanyName, normalizeCompanyProfile } from '../../utils/companyProfile';
+import { loadSession } from '../../hooks/useSessionPersistence';
 import type { CompanyProfile, ParsedTrialBalance } from '../../types';
 
 interface UploadResult {
@@ -101,7 +103,16 @@ export default function TBUploadZone({
       return;
     }
 
-    if (!company?.companyName?.trim()) {
+    let activeCompany = company ? normalizeCompanyProfile(company) : null;
+    if (!hasCompanyName(activeCompany) && companyId) {
+      const stored = loadSession(companyId);
+      if (stored?.company && hasCompanyName(stored.company)) {
+        activeCompany = normalizeCompanyProfile(stored.company);
+        onCompanyResolved?.(activeCompany);
+      }
+    }
+
+    if (!hasCompanyName(activeCompany)) {
       onError('Complete Company Setup first — a company name is required before uploading a trial balance.');
       return;
     }
@@ -113,7 +124,7 @@ export default function TBUploadZone({
     setFormatDiagnostics(null);
 
     try {
-      const serverCompany = await ensureServerSession(company);
+      const serverCompany = await ensureServerSession(activeCompany);
       if (!serverCompany?.id) {
         throw new Error('Could not create a server session for this company.');
       }
