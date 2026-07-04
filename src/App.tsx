@@ -136,22 +136,90 @@ function resolveStoredCompanyId(): string | null {
   return null;
 }
 
-async function fetchWithStatus<T>(path: string): Promise<{ data: T | null; status: number }> {
-  const response = await fetch(path, { headers: { 'Content-Type': 'application/json' } });
-  if (response.status === 404) return { data: null, status: 404 };
-  if (response.status >= 500) {
-    let message = `Request failed: ${response.status}`;
-    try {
-      const err = await response.json();
-      message = err.error || err.message || message;
-    } catch {
-      // ignore
+const RESTORE_FETCH_TIMEOUT_MS = 12_000;
+
+async function fetchWithStatus<T>(
+  path: string,
+  timeoutMs = RESTORE_FETCH_TIMEOUT_MS,
+): Promise<{ data: T | null; status: number }> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(path, {
+      headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
+    });
+    if (response.status === 404) return { data: null, status: 404 };
+    if (response.status >= 500) {
+      let message = `Request failed: ${response.status}`;
+      try {
+        const err = await response.json();
+        message = err.error || err.message || message;
+      } catch {
+        // ignore
+      }
+      throw new Error(message);
     }
-    throw new Error(message);
+    if (!response.ok) return { data: null, status: response.status };
+    if (response.status === 204) return { data: null, status: 204 };
+    return { data: (await response.json()) as T, status: response.status };
+  } catch (err: unknown) {
+    if (err instanceof Error && err.name === 'AbortError') {
+      throw new Error('Session restore timed out. Using your saved draft instead.');
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
   }
-  if (!response.ok) return { data: null, status: response.status };
-  if (response.status === 204) return { data: null, status: 204 };
-  return { data: (await response.json()) as T, status: response.status };
+}
+
+function inferStepFromServerData(
+  tbResult: { data: unknown },
+  adjResult: { data: unknown },
+): AppStep {
+  if (adjResult.data) return 'year_end_adjustments';
+  if (tbResult.data) return 'trial_balance_mapping';
+  return 'trial_balance_upload';
+}
+
+async function mergeServerSession(
+  companyId: string,
+  dispatch: ReturnType<typeof useAppStore>['dispatch'],
+  localState: AppState | null,
+  inferStepWhenNoLocal: boolean,
+): Promise<void> {
+  const companyResult = await fetchWithStatus<Record<string, unknown>>(
+    `/api/company/${companyId}`,
+  );
+  if (companyResult.data) {
+    dispatch({ type: 'SET_COMPANY', payload: companyResult.data as unknown as CompanyProfile });
+    localStorage.setItem('me_last_company_id', companyId);
+  }
+
+  const tbResult = await fetchWithStatus<Record<string, unknown>>(
+    `/api/trial-balance/${companyId}`,
+  );
+  if (tbResult.data) {
+    dispatch({ type: 'SET_TRIAL_BALANCE', payload: tbResult.data as unknown as ParsedTrialBalance });
+  } else if (localState?.trialBalance) {
+    dispatch({ type: 'SET_TRIAL_BALANCE', payload: localState.trialBalance });
+  }
+
+  const adjResult = await fetchWithStatus<Record<string, unknown>>(
+    `/api/adjustments/${companyId}`,
+  );
+  if (adjResult.data) {
+    dispatch({ type: 'SET_ADJUSTMENTS', payload: adjResult.data as unknown as YearEndAdjustments });
+  } else if (localState?.adjustments) {
+    dispatch({ type: 'SET_ADJUSTMENTS', payload: localState.adjustments });
+  }
+
+  if (inferStepWhenNoLocal && !localState) {
+    dispatch({
+      type: 'SET_STEP',
+      payload: inferStepFromServerData(tbResult, adjResult),
+    });
+  }
 }
 
 const AppInner: React.FC = () => {
@@ -172,46 +240,25 @@ const AppInner: React.FC = () => {
     let cancelled = false;
 
     (async () => {
+      const localState = loadSession(companyId);
+      if (localState && !cancelled) {
+        dispatch({ type: 'HYDRATE_STATE', payload: localState });
+        localStorage.setItem('me_last_company_id', companyId);
+      }
+
       try {
-        const companyResult = await fetchWithStatus<Record<string, unknown>>(
-          `/api/company/${companyId}`,
-        );
-        if (cancelled) return;
-        if (companyResult.data) {
-          dispatch({ type: 'SET_COMPANY', payload: companyResult.data as CompanyProfile });
-          localStorage.setItem('me_last_company_id', companyId);
-        }
-
-        const tbResult = await fetchWithStatus<Record<string, unknown>>(
-          `/api/trial-balance/${companyId}`,
-        );
-        if (cancelled) return;
-        if (tbResult.data) {
-          dispatch({ type: 'SET_TRIAL_BALANCE', payload: tbResult.data as ParsedTrialBalance });
-        }
-
-        const adjResult = await fetchWithStatus<Record<string, unknown>>(
-          `/api/adjustments/${companyId}`,
-        );
-        if (cancelled) return;
-        if (adjResult.data) {
-          dispatch({ type: 'SET_ADJUSTMENTS', payload: adjResult.data as YearEndAdjustments });
-        }
-
-        let nextStep: AppStep = 'trial_balance_upload';
-        if (adjResult.data) {
-          nextStep = 'year_end_adjustments';
-        } else if (tbResult.data) {
-          nextStep = 'trial_balance_mapping';
-        }
-        dispatch({ type: 'SET_STEP', payload: nextStep });
+        await mergeServerSession(companyId, dispatch, localState, !localState);
       } catch (err: unknown) {
         if (!cancelled) {
           const message = err instanceof Error ? err.message : 'Failed to restore session from server.';
-          showToast(message, 'error', 4000);
+          if (localState) {
+            showToast(message, 'warning', 4000);
+          } else {
+            showToast(message, 'error', 4000);
+          }
         }
       } finally {
-        if (!cancelled) setIsHydrating(false);
+        setIsHydrating(false);
       }
     })();
 
@@ -249,43 +296,10 @@ const AppInner: React.FC = () => {
     localStorage.setItem('me_last_company_id', companyId);
 
     try {
-      const companyResult = await fetchWithStatus<Record<string, unknown>>(
-        `/api/company/${companyId}`,
-      );
-      if (companyResult.data) {
-        dispatch({ type: 'SET_COMPANY', payload: companyResult.data as CompanyProfile });
-      }
-
-      const tbResult = await fetchWithStatus<Record<string, unknown>>(
-        `/api/trial-balance/${companyId}`,
-      );
-      if (tbResult.data) {
-        dispatch({ type: 'SET_TRIAL_BALANCE', payload: tbResult.data as ParsedTrialBalance });
-      } else if (localState?.trialBalance) {
-        dispatch({ type: 'SET_TRIAL_BALANCE', payload: localState.trialBalance });
-      }
-
-      const adjResult = await fetchWithStatus<Record<string, unknown>>(
-        `/api/adjustments/${companyId}`,
-      );
-      if (adjResult.data) {
-        dispatch({ type: 'SET_ADJUSTMENTS', payload: adjResult.data as YearEndAdjustments });
-      } else if (localState?.adjustments) {
-        dispatch({ type: 'SET_ADJUSTMENTS', payload: localState.adjustments });
-      }
-
-      if (!localState) {
-        let nextStep: AppStep = 'trial_balance_upload';
-        if (adjResult.data) {
-          nextStep = 'year_end_adjustments';
-        } else if (tbResult.data) {
-          nextStep = 'trial_balance_mapping';
-        }
-        dispatch({ type: 'SET_STEP', payload: nextStep });
-      }
+      await mergeServerSession(companyId, dispatch, localState, !localState);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to restore client session.';
-      showToast(message, 'error', 4000);
+      showToast(message, localState ? 'warning' : 'error', 4000);
     }
   }, [dispatch, showToast]);
 

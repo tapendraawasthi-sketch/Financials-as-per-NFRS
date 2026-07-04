@@ -19,6 +19,11 @@ export function formatLastSaved(date: Date | null | undefined): string {
   return `${diffHr}h ago`;
 }
 
+/** Strip transient UI flags so a mid-request refresh cannot deadlock on the spinner. */
+export function sanitizePersistedState(state: AppState): AppState {
+  return { ...state, isLoading: false, error: null };
+}
+
 export function saveSession(
   state: AppState,
   companyId: string,
@@ -33,7 +38,7 @@ export function saveSession(
   ref.current = now;
   const iso = new Date(now).toISOString();
   try {
-    localStorage.setItem(sessionKey(companyId), JSON.stringify(state));
+    localStorage.setItem(sessionKey(companyId), JSON.stringify(sanitizePersistedState(state)));
   } catch {
     return null;
   }
@@ -45,7 +50,7 @@ export function loadSession(companyId: string): AppState | null {
   try {
     const raw = localStorage.getItem(sessionKey(companyId));
     if (!raw) return null;
-    return JSON.parse(raw) as AppState;
+    return sanitizePersistedState(JSON.parse(raw) as AppState);
   } catch {
     return null;
   }

@@ -140,7 +140,7 @@ function appReducer(state: AppState, action: AppAction): AppState {
       return { ...initialState };
 
     case 'HYDRATE_STATE':
-      return { ...action.payload };
+      return { ...action.payload, isLoading: false, error: null };
 
     default:
       return state;
