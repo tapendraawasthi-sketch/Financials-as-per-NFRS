@@ -1,10 +1,11 @@
 // src/components/output/DownloadPanel.tsx
 import React, { useState } from 'react';
-import { FileSpreadsheet, CheckCircle2 } from 'lucide-react';
+import { FileSpreadsheet, CheckCircle2, Eye } from 'lucide-react';
 import { useAppStore } from '../../store/appStore';
 import { outputApi } from '../../api/client';
 import Button from '../ui/Button';
 import Alert from '../ui/Alert';
+import ExcelPreviewModal from './ExcelPreviewModal';
 
 interface ChecklistItem {
   label: string;
@@ -24,6 +25,8 @@ export default function DownloadPanel() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [downloadComplete, setDownloadComplete] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [excelBuffer, setExcelBuffer] = useState<ArrayBuffer | null>(null);
+  const [showPreview, setShowPreview] = useState(false);
 
   const { state, dispatch } = useAppStore();
   const { company, trialBalance, adjustments } = state;
@@ -73,6 +76,8 @@ export default function DownloadPanel() {
         company.companyName ?? company.name ?? 'Company',
         fiscalYear?.bsFY ?? '',
       );
+      const buf = await blob.arrayBuffer();
+      setExcelBuffer(buf);
       const safeName = (company?.companyName ?? company?.name ?? 'Company').replace(/[^a-zA-Z0-9]/g, '_');
       const fy = fiscalYear?.bsFY ?? 'FY';
       outputApi.triggerDownload(blob, `NFRS_Financials_${safeName}_${fy.replace(/\//g, '-')}.xlsx`);
@@ -177,20 +182,32 @@ export default function DownloadPanel() {
       )}
 
       {downloadComplete ? (
-        <div className="flex items-center justify-center gap-3">
-          <Button variant="secondary" size="lg" onClick={handleGenerate}>
-            Download Again
-          </Button>
-          <Button
-            variant="ghost"
-            size="lg"
-            onClick={() => {
-              sessionStorage.removeItem('nfrs_session');
-              dispatch({ type: 'RESET_ALL' });
-            }}
-          >
-            Start New Report
-          </Button>
+        <div className="flex flex-col items-center gap-3">
+          <div className="flex items-center justify-center gap-3">
+            {excelBuffer && (
+              <Button
+                variant="secondary"
+                size="lg"
+                onClick={() => setShowPreview(true)}
+              >
+                <Eye size={16} className="mr-1.5" />
+                Preview Before Download
+              </Button>
+            )}
+            <Button variant="secondary" size="lg" onClick={handleGenerate}>
+              Download Again
+            </Button>
+            <Button
+              variant="ghost"
+              size="lg"
+              onClick={() => {
+                sessionStorage.removeItem('nfrs_session');
+                dispatch({ type: 'RESET_ALL' });
+              }}
+            >
+              Start New Report
+            </Button>
+          </div>
         </div>
       ) : (
         <Button
@@ -204,6 +221,13 @@ export default function DownloadPanel() {
         >
           {isGenerating ? 'Generating…' : 'Generate and Download Excel'}
         </Button>
+      )}
+
+      {showPreview && excelBuffer && (
+        <ExcelPreviewModal
+          buffer={excelBuffer}
+          onClose={() => setShowPreview(false)}
+        />
       )}
     </div>
   );

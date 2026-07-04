@@ -4,9 +4,11 @@ import Card from '../ui/Card';
 import Button from '../ui/Button';
 import ProgressBar from '../ui/ProgressBar';
 import { adjustmentsApi, outputApi } from '../../api/client';
+import type { JournalEntryGroup } from '../../types/adjustments';
 
 interface UploadSummary {
-  entryCount: number;
+  groupCount: number;
+  skippedCount: number;
   totalDebitCredit: number;
   warnings: string[];
 }
@@ -16,15 +18,7 @@ interface AdjustmentJournalUploadPanelProps {
   companyName?: string;
   skipped: boolean;
   hasEntries: boolean;
-  onUploadComplete: (entries: Array<{
-    id?: string;
-    description: string;
-    debitAccount: string;
-    creditAccount: string;
-    amount: number;
-    type?: string;
-    source?: string;
-  }>) => void;
+  onUploadComplete: (groups: JournalEntryGroup[], warnings: string[]) => void;
   onSkip: () => void;
   onError: (msg: string) => void;
 }
@@ -79,13 +73,16 @@ export default function AdjustmentJournalUploadPanel({
         file,
         (pct) => setProgress(pct),
       );
+      const warnings = result.warnings ?? [];
+      const skippedCount = warnings.filter((w) => w.includes('skipped')).length;
       setSummary({
-        entryCount: result.entryCount,
+        groupCount: result.groupCount,
+        skippedCount,
         totalDebitCredit: result.totalDebitCredit,
-        warnings: result.warnings ?? [],
+        warnings,
       });
       setUploadState('success');
-      onUploadComplete(result.entries);
+      onUploadComplete(result.groups, warnings);
     } catch (err: unknown) {
       setUploadState('idle');
       onError(err instanceof Error ? err.message : 'Failed to upload journal entries.');
@@ -119,7 +116,7 @@ export default function AdjustmentJournalUploadPanel({
   return (
     <Card title="Upload Adjustment Journal Entries" padding="md">
       <p className="text-sm mb-4" style={{ color: 'var(--ink-500)', lineHeight: 1.6 }}>
-        Download the standard journal entry template, fill one entry per row, and upload it here.
+        Download the standard journal entry template, fill entries using the multi-line Dr/Cr format, and upload it here.
         Processing will use these entries together with your uploaded trial balance.
         If you have no year-end adjustments, click the skip button below.
       </p>
@@ -187,7 +184,8 @@ export default function AdjustmentJournalUploadPanel({
           ) : uploadState === 'success' && summary ? (
             <div>
               <p className="text-sm font-semibold mb-1" style={{ color: 'var(--success-700)' }}>
-                {summary.entryCount} journal {summary.entryCount === 1 ? 'entry' : 'entries'} imported
+                {summary.groupCount} adjustment {summary.groupCount === 1 ? 'group' : 'groups'} imported
+                {summary.skippedCount > 0 ? `, ${summary.skippedCount} skipped due to imbalance` : ''}
               </p>
               <p className="text-xs" style={{ color: 'var(--ink-500)' }}>
                 Total amount: NPR {summary.totalDebitCredit.toLocaleString('en-IN')} (Dr = Cr)

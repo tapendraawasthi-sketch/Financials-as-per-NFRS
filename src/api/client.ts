@@ -428,7 +428,9 @@ export const adjustmentsApi = {
     onProgress?: (pct: number) => void,
   ): Promise<{
     entries: JournalEntry[];
+    groups: import('../types/adjustments').JournalEntryGroup[];
     entryCount: number;
+    groupCount: number;
     totalDebitCredit: number;
     warnings: string[];
   }> =>
@@ -450,7 +452,9 @@ export const adjustmentsApi = {
           const data = JSON.parse(xhr.responseText) as {
             success?: boolean;
             entries?: JournalEntry[];
+            groups?: import('../types/adjustments').JournalEntryGroup[];
             entryCount?: number;
+            groupCount?: number;
             totalDebitCredit?: number;
             warnings?: string[];
             error?: string;
@@ -458,7 +462,9 @@ export const adjustmentsApi = {
           if (xhr.status >= 200 && xhr.status < 300 && data.success !== false) {
             resolve({
               entries: data.entries ?? [],
+              groups: data.groups ?? [],
               entryCount: data.entryCount ?? data.entries?.length ?? 0,
+              groupCount: data.groupCount ?? data.groups?.length ?? data.entryCount ?? 0,
               totalDebitCredit: data.totalDebitCredit ?? 0,
               warnings: data.warnings ?? [],
             });

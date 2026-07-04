@@ -87,6 +87,25 @@ export interface InventoryDetails {
   finishedGoodsPY: number;
 }
 
+export interface JournalLine {
+  id: string;
+  groupId: string;
+  lineType: 'Dr' | 'Cr';
+  account: string;
+  amount: number;
+  linkedTo?: string;
+  source: 'System' | 'Manual' | 'Upload';
+}
+
+export interface JournalEntryGroup {
+  groupId: string;
+  narration: string;
+  lines: JournalLine[];
+  totalDr: number;
+  totalCr: number;
+  isBalanced: boolean;
+}
+
 export interface YearEndAdjustments {
   // Depreciation
   assetRegister: AssetRegisterEntry[];
@@ -149,6 +168,9 @@ export interface YearEndAdjustments {
   }>;
   /** User chose to skip uploading adjustment journal entries. */
   journalEntriesSkipped?: boolean;
+  manualJournalGroups?: JournalEntryGroup[];
+  adjustedTrialBalance?: import('./trialBalance').ParsedTrialBalance;
+  allComputedGroups?: JournalEntryGroup[];
   // Disallowed expenses for tax
   disallowedForTax: Array<{
     description: string;

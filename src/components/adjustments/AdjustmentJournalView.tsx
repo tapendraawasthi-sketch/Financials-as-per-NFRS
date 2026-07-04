@@ -1,99 +1,107 @@
 // src/components/adjustments/AdjustmentJournalView.tsx
 import React, { useState } from 'react';
-import Card           from '../ui/Card';
-import Button         from '../ui/Button';
-import Modal          from '../ui/Modal';
-import InputField     from '../ui/InputField';
-import NumberInput    from '../ui/NumberInput';
-import SelectDropdown from '../ui/SelectDropdown';
-
-type AdjType = 'DEPN' | 'PROV' | 'INV' | 'INV-FV' | 'TAX' | 'OTHER';
-type Source  = 'System' | 'Manual' | 'Upload';
-
-interface JournalEntry {
-  id:          string;
-  description: string;
-  drAccount:   string;
-  crAccount:   string;
-  amount:      number;
-  type:        AdjType;
-  source:      Source;
-}
+import Card from '../ui/Card';
+import Button from '../ui/Button';
+import Modal from '../ui/Modal';
+import InputField from '../ui/InputField';
+import NumberInput from '../ui/NumberInput';
+import type { JournalEntryGroup, JournalLine } from '../../types/adjustments';
 
 interface AdjustmentJournalViewProps {
-  entries:      JournalEntry[];
-  onAddManual:  (entry: Omit<JournalEntry, 'id' | 'source'>) => void;
+  groups: JournalEntryGroup[];
+  onAddManual: (group: Omit<JournalEntryGroup, 'groupId' | 'totalDr' | 'totalCr' | 'isBalanced'>) => void;
   roundingLevel?: number;
   readOnly?: boolean;
 }
 
-const TYPE_OPTIONS = [
-  { value: 'DEPN',   label: 'DEPN — Depreciation'  },
-  { value: 'PROV',   label: 'PROV — Provision'      },
-  { value: 'INV',    label: 'INV — Inventory'       },
-  { value: 'INV-FV', label: 'INV-FV — Inventory FV' },
-  { value: 'TAX',    label: 'TAX — Tax'             },
-  { value: 'OTHER',  label: 'OTHER — Other'         },
-];
+interface LineDraft {
+  account: string;
+  amount: number | '';
+}
 
-const BLANK_FORM = {
-  description: '',
-  drAccount:   '',
-  crAccount:   '',
-  amount:      0 as number | '',
-  type:        'OTHER' as AdjType,
-};
+const BLANK_DR: LineDraft = { account: '', amount: '' };
+const BLANK_CR: LineDraft = { account: '', amount: '' };
 
 function fmtAmt(n: number): string {
   if (n === 0) return '—';
   return Math.abs(n).toLocaleString('en-IN');
 }
 
+function sumLines(lines: LineDraft[]): number {
+  return lines.reduce((s, l) => s + (typeof l.amount === 'number' ? l.amount : 0), 0);
+}
+
 export default function AdjustmentJournalView({
-  entries,
+  groups,
   onAddManual,
-  roundingLevel = 100,
+  roundingLevel = 1,
   readOnly = false,
 }: AdjustmentJournalViewProps) {
   const [modalOpen, setModalOpen] = useState(false);
-  const [form,      setForm]      = useState({ ...BLANK_FORM });
-  const [formErr,   setFormErr]   = useState<Partial<Record<keyof typeof BLANK_FORM, string>>>({});
+  const [narration, setNarration] = useState('');
+  const [drLines, setDrLines] = useState<LineDraft[]>([{ ...BLANK_DR }]);
+  const [crLines, setCrLines] = useState<LineDraft[]>([{ ...BLANK_CR }]);
+  const [formErr, setFormErr] = useState<string | null>(null);
 
-  const systemCount = entries.filter(e => e.source === 'System').length;
-  const manualCount = entries.filter(e => e.source === 'Manual').length;
+  const systemGroups = groups.filter((g) => g.lines.some((l) => l.source === 'System'));
+  const manualGroups = groups.filter((g) => g.lines.every((l) => l.source !== 'System'));
 
-  const totalDr = entries.reduce((s, e) => s + e.amount, 0);
-  const totalCr = entries.reduce((s, e) => s + e.amount, 0);
+  const totalDr = groups.reduce((s, g) => s + g.totalDr, 0);
+  const totalCr = groups.reduce((s, g) => s + g.totalCr, 0);
   const balanced = Math.abs(totalDr - totalCr) <= roundingLevel;
 
-  const setF = <K extends keyof typeof BLANK_FORM>(k: K, v: (typeof BLANK_FORM)[K]) => {
-    setForm(prev => ({ ...prev, [k]: v }));
-    if (formErr[k as keyof typeof formErr])
-      setFormErr(prev => ({ ...prev, [k]: undefined }));
-  };
+  const drSum = sumLines(drLines);
+  const crSum = sumLines(crLines);
+  const formBalanced = Math.abs(drSum - crSum) <= roundingLevel
+    && drLines.every((l) => l.account.trim() && typeof l.amount === 'number' && l.amount > 0)
+    && crLines.every((l) => l.account.trim() && typeof l.amount === 'number' && l.amount > 0);
 
-  const validateForm = (): boolean => {
-    const e: typeof formErr = {};
-    if (!form.description.trim()) e.description = 'Required';
-    if (!form.drAccount.trim())   e.drAccount   = 'Required';
-    if (!form.crAccount.trim())   e.crAccount   = 'Required';
-    if (!form.amount || form.amount <= 0) e.amount = 'Enter a positive amount';
-    setFormErr(e);
-    return Object.keys(e).length === 0;
+  const resetForm = () => {
+    setNarration('');
+    setDrLines([{ ...BLANK_DR }]);
+    setCrLines([{ ...BLANK_CR }]);
+    setFormErr(null);
   };
 
   const handleAdd = () => {
-    if (!validateForm()) return;
-    onAddManual({
-      description: form.description,
-      drAccount:   form.drAccount,
-      crAccount:   form.crAccount,
-      amount:      form.amount as number,
-      type:        form.type,
-    });
-    setForm({ ...BLANK_FORM });
-    setFormErr({});
+    if (!formBalanced) {
+      setFormErr('Dr and Cr totals must match within NPR 1, with all accounts and amounts filled.');
+      return;
+    }
+    const groupId = `manual-${Date.now()}`;
+    const lines: JournalLine[] = [
+      ...drLines.map((l, i) => ({
+        id: `${groupId}-dr-${i}`,
+        groupId,
+        lineType: 'Dr' as const,
+        account: l.account.trim(),
+        amount: l.amount as number,
+        linkedTo: 'Trial',
+        source: 'Manual' as const,
+      })),
+      ...crLines.map((l, i) => ({
+        id: `${groupId}-cr-${i}`,
+        groupId,
+        lineType: 'Cr' as const,
+        account: l.account.trim(),
+        amount: l.amount as number,
+        linkedTo: 'Trial',
+        source: 'Manual' as const,
+      })),
+    ];
+    onAddManual({ narration: narration.trim() || 'Manual adjustment', lines });
+    resetForm();
     setModalOpen(false);
+  };
+
+  const updateLine = (
+    setter: React.Dispatch<React.SetStateAction<LineDraft[]>>,
+    idx: number,
+    field: keyof LineDraft,
+    value: string | number | '',
+  ) => {
+    setter((prev) => prev.map((l, i) => (i === idx ? { ...l, [field]: value } : l)));
+    setFormErr(null);
   };
 
   const tdCls = 'text-xs';
@@ -105,57 +113,68 @@ export default function AdjustmentJournalView({
           <table className="fin-table w-full" style={{ minWidth: 760 }}>
             <thead>
               <tr>
-                <th className="w-8 text-center">#</th>
-                <th style={{ width: 200 }}>Description</th>
-                <th style={{ width: 160 }}>Dr Account</th>
-                <th className="text-right" style={{ width: 100 }}>Amount (Dr)</th>
-                <th style={{ width: 160 }}>Cr Account</th>
-                <th className="text-right" style={{ width: 100 }}>Amount (Cr)</th>
-                <th className="w-20">Type</th>
+                <th className="w-8 text-center">S.No.</th>
+                <th className="w-12">Dr/Cr</th>
+                <th style={{ width: 220 }}>Particulars</th>
+                <th className="text-right" style={{ width: 110 }}>Dr. Amount</th>
+                <th className="text-right" style={{ width: 110 }}>Cr. Amount</th>
                 <th className="w-16">Source</th>
               </tr>
             </thead>
-
             <tbody>
-              {entries.length === 0 ? (
+              {groups.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="text-center py-8 text-xs" style={{ color: 'var(--ink-400)' }}>
+                  <td colSpan={6} className="text-center py-8 text-xs" style={{ color: 'var(--ink-400)' }}>
                     No adjustment entries yet. Download the template, upload your Excel file, or click &quot;No adjustment entries to upload&quot;.
                   </td>
                 </tr>
               ) : (
-                entries.map((e, i) => (
-                  <tr key={e.id}>
-                    <td className="text-center text-[10px]" style={{ color: 'var(--ink-400)' }}>
-                      {i + 1}
-                    </td>
-                    <td className={tdCls} title={e.description}>
-                      <span className="block truncate max-w-[180px]">{e.description}</span>
-                    </td>
-                    <td className={tdCls} style={{ color: 'var(--ink-600)' }} title={e.drAccount}>
-                      <span className="block truncate max-w-[140px]">{e.drAccount}</span>
-                    </td>
-                    <td className="amount text-xs font-semibold" style={{ color: 'var(--ink-900)' }}>
-                      {fmtAmt(e.amount)}
-                    </td>
-                    <td className={tdCls} style={{ color: 'var(--ink-600)' }} title={e.crAccount}>
-                      <span className="block truncate max-w-[140px]">{e.crAccount}</span>
-                    </td>
-                    <td className="amount text-xs font-semibold" style={{ color: 'var(--ink-900)' }}>
-                      {fmtAmt(e.amount)}
-                    </td>
-                    <td className="text-[10px] uppercase" style={{ color: 'var(--ink-400)' }}>
-                      {e.type}
-                    </td>
-                    <td className="text-[10px]" style={{ color: 'var(--ink-400)' }}>
-                      {e.source}
-                    </td>
-                  </tr>
+                groups.map((group) => (
+                  <React.Fragment key={group.groupId}>
+                    {group.narration && (
+                      <tr>
+                        <td colSpan={6} className="text-xs font-semibold py-2 px-3" style={{ background: 'var(--surface-raised)', color: 'var(--ink-700)' }}>
+                          {group.narration}
+                          <span
+                            className="ml-2 text-[10px] font-medium"
+                            style={{ color: group.isBalanced ? 'var(--success-600)' : 'var(--danger-600)' }}
+                          >
+                            {group.isBalanced ? 'Balanced ✓' : 'Unbalanced ✗'}
+                          </span>
+                        </td>
+                      </tr>
+                    )}
+                    {group.lines.map((line, li) => (
+                      <tr key={line.id}>
+                        <td className="text-center text-[10px]" style={{ color: 'var(--ink-400)' }}>
+                          {li === 0 ? group.groupId : ''}
+                        </td>
+                        <td className={`${tdCls} font-medium`}>{line.lineType}</td>
+                        <td className={tdCls} title={line.account}>
+                          <span className="block truncate max-w-[200px]">{line.account}</span>
+                        </td>
+                        <td className="amount text-xs font-semibold" style={{ color: 'var(--ink-900)' }}>
+                          {line.lineType === 'Dr' ? fmtAmt(line.amount) : '—'}
+                        </td>
+                        <td className="amount text-xs font-semibold" style={{ color: 'var(--ink-900)' }}>
+                          {line.lineType === 'Cr' ? fmtAmt(line.amount) : '—'}
+                        </td>
+                        <td className="text-[10px]" style={{ color: 'var(--ink-400)' }}>
+                          {line.source}
+                        </td>
+                      </tr>
+                    ))}
+                    {!group.narration && (
+                      <tr>
+                        <td colSpan={6} className="text-[10px] py-1 px-3" style={{ color: group.isBalanced ? 'var(--success-600)' : 'var(--danger-600)' }}>
+                          {group.isBalanced ? 'Balanced ✓' : 'Unbalanced ✗'}
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
                 ))
               )}
             </tbody>
-
-            {/* Totals footer */}
             <tfoot>
               <tr className="row-total">
                 <td colSpan={3} className="text-xs font-bold" style={{ color: 'var(--ink-700)' }}>
@@ -164,19 +183,16 @@ export default function AdjustmentJournalView({
                 <td className="amount text-xs font-bold" style={{ color: 'var(--ink-900)' }}>
                   {fmtAmt(totalDr)}
                 </td>
-                <td />
                 <td className="amount text-xs font-bold" style={{ color: 'var(--ink-900)' }}>
                   {fmtAmt(totalCr)}
                 </td>
-                <td colSpan={2}>
-                  {entries.length > 0 && (
+                <td>
+                  {groups.length > 0 && (
                     <span
                       className="text-[11px] font-semibold"
                       style={{ color: balanced ? 'var(--success-600)' : 'var(--danger-600)' }}
                     >
-                      {balanced
-                        ? 'Balanced'
-                        : `NOT BALANCED — Difference: ${fmtAmt(Math.abs(totalDr - totalCr))}`}
+                      {balanced ? 'Balanced' : `NOT BALANCED — Diff: ${fmtAmt(Math.abs(totalDr - totalCr))}`}
                     </span>
                   )}
                 </td>
@@ -185,85 +201,102 @@ export default function AdjustmentJournalView({
           </table>
         </div>
 
-        {/* Bottom bar */}
         <div className="flex items-center justify-between px-5 py-3" style={{ borderTop: '1px solid var(--border-hairline)' }}>
           <p className="text-xs" style={{ color: 'var(--ink-400)' }}>
-            {systemCount} system {systemCount === 1 ? 'entry' : 'entries'},&nbsp;
-            {manualCount} manual {manualCount === 1 ? 'entry' : 'entries'}
+            {systemGroups.length} system {systemGroups.length === 1 ? 'group' : 'groups'},&nbsp;
+            {manualGroups.length} manual/upload {manualGroups.length === 1 ? 'group' : 'groups'}
           </p>
           {!readOnly && (
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => setModalOpen(true)}
-            >
+            <Button variant="secondary" size="sm" onClick={() => setModalOpen(true)}>
               + Add Manual Entry
             </Button>
           )}
         </div>
       </Card>
 
-      {/* Add Manual Entry modal */}
       <Modal
         isOpen={modalOpen}
-        onClose={() => { setModalOpen(false); setFormErr({}); }}
+        onClose={() => { setModalOpen(false); setFormErr(null); }}
         title="Add Manual Journal Entry"
-        size="md"
+        size="lg"
         footer={
           <>
             <Button variant="secondary" size="md" onClick={() => setModalOpen(false)}>
               Cancel
             </Button>
-            <Button variant="primary" size="md" onClick={handleAdd}>
-              Add Entry
+            <Button variant="primary" size="md" onClick={handleAdd} disabled={!formBalanced}>
+              Save Entry
             </Button>
           </>
         }
       >
-        <div className="space-y-3">
+        <div className="space-y-4">
           <InputField
-            label="Description"
-            value={form.description}
-            onChange={e => setF('description', e.target.value)}
-            error={formErr.description}
-            required
-            placeholder="e.g. Prior year audit fee accrual"
+            label="Narration (optional)"
+            value={narration}
+            onChange={(e) => setNarration(e.target.value)}
+            placeholder="e.g. (Being audit fee accrual)"
           />
-          <div className="form-grid-2">
-            <InputField
-              label="Dr Account"
-              value={form.drAccount}
-              onChange={e => setF('drAccount', e.target.value)}
-              error={formErr.drAccount}
-              required
-              placeholder="e.g. Audit Fee Expense"
-            />
-            <InputField
-              label="Cr Account"
-              value={form.crAccount}
-              onChange={e => setF('crAccount', e.target.value)}
-              error={formErr.crAccount}
-              required
-              placeholder="e.g. Audit Fee Payable"
-            />
+
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-semibold" style={{ color: 'var(--ink-700)' }}>Dr Lines</span>
+              <Button variant="link" size="xs" onClick={() => setDrLines((p) => [...p, { ...BLANK_DR }])}>
+                + Add Dr Line
+              </Button>
+            </div>
+            {drLines.map((line, idx) => (
+              <div key={`dr-${idx}`} className="form-grid-2 mb-2">
+                <InputField
+                  label={idx === 0 ? 'Dr Account' : ''}
+                  value={line.account}
+                  onChange={(e) => updateLine(setDrLines, idx, 'account', e.target.value)}
+                  placeholder="Account name"
+                />
+                <NumberInput
+                  label={idx === 0 ? 'Dr Amount' : ''}
+                  value={line.amount}
+                  onChange={(v) => updateLine(setDrLines, idx, 'amount', v)}
+                  prefix="NPR"
+                  min={0}
+                />
+              </div>
+            ))}
           </div>
-          <div className="form-grid-2">
-            <NumberInput
-              label="Amount (NPR)"
-              value={form.amount}
-              onChange={v => setF('amount', v)}
-              error={formErr.amount}
-              required
-              prefix="NPR"
-              min={0}
-            />
-            <SelectDropdown
-              label="Type"
-              value={form.type}
-              onChange={e => setF('type', e.target.value as AdjType)}
-              options={TYPE_OPTIONS}
-            />
+
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-semibold" style={{ color: 'var(--ink-700)' }}>Cr Lines</span>
+              <Button variant="link" size="xs" onClick={() => setCrLines((p) => [...p, { ...BLANK_CR }])}>
+                + Add Cr Line
+              </Button>
+            </div>
+            {crLines.map((line, idx) => (
+              <div key={`cr-${idx}`} className="form-grid-2 mb-2">
+                <InputField
+                  label={idx === 0 ? 'Cr Account' : ''}
+                  value={line.account}
+                  onChange={(e) => updateLine(setCrLines, idx, 'account', e.target.value)}
+                  placeholder="Account name"
+                />
+                <NumberInput
+                  label={idx === 0 ? 'Cr Amount' : ''}
+                  value={line.amount}
+                  onChange={(v) => updateLine(setCrLines, idx, 'amount', v)}
+                  prefix="NPR"
+                  min={0}
+                />
+              </div>
+            ))}
           </div>
+
+          <p className="text-xs" style={{ color: formBalanced ? 'var(--success-600)' : 'var(--ink-500)' }}>
+            Dr Total: NPR {drSum.toLocaleString('en-IN')} | Cr Total: NPR {crSum.toLocaleString('en-IN')}
+            {formBalanced ? ' — Balanced ✓' : ` — Difference: NPR ${Math.abs(drSum - crSum).toLocaleString('en-IN')}`}
+          </p>
+          {formErr && (
+            <p className="text-xs" style={{ color: 'var(--danger-600)' }}>{formErr}</p>
+          )}
         </div>
       </Modal>
     </>

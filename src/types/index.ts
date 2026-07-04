@@ -9,7 +9,7 @@ export type { NFRSCategory, RawTBRow, RawTBParseResult, ParsedTrialBalance, Inve
 export type { NormalizedTrialBalancePreview } from './trialBalance';
 export type { FiscalYearEntry as FiscalYearInfo } from '../data/fiscalYears';
 export type { CashFlowStatement, PPENote, InvestmentsNote } from './financials';
-export type { BankAccountDetail, CreditorEntry, DebtorEntry, RelatedPartyEntry } from './adjustments';
+export type { BankAccountDetail, CreditorEntry, DebtorEntry, RelatedPartyEntry, JournalEntryGroup, JournalLine } from './adjustments';
 
 export type CompanyProfile = CompanyProfileBase & {
   id?: string;

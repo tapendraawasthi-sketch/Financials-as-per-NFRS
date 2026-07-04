@@ -3,6 +3,8 @@ import { Router, Request, Response } from 'express';
 import { asyncHandler } from '../middleware/errorHandler';
 import { sessionStore } from '../store/sessionStore';
 import { computeAllFinancials } from '../services/financialEngine';
+import { buildAdjustedTrialBalance } from '../services/adjustmentSync.js';
+import type { YearEndAdjustments } from '../../src/types/adjustments.js';
 
 const router = Router();
 
@@ -20,10 +22,53 @@ function requireSession(req: Request, res: Response) {
   return { session, sessionId };
 }
 
+function getSystemAdjustments(adj: YearEndAdjustments) {
+  return {
+    depreciation: adj.totalDepreciationExpense ?? 0,
+    staffBonus: adj.staffBonusProvision ?? 0,
+    incomeTax: adj.incomeTaxProvision ?? 0,
+    dividendDeclared: adj.dividendPayable ?? 0,
+    tdsOnDividend: (adj.dividendPayable ?? 0) * 0.05,
+    investmentFVGainLoss: (adj.investmentAdjustments ?? [])
+      .reduce((s, i) => s + (i.gainLossOnFV ?? 0), 0),
+  };
+}
+
+function computeWithAdjustedTB(session: NonNullable<ReturnType<typeof sessionStore.get>>, sessionId: string) {
+  const adj = session.adjustments as YearEndAdjustments;
+  const manualGroups = adj.journalEntriesSkipped ? [] : (adj.manualJournalGroups ?? []);
+  const { adjustedTB, allGroups } = buildAdjustedTrialBalance({
+    tb: session.trialBalance as any,
+    manualGroups,
+    systemAdjustments: getSystemAdjustments(adj),
+  });
+
+  const result = computeAllFinancials(
+    adjustedTB as any,
+    adj as any,
+    session.company as any,
+    (session.company as any)?.previousYearData,
+  );
+
+  sessionStore.set(sessionId, {
+    financials: result,
+    statements: result,
+    notes: result.notes,
+    adjustments: {
+      ...adj,
+      adjustedTrialBalance: adjustedTB,
+      manualJournalGroups: manualGroups,
+      allComputedGroups: allGroups,
+    },
+  });
+
+  return result;
+}
+
 router.post('/compute', asyncHandler(async (req: Request, res: Response) => {
   const ctx = requireSession(req, res);
   if (!ctx) return;
-  const { session } = ctx;
+  const { session, sessionId } = ctx;
   const missing: string[] = [];
   if (!session.company) missing.push('company profile');
   if (!session.trialBalance) missing.push('trial balance');
@@ -32,34 +77,21 @@ router.post('/compute', asyncHandler(async (req: Request, res: Response) => {
     return res.status(400).json({ success: false, error: `Missing data: ${missing.join(', ')}.` });
   }
 
-  const result = computeAllFinancials(
-    session.trialBalance as any,
-    session.adjustments as any,
-    session.company as any,
-    (session.company as any)?.previousYearData,
-  );
-
-  sessionStore.set(ctx.sessionId, {
-    financials: result,
-    statements: result,
-    notes: result.notes,
-  });
-
+  const result = computeWithAdjustedTB(session, sessionId);
   return res.json({ success: true, data: result });
 }));
 
 router.post('/:companyId/generate', asyncHandler(async (req: Request, res: Response) => {
   const ctx = requireSession(req, res);
   if (!ctx) return;
-  const { session } = ctx;
+  const { session, sessionId } = ctx;
   const missing: string[] = [];
   if (!session.company) missing.push('company profile');
   if (!session.trialBalance) missing.push('trial balance');
   if (!session.adjustments) missing.push('year-end adjustments');
   if (missing.length > 0) return res.status(400).json({ success: false, error: `Missing data: ${missing.join(', ')}.` });
 
-  const result = computeAllFinancials(session.trialBalance as any, session.adjustments as any, session.company as any, (session.company as any)?.previousYearData);
-  sessionStore.set(ctx.sessionId, { financials: result, statements: result, notes: result.notes });
+  const result = computeWithAdjustedTB(session, sessionId);
   return res.json({ success: true, data: result });
 }));
 

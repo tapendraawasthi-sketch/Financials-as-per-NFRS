@@ -385,28 +385,20 @@ export default function AdjustmentsPage() {
                 companyId={state.company.id}
                 companyName={state.company.companyName}
                 skipped={state.adjustments?.journalEntriesSkipped ?? false}
-                hasEntries={(state.adjustments?.manualJournals ?? state.adjustments?.journalEntries ?? []).length > 0}
-                onUploadComplete={(entries) => {
+                hasEntries={(state.adjustments?.manualJournalGroups ?? []).length > 0
+                  || (state.adjustments?.manualJournals ?? state.adjustments?.journalEntries ?? []).length > 0}
+                onUploadComplete={(groups) => {
                   const adj = state.adjustments;
                   if (!adj) return;
                   dispatch({
                     type: 'SET_ADJUSTMENTS',
                     payload: {
                       ...adj,
-                      manualJournals: entries.map((e) => ({
-                        id: e.id ?? `upload-${Date.now()}`,
-                        description: e.description,
-                        debitAccount: e.debitAccount,
-                        creditAccount: e.creditAccount,
-                        amount: e.amount,
-                        type: e.type,
-                        source: e.source ?? 'Upload',
-                      })),
-                      journalEntries: entries,
+                      manualJournalGroups: groups,
                       journalEntriesSkipped: false,
                     } as YearEndAdjustments,
                   });
-                  showToast(`${entries.length} journal entries imported`, 'success');
+                  showToast(`${groups.length} adjustment groups imported`, 'success');
                 }}
                 onSkip={() => {
                   dispatch({
@@ -415,6 +407,7 @@ export default function AdjustmentsPage() {
                       ...(state.adjustments ?? {}),
                       manualJournals: [],
                       journalEntries: [],
+                      manualJournalGroups: [],
                       journalEntriesSkipped: true,
                     } as YearEndAdjustments,
                   });
@@ -424,41 +417,57 @@ export default function AdjustmentsPage() {
               />
             )}
             <AdjustmentJournalView
-              entries={(state.adjustments?.manualJournals ?? state.adjustments?.journalEntries ?? []).map((j) => ({
-                id: j.id,
-                description: j.description,
-                drAccount: j.debitAccount,
-                crAccount: j.creditAccount,
-                amount: j.amount,
-                type: (j.type as 'DEPN' | 'PROV' | 'INV' | 'INV-FV' | 'TAX' | 'OTHER' | undefined)
-                  ?? (j.debitAccount.includes('Tax') ? 'TAX' as const
-                    : j.debitAccount.includes('Bonus') ? 'PROV' as const
-                    : j.debitAccount.includes('Depreciation') ? 'DEPN' as const
-                    : 'OTHER' as const),
-                source: j.id?.startsWith('auto-') ? 'System' as const
-                  : j.source === 'Upload' ? 'Upload' as const
-                  : 'Manual' as const,
-              }))}
+              groups={(() => {
+                const stored = state.adjustments?.manualJournalGroups ?? [];
+                if (stored.length > 0) return stored;
+                const flat = state.adjustments?.manualJournals ?? state.adjustments?.journalEntries ?? [];
+                return flat.map((j, i) => ({
+                  groupId: String(i + 1),
+                  narration: j.description,
+                  lines: [
+                    {
+                      id: `${j.id}-dr`,
+                      groupId: String(i + 1),
+                      lineType: 'Dr' as const,
+                      account: j.debitAccount,
+                      amount: j.amount,
+                      source: (j.id?.startsWith('auto-') ? 'System' : j.source === 'Upload' ? 'Upload' : 'Manual') as 'System' | 'Manual' | 'Upload',
+                    },
+                    {
+                      id: `${j.id}-cr`,
+                      groupId: String(i + 1),
+                      lineType: 'Cr' as const,
+                      account: j.creditAccount,
+                      amount: j.amount,
+                      source: (j.id?.startsWith('auto-') ? 'System' : j.source === 'Upload' ? 'Upload' : 'Manual') as 'System' | 'Manual' | 'Upload',
+                    },
+                  ],
+                  totalDr: j.amount,
+                  totalCr: j.amount,
+                  isBalanced: true,
+                }));
+              })()}
               readOnly={state.adjustments?.journalEntriesSkipped ?? false}
-              onAddManual={(entry) => {
+              onAddManual={(group) => {
                 const adj = state.adjustments;
                 if (!adj) return;
-                const newEntry = {
-                  id: `manual-${Date.now()}`,
-                  description: entry.description,
-                  debitAccount: entry.drAccount,
-                  creditAccount: entry.crAccount,
-                  amount: entry.amount,
-                  type: entry.type,
-                  source: 'Manual',
+                const groupId = `manual-${Date.now()}`;
+                const totalDr = group.lines.filter((l) => l.lineType === 'Dr').reduce((s, l) => s + l.amount, 0);
+                const totalCr = group.lines.filter((l) => l.lineType === 'Cr').reduce((s, l) => s + l.amount, 0);
+                const newGroup = {
+                  groupId,
+                  narration: group.narration,
+                  lines: group.lines.map((l) => ({ ...l, groupId })),
+                  totalDr,
+                  totalCr,
+                  isBalanced: Math.abs(totalDr - totalCr) <= 1,
                 };
-                const manualJournals = [...(adj.manualJournals ?? []), newEntry];
+                const manualJournalGroups = [...(adj.manualJournalGroups ?? []), newGroup];
                 dispatch({
                   type: 'SET_ADJUSTMENTS',
                   payload: {
                     ...adj,
-                    manualJournals,
-                    journalEntries: manualJournals,
+                    manualJournalGroups,
                     journalEntriesSkipped: false,
                   } as YearEndAdjustments,
                 });

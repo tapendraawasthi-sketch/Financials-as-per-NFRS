@@ -5,6 +5,7 @@ import { journalUploadMiddleware } from '../middleware/upload.js';
 import { generateJournalEntryTemplate } from '../services/journalTemplateWriter.js';
 import { parseJournalEntries, validateJournalEntries } from '../services/journalParser.js';
 import type { JournalEntry } from '../../src/types/index.js';
+import type { JournalEntryGroup } from '../../src/types/adjustments.js';
 import {
   subledgerStore,
   type DebtorEntry,
@@ -99,9 +100,12 @@ router.post('/:companyId/journals/upload', journalUploadMiddleware, asyncHandler
     source: 'Upload' as const,
   }));
 
+  const groups: JournalEntryGroup[] = parsed.groups;
+
   const adj = session.adjustments ?? emptyAdj(req.params.companyId, session.company?.fiscalYear?.bsFY ?? '');
   const updatedAdj: YearEndAdjustments = {
     ...adj,
+    manualJournalGroups: groups,
     journalEntries: entries,
     manualJournals: entries.map((e) => ({
       id: e.id ?? `upload-${Date.now()}`,
@@ -118,9 +122,10 @@ router.post('/:companyId/journals/upload', journalUploadMiddleware, asyncHandler
 
   return res.json({
     success: true,
-    message: `${entries.length} journal ${entries.length === 1 ? 'entry' : 'entries'} imported.`,
+    message: `${groups.length} adjustment ${groups.length === 1 ? 'group' : 'groups'} imported.`,
     entries,
-    entryCount: entries.length,
+    groups,
+    entryCount: groups.length,
     totalDebitCredit: parsed.totalDebit,
     warnings: parsed.warnings,
   });
@@ -136,6 +141,7 @@ router.post('/:companyId/journals/skip', asyncHandler(async (req: Request, res: 
     ...adj,
     journalEntries: [],
     manualJournals: [],
+    manualJournalGroups: [],
     journalEntriesSkipped: true,
   };
   sessionStore.set(req.params.companyId, { adjustments: updatedAdj });
