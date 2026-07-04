@@ -2,6 +2,7 @@
 // and per-line admin/employee expense schedules — synced with Disallow for Tax sheet.
 
 import type { YearEndAdjustments } from '../../src/types/adjustments.js';
+import { ADVANCE_TAX_CHECKPOINTS } from '../../src/data/advanceTaxCheckpoints.js';
 
 export interface TaxNoteLine {
   label: string;
@@ -106,11 +107,7 @@ export function buildTaxNotesData(input: {
 }
 
 /** Default Section 118 installment checkpoints (Nepal FY convention). */
-export const ADVANCE_TAX_CHECKPOINTS = [
-  { checkpoint: 'End of Poush', cumulativePercent: 0.40, defaultDaysLate: 150 },
-  { checkpoint: 'End of Chaitra', cumulativePercent: 0.70, defaultDaysLate: 90 },
-  { checkpoint: 'End of Ashadh', cumulativePercent: 0.90, defaultDaysLate: 0 },
-] as const;
+export { ADVANCE_TAX_CHECKPOINTS };
 
 export function defaultAdvanceTaxPayments(adjustments: Pick<YearEndAdjustments, 'advanceTax1' | 'advanceTax2' | 'advanceTax3'>): number[] {
   return [

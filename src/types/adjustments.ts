@@ -149,6 +149,10 @@ export interface YearEndAdjustments {
   advanceTax1?: number;
   advanceTax2?: number;
   advanceTax3?: number;
+  /** Days late after each Section 118 checkpoint (for interest u/s 118). */
+  advanceTaxDaysLate1?: number;
+  advanceTaxDaysLate2?: number;
+  advanceTaxDaysLate3?: number;
   tdsCredit?: number;
   taxableProfit?: number;
   currentTaxExpense?: number;

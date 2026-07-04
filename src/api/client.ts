@@ -399,6 +399,17 @@ export const adjustmentsApi = {
   ): Promise<{ saved: boolean }> =>
     apiRequest<{ saved: boolean }>('POST', `/api/adjustments/${companyId}/investments`, { items }),
 
+  saveAdvanceTax: (
+    companyId: string,
+    data: Pick<
+      YearEndAdjustments,
+      | 'advanceTax1' | 'advanceTax2' | 'advanceTax3'
+      | 'advanceTaxDaysLate1' | 'advanceTaxDaysLate2' | 'advanceTaxDaysLate3'
+      | 'tdsCredit' | 'priorYearLosses'
+    >,
+  ): Promise<{ saved: boolean }> =>
+    apiRequest('POST', `/api/adjustments/${companyId}/advance-tax`, data),
+
   saveDisallowedForTax: (
     companyId: string,
     disallowedForTax: YearEndAdjustments['disallowedForTax'],

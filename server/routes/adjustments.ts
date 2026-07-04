@@ -281,13 +281,47 @@ router.post('/:companyId/inventory', asyncHandler(async (req: Request, res: Resp
   return res.json({ message: 'Inventory adjustments saved.', totalImpairment: totalInventoryImpairment });
 }));
 
+// POST /:companyId/advance-tax
+router.post('/:companyId/advance-tax', asyncHandler(async (req: Request, res: Response) => {
+  const session = sessionStore.get(req.params.companyId);
+  if (!session) return res.status(404).json({ error: 'Company not found.' });
+  const adj = session.adjustments ?? emptyAdj(req.params.companyId, session.company?.fiscalYear?.bsFY ?? '');
+  const {
+    advanceTax1 = 0,
+    advanceTax2 = 0,
+    advanceTax3 = 0,
+    advanceTaxDaysLate1,
+    advanceTaxDaysLate2,
+    advanceTaxDaysLate3,
+    tdsCredit = 0,
+    priorYearLosses = [],
+  } = req.body as Partial<YearEndAdjustments>;
+  sessionStore.set(req.params.companyId, {
+    adjustments: {
+      ...adj,
+      advanceTax1,
+      advanceTax2,
+      advanceTax3,
+      advanceTaxDaysLate1,
+      advanceTaxDaysLate2,
+      advanceTaxDaysLate3,
+      tdsCredit,
+      priorYearLosses,
+    },
+  });
+  return res.json({
+    message: 'Advance tax installments saved.',
+    totalPaid: advanceTax1 + advanceTax2 + advanceTax3,
+  });
+}));
+
 // POST /:companyId/investments
 router.post('/:companyId/investments', asyncHandler(async (req: Request, res: Response) => {
   const session = sessionStore.get(req.params.companyId);
   if (!session) return res.status(404).json({ error: 'Company not found.' });
   const items: InvestmentAdjustment[] = req.body.items ?? [];
   const adj = session.adjustments ?? emptyAdj(req.params.companyId, session.company?.fiscalYear?.bsFY ?? '');
-  const totalFV = items.reduce((s, i) => s + (i.fairValueGainLoss ?? 0), 0);
+  const totalFV = items.reduce((s, i) => s + (i.fairValueGainLoss ?? i.gainLossOnFV ?? 0), 0);
   sessionStore.set(req.params.companyId, { adjustments: { ...adj, investmentAdjustments: items, totalInvestmentFVAdjustment: totalFV } });
   return res.json({ message: 'Investment adjustments saved.', totalFVAdjustment: totalFV });
 }));

@@ -11,6 +11,7 @@ import DepreciationSchedule from '../components/adjustments/DepreciationSchedule
 import ProvisionInputs from '../components/adjustments/ProvisionInputs';
 import InventoryInputPanel from '../components/adjustments/InventoryInputPanel';
 import InvestmentInputPanel from '../components/adjustments/InvestmentInputPanel';
+import AdvanceTaxInstallmentsPanel from '../components/adjustments/AdvanceTaxInstallmentsPanel';
 import AdjustmentJournalView from '../components/adjustments/AdjustmentJournalView';
 import AdjustmentJournalUploadPanel from '../components/adjustments/AdjustmentJournalUploadPanel';
 import DisallowedExpensesPanel from '../components/adjustments/DisallowedExpensesPanel';
@@ -209,7 +210,10 @@ export default function AdjustmentsPage() {
         payload: {
           ...(state.adjustments ?? {}),
           investmentAdjustments: items,
-          totalInvestmentFVAdjustment: items.reduce((sum, item) => sum + (item.fairValueGainLoss ?? item.gainLossOnFV ?? 0), 0),
+          totalInvestmentFVAdjustment: items.reduce(
+            (sum, item) => sum + (item.fairValueGainLoss ?? item.gainLossOnFV ?? 0),
+            0,
+          ),
         } as YearEndAdjustments,
       });
       showToast('Investment adjustments saved', 'success');
@@ -355,24 +359,37 @@ export default function AdjustmentsPage() {
                 </h3>
               </div>
               <div className="card-body">
-                <DisallowedExpensesPanel
-                  items={state.adjustments?.disallowedForTax ?? []}
-                  onChange={(items) => {
-                    dispatch({
-                      type: 'SET_ADJUSTMENTS',
-                      payload: { ...(state.adjustments ?? {}), disallowedForTax: items } as YearEndAdjustments,
-                    });
-                  }}
-                  onSave={async (items) => {
-                    if (!state.company?.id) return;
-                    await adjustmentsApi.saveDisallowedForTax(state.company.id, items);
-                    dispatch({
-                      type: 'SET_ADJUSTMENTS',
-                      payload: { ...(state.adjustments ?? {}), disallowedForTax: items } as YearEndAdjustments,
-                    });
-                    showToast('Disallowed tax items saved', 'success');
-                  }}
-                />
+            <DisallowedExpensesPanel
+              items={state.adjustments?.disallowedForTax ?? []}
+              onChange={(items) => {
+                dispatch({
+                  type: 'SET_ADJUSTMENTS',
+                  payload: { ...(state.adjustments ?? {}), disallowedForTax: items } as YearEndAdjustments,
+                });
+              }}
+              onSave={async (items) => {
+                if (!state.company?.id) return;
+                await adjustmentsApi.saveDisallowedForTax(state.company.id, items);
+                dispatch({
+                  type: 'SET_ADJUSTMENTS',
+                  payload: { ...(state.adjustments ?? {}), disallowedForTax: items } as YearEndAdjustments,
+                });
+                showToast('Disallowed tax items saved', 'success');
+              }}
+            />
+            <AdvanceTaxInstallmentsPanel
+              initialData={state.adjustments ?? undefined}
+              estimatedTaxLiability={state.adjustments?.currentTaxExpense ?? state.adjustments?.incomeTaxProvision ?? 0}
+              onSave={async (data) => {
+                if (!state.company?.id) return;
+                await adjustmentsApi.saveAdvanceTax(state.company.id, data);
+                dispatch({
+                  type: 'SET_ADJUSTMENTS',
+                  payload: { ...(state.adjustments ?? {}), ...data } as YearEndAdjustments,
+                });
+                showToast('Advance tax installments saved', 'success');
+              }}
+            />
               </div>
             </div>
           </div>
