@@ -537,7 +537,6 @@ export default function AdjustmentsPage() {
                 });
               }}
             />
-            )}
           </div>
         )}
       </div>
