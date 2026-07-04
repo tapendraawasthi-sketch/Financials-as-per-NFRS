@@ -7,6 +7,8 @@ import {
   buildLossCarryForwardSchedule,
 } from '../../server/services/taxEngine.js';
 import { classifyDebtors } from '../../server/services/subledgerRules.js';
+import { buildTaxNotesData } from '../../server/services/taxNotesBuilder.js';
+import { computeTax } from '../../server/services/taxEngine.js';
 
 describe('taxEngine MEs-format formulas', () => {
   it('applies three-way donation cap u/s 12', () => {
@@ -47,5 +49,41 @@ describe('subledgerRules', () => {
     assert.equal(result.tradeReceivablesCY, 500_000);
     assert.equal(result.advanceFromCustomersCY, 100_000);
     assert.equal(result.classifiedDebtors[1].isAdvanceFromCustomer, true);
+  });
+});
+
+describe('taxNotesBuilder', () => {
+  it('routes income-side items to Note I and expenses to Note II', () => {
+    const data = buildTaxNotesData({
+      disallowedForTax: [
+        { description: 'Dividend income', amount: 50_000, section: 'Exempt', side: 'income', asPerBooks: 50_000 },
+        { description: 'Entertainment excess', amount: 10_000, section: 'Sec 21', side: 'expense', asPerBooks: 25_000 },
+      ],
+      adminLineItems: [{ label: 'Entertainment', cy: 25_000 }],
+    });
+    assert.equal(data.noteI_income.length, 1);
+    assert.equal(data.noteI_income[0].disallowed, 50_000);
+    assert.equal(data.totalExpenseDisallowed, 10_000);
+    assert.ok(data.noteII_expenses.some((l) => l.label === 'Entertainment' && l.disallowed === 10_000));
+  });
+});
+
+describe('computeTax income vs expense disallowances', () => {
+  it('adds expense disallowances and subtracts income exclusions', () => {
+    const result = computeTax({
+      accountingProfit: 1_000_000,
+      accountingDepreciation: 0,
+      taxDepreciation: 0,
+      disallowedForTax: [
+        { description: 'Entertainment', amount: 20_000, section: 'Sec 21', side: 'expense' },
+        { description: 'Dividend', amount: 30_000, section: 'Exempt', side: 'income' },
+      ],
+      staffBonus: 0,
+      profitBeforeBonus: 1_000_000,
+      advanceTaxPaid: 0,
+      incomeTaxRate: 0.25,
+      entityType: 'Company',
+    });
+    assert.equal(result.taxableIncome, 990_000);
   });
 });

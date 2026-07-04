@@ -16,6 +16,8 @@ const EMPTY_ROW = (): DisallowedItem => ({
   description: '',
   amount: 0,
   section: 'Section 21 ITA',
+  side: 'expense',
+  asPerBooks: 0,
 });
 
 export default function DisallowedExpensesPanel({
@@ -48,13 +50,18 @@ export default function DisallowedExpensesPanel({
     }
   };
 
-  const total = rows.reduce((s, r) => s + (r.amount || 0), 0);
+  const expenseTotal = rows
+    .filter((r) => (r.side ?? 'expense') !== 'income')
+    .reduce((s, r) => s + (r.amount || 0), 0);
+  const incomeTotal = rows
+    .filter((r) => r.side === 'income')
+    .reduce((s, r) => s + (r.amount || 0), 0);
 
   return (
     <div className="space-y-3">
       <p className="text-xs" style={{ color: 'var(--ink-500)' }}>
-        Enter expenses disallowed under Nepal Income Tax Act Section 21 (entertainment excess,
-        personal expenses, fines, lease without agreement, etc.). These add back to taxable income.
+        Route each item to Tax Note I (income exclusions — exempt dividend, etc.) or Note II
+        (expense add-backs under Section 21). Amounts sync to Disallow for Tax and Tax Notes sheets.
       </p>
 
       <div className="overflow-x-auto">
@@ -62,7 +69,9 @@ export default function DisallowedExpensesPanel({
           <thead>
             <tr style={{ background: 'var(--surface-sunken)' }}>
               <th className="px-2 py-2 text-left">Description</th>
-              <th className="px-2 py-2 text-left w-28">Amount (NPR)</th>
+              <th className="px-2 py-2 text-left w-24">Route</th>
+              <th className="px-2 py-2 text-left w-28">As per Books</th>
+              <th className="px-2 py-2 text-left w-28">Disallowed</th>
               <th className="px-2 py-2 text-left w-36">ITA Section</th>
               <th className="w-8" />
             </tr>
@@ -75,6 +84,22 @@ export default function DisallowedExpensesPanel({
                     value={row.description}
                     onChange={(v) => updateRow(i, { description: v })}
                     placeholder="e.g. Entertainment (excess over limit)"
+                  />
+                </td>
+                <td className="px-1 py-1">
+                  <select
+                    className="w-full rounded border px-2 py-1 text-xs"
+                    value={row.side ?? 'expense'}
+                    onChange={(e) => updateRow(i, { side: e.target.value as 'income' | 'expense' })}
+                  >
+                    <option value="expense">Note II (Expense)</option>
+                    <option value="income">Note I (Income)</option>
+                  </select>
+                </td>
+                <td className="px-1 py-1">
+                  <NumberInput
+                    value={row.asPerBooks ?? row.amount ?? 0}
+                    onChange={(v) => updateRow(i, { asPerBooks: v })}
                   />
                 </td>
                 <td className="px-1 py-1">
@@ -106,12 +131,15 @@ export default function DisallowedExpensesPanel({
       </div>
 
       <div className="flex items-center justify-between">
-        <div className="flex gap-3">
+        <div className="flex gap-3 flex-wrap">
           <button type="button" onClick={addRow} className="text-xs text-blue-600 underline">
             + Add disallowed item
           </button>
           <span className="text-xs" style={{ color: 'var(--ink-600)' }}>
-            Total add-back: NPR {total.toLocaleString('en-IN')}
+            Note II add-back: NPR {expenseTotal.toLocaleString('en-IN')}
+          </span>
+          <span className="text-xs" style={{ color: 'var(--ink-600)' }}>
+            Note I exclusion: NPR {incomeTotal.toLocaleString('en-IN')}
           </span>
         </div>
         <Button type="button" variant="primary" size="sm" loading={saving} onClick={handleSave}>

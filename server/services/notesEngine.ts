@@ -237,20 +237,27 @@ export function buildNotesData(params: {
 
   const listedShares = investmentAdjs.filter(
     (i) => i.investmentType === 'listed_trading' || i.investmentType === 'listed_ats',
-  ).map((inv) => ({
-    companyName:       inv.investmentName,
-    openingUnits:      inv.units ?? 0,
-    purchasesDuringYear: 0,
-    salesDuringYear:   0,
-    closingUnits:      inv.units ?? 0,
-    costPerUnit:       inv.totalCost && inv.units ? inv.totalCost / inv.units : 0,
-    totalCost:         inv.totalCost ?? 0,
-    ltp:               inv.ltp ?? 0,
-    marketValue:       inv.marketValue ?? ((inv.units ?? 0) * (inv.ltp ?? 0)),
-    fairValueGainLoss: inv.fairValueGainLoss ?? 0,
-    impairmentAmount:  inv.impairmentAmount ?? 0,
-    carryingAmount:    inv.carryingAmount ?? 0,
-  }));
+  ).map((inv) => {
+    const openingUnits = inv.openingUnits ?? inv.units ?? 0;
+    const purchased = inv.unitsPurchased ?? 0;
+    const sold = inv.unitsSold ?? 0;
+    const closingUnits = Math.max(0, openingUnits + purchased - sold);
+    return {
+      companyName:       inv.investmentName ?? inv.name ?? 'Listed Shares',
+      openingUnits,
+      purchasesDuringYear: purchased,
+      salesDuringYear:   sold,
+      closingUnits,
+      costPerUnit:       inv.totalCost && closingUnits ? inv.totalCost / closingUnits : inv.costPerUnit ?? 0,
+      totalCost:         inv.totalCost ?? 0,
+      ltp:               inv.ltp ?? inv.fairValuePerUnit ?? 0,
+      marketValue:       inv.marketValue ?? inv.totalFairValue ?? (closingUnits * (inv.ltp ?? inv.fairValuePerUnit ?? 0)),
+      fairValueGainLoss: inv.fairValueGainLoss ?? inv.gainLossOnFV ?? 0,
+      impairmentAmount:  inv.impairmentAmount ?? 0,
+      carryingAmount:    inv.carryingAmount ?? inv.totalFairValue ?? 0,
+      soldUnitGainLoss:  inv.soldUnitGainLoss ?? 0,
+    };
+  });
 
   const unlistedShares = investmentAdjs.filter(
     (i) => i.investmentType === 'unlisted',
@@ -617,6 +624,23 @@ export function buildNotesData(params: {
       balance_py: 0,
     }));
 
+  const rpLoanBalance = rpPayableRows.reduce(
+    (s, r) => s + Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)), 0,
+  ) + subledgerRpPayableLoans.reduce((s, r) => s + r.balance_cy, 0);
+
+  const rpLoanIsCurrent = adj.relatedPartyLoanCurrent === true;
+  const rpLoanEntry = rpLoanBalance > 0 ? [{
+    lenderName: 'Loan from / Payable to Related Party',
+    type: 'Related Party Loan' as const,
+    secured: false,
+    interestRate: 0,
+    maturityDate: null as string | null,
+    balance_cy: rpLoanBalance,
+    balance_py: rpPayableRows.reduce(
+      (s, r) => s + Math.abs((r.openingCr ?? 0) - (r.openingDr ?? 0)), 0,
+    ),
+  }] : [];
+
   const note311_borrowings: NotesData['note311_borrowings'] = {
     nonCurrent: [
       ...ltBankRows.map((r) => ({
@@ -638,6 +662,7 @@ export function buildNotesData(params: {
         balance_py:   Math.abs((r.openingCr ?? 0) - (r.openingDr ?? 0)),
       })),
       ...subledgerLoanNonCurrent,
+      ...(!rpLoanIsCurrent ? rpLoanEntry : []),
     ],
     current: [
       ...stOdRows.map((r) => ({
@@ -668,23 +693,25 @@ export function buildNotesData(params: {
         balance_cy: Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)),
         balance_py: Math.abs((r.openingCr ?? 0) - (r.openingDr ?? 0)),
       })),
-      ...rpPayableRows.map((r) => ({
-        lenderName: r.rawLabel,
-        type:       'Related Party Loan' as const,
-        secured:    false,
-        balance_cy: Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)),
-        balance_py: Math.abs((r.openingCr ?? 0) - (r.openingDr ?? 0)),
-      })),
+      ...(rpLoanIsCurrent ? rpLoanEntry.map((e) => ({
+        lenderName: e.lenderName,
+        type: e.type,
+        secured: e.secured,
+        balance_cy: e.balance_cy,
+        balance_py: e.balance_py,
+      })) : []),
       ...subledgerLoanCurrent,
-      ...subledgerRpPayableLoans,
     ],
+    relatedPartyLoan: rpLoanBalance,
+    relatedPartyLoanNonCurrent: !rpLoanIsCurrent,
     totalNonCurrent_cy: ltBankRows.reduce((s, r) => s + Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)), 0)
       + ltOtherRows.reduce((s, r) => s + Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)), 0)
-      + subledgerLoanNonCurrent.reduce((s, r) => s + r.balance_cy, 0),
-    totalCurrent_cy: [stOdRows, stCcRows, stWcRows, stPortionRows, rpPayableRows]
+      + subledgerLoanNonCurrent.reduce((s, r) => s + r.balance_cy, 0)
+      + (!rpLoanIsCurrent ? rpLoanBalance : 0),
+    totalCurrent_cy: [stOdRows, stCcRows, stWcRows, stPortionRows]
       .flat().reduce((s, r) => s + Math.abs((r.closingCr ?? 0) - (r.closingDr ?? 0)), 0)
       + subledgerLoanCurrent.reduce((s, r) => s + r.balance_cy, 0)
-      + subledgerRpPayableLoans.reduce((s, r) => s + r.balance_cy, 0),
+      + (rpLoanIsCurrent ? rpLoanBalance : 0),
   };
 
   // ─── Note 3.12 — Employee Benefit Liabilities ──────────────────────────────

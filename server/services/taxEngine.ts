@@ -178,9 +178,17 @@ export function computeTax(input: TaxComputationInput): TaxComputationResult {
   reconciliation.push({ label: 'Add: Accounting depreciation', amount: accountingDepreciation });
   reconciliation.push({ label: 'Less: Tax depreciation (ITA pools)', amount: -taxDepreciation });
 
-  const totalDisallowed = disallowedForTax.reduce((s, d) => s + d.amount, 0);
-  if (totalDisallowed > 0) {
-    reconciliation.push({ label: 'Add: Disallowed expenses', amount: totalDisallowed });
+  const expenseDisallowed = disallowedForTax
+    .filter((d) => (d.side ?? 'expense') !== 'income')
+    .reduce((s, d) => s + d.amount, 0);
+  const incomeExcluded = disallowedForTax
+    .filter((d) => d.side === 'income')
+    .reduce((s, d) => s + d.amount, 0);
+  if (expenseDisallowed > 0) {
+    reconciliation.push({ label: 'Add: Disallowed expenses', amount: expenseDisallowed });
+  }
+  if (incomeExcluded > 0) {
+    reconciliation.push({ label: 'Less: Exempt / excluded income', amount: -incomeExcluded });
   }
 
   // Staff bonus allowed if ≤ 10% of PBT
@@ -191,7 +199,8 @@ export function computeTax(input: TaxComputationInput): TaxComputationResult {
     accountingProfit +
     accountingDepreciation -
     taxDepreciation +
-    totalDisallowed;
+    expenseDisallowed -
+    incomeExcluded;
 
   // Donations u/s 12: three-way minimum (actual, NPR 100,000 ceiling, 5% of adjusted income)
   const donationAllowed = computeDonationAllowance(donations, adjustedProfit);

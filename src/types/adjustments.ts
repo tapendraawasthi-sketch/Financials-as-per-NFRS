@@ -29,6 +29,15 @@ export interface InvestmentAdjustment {
   totalFairValue?: number;
   impairmentAmount?: number;
   gainLossOnFV?: number;
+  openingUnits?: number;
+  unitsPurchased?: number;
+  unitsSold?: number;
+  soldUnitGainLoss?: number;
+  ltp?: number;
+  marketValue?: number;
+  carryingAmount?: number;
+  investmentName?: string;
+  investmentType?: string;
 }
 
 export interface BankAccountDetail {
@@ -187,6 +196,8 @@ export interface YearEndAdjustments {
   };
   /** Prior-year loss balances for u/s 20 carry-forward schedule. */
   priorYearLosses?: Array<{ fiscalYear: string; amount: number }>;
+  /** When false (default), related-party loan balances classify as non-current in Note 3.11. */
+  relatedPartyLoanCurrent?: boolean;
   assets?: import('./index').AssetItem[];
   depreciationResults?: import('./index').DepreciationResult[];
   journalEntries?: import('./index').JournalEntry[];
