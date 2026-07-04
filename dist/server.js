@@ -7737,6 +7737,7 @@ function buildNotesData(params) {
   const subledger = company.id ? subledgerStore.get(company.id) : null;
   const taxRate = (company.accountingPolicies?.incomeTaxRatePercent ?? 25) / 100;
   const roundingLevel = company.accountingPolicies?.roundingLevel ?? 1;
+  const nas = company.nasCompliance ?? {};
   const normalizedDepSummary = normalizeDepreciationSummary(adj);
   const depnSummaryMap = new Map(
     normalizedDepSummary.map((d) => [d.categoryId, d])
@@ -8257,6 +8258,9 @@ function buildNotesData(params) {
     otherDirectExpenses: directOther,
     totalCostOfProduction: round(materialConsumed + changeInInventories + directWages + directOther)
   };
+  const miscIncomeCy = sumTB(rows, "other_income_misc", "closingCr");
+  const governmentGrantIncomeCy = nas.governmentGrants ? miscIncomeCy : 0;
+  const miscellaneousIncomeCy = nas.governmentGrants ? 0 : miscIncomeCy;
   const note319_otherIncome = {
     interestIncome: { cy: sumTB(rows, "other_income_interest", "closingCr"), py: 0 },
     commissionIncome: { cy: 0, py: 0 },
@@ -8264,14 +8268,16 @@ function buildNotesData(params) {
     dividendReceived: { cy: sumTB(rows, "other_income_dividend", "closingCr"), py: 0 },
     gainOnDisposalAssets: { cy: sumTB(rows, "other_income_disposal_gain", "closingCr"), py: 0 },
     insuranceClaims: { cy: 0, py: 0 },
+    governmentGrantIncome: { cy: governmentGrantIncomeCy, py: 0 },
     fairValueGainOnInvestments: {
       cy: investmentAdjs.filter((i) => (i.fairValueGainLoss ?? 0) > 0).reduce((s, i) => s + (i.fairValueGainLoss ?? 0), 0),
       py: 0
     },
-    miscellaneousIncome: { cy: sumTB(rows, "other_income_misc", "closingCr"), py: 0 },
+    miscellaneousIncome: { cy: miscellaneousIncomeCy, py: 0 },
+    hasForeignCurrencyTransactions: nas.foreignCurrency,
     total: {
       cy: round(
-        sumTB(rows, "other_income_interest", "closingCr") + sumTB(rows, "other_income_rental", "closingCr") + sumTB(rows, "other_income_dividend", "closingCr") + sumTB(rows, "other_income_disposal_gain", "closingCr") + sumTB(rows, "other_income_misc", "closingCr") + investmentAdjs.filter((i) => (i.fairValueGainLoss ?? 0) > 0).reduce((s, i) => s + (i.fairValueGainLoss ?? 0), 0)
+        sumTB(rows, "other_income_interest", "closingCr") + sumTB(rows, "other_income_rental", "closingCr") + sumTB(rows, "other_income_dividend", "closingCr") + sumTB(rows, "other_income_disposal_gain", "closingCr") + miscIncomeCy + investmentAdjs.filter((i) => (i.fairValueGainLoss ?? 0) > 0).reduce((s, i) => s + (i.fairValueGainLoss ?? 0), 0)
       ),
       py: 0
     }
@@ -8324,12 +8330,21 @@ function buildNotesData(params) {
     { cat: "admin_other", label: "CSR & Other Miscellaneous" }
   ];
   const note322_adminExpenses = {
-    lineItems: ADMIN_CATEGORIES2.map((ac) => ({
-      label: ac.label,
-      cy: sumTB(rows, ac.cat, "closingDr"),
-      py: 0
-    })).filter((li) => li.cy > 0),
-    total_cy: round(ADMIN_CATEGORIES2.reduce((s, ac) => s + sumTB(rows, ac.cat, "closingDr"), 0)),
+    lineItems: [
+      ...ADMIN_CATEGORIES2.map((ac) => ({
+        label: ac.label,
+        cy: sumTB(rows, ac.cat, "closingDr"),
+        py: 0
+      })).filter((li) => li.cy > 0),
+      ...nas.foreignCurrency && sumTB(rows, "finance_cost_interest", "closingDr") > 0 ? [{
+        label: "Foreign Exchange / Finance Charges",
+        cy: sumTB(rows, "finance_cost_interest", "closingDr"),
+        py: 0
+      }] : []
+    ],
+    total_cy: round(
+      ADMIN_CATEGORIES2.reduce((s, ac) => s + sumTB(rows, ac.cat, "closingDr"), 0) + (nas.foreignCurrency ? sumTB(rows, "finance_cost_interest", "closingDr") : 0)
+    ),
     total_py: 0
   };
   const bookProfit = IS.profitBeforeTax ?? 0;
@@ -8424,7 +8439,6 @@ function buildNotesData(params) {
     kmpCompensationTotal: 0,
     noRelatedPartyTransactions: subledgerRelatedParties.length === 0 && rpPayRows.length === 0 && rpReceivableRows.length === 0
   };
-  const nas = company.nasCompliance ?? {};
   const hasContingencies = Boolean(nas.contingentLiabilities || nas.leaseArrangements);
   const contingencyParts = [];
   if (nas.contingentLiabilities) {
