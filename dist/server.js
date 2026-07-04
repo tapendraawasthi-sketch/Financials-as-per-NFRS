@@ -1,7 +1,7 @@
 // server/server.ts
 import "dotenv/config";
 import express from "express";
-import path from "path";
+import path2 from "path";
 import { fileURLToPath } from "url";
 import http from "http";
 
@@ -21,9 +21,80 @@ function errorMiddleware(err, _req, res, _next) {
 
 // server/store/sessionStore.ts
 import { randomUUID } from "crypto";
+
+// server/store/persistence.ts
+import fs from "fs";
+import path from "path";
+var DEFAULT_ROOT = path.join(process.cwd(), "data");
+function persistenceEnabled() {
+  return process.env.SESSION_PERSIST !== "false";
+}
+function persistenceRoot() {
+  return process.env.SESSION_PERSIST_DIR ?? path.join(DEFAULT_ROOT, "persisted");
+}
+function ensurePersistenceDir(subdir) {
+  const dir = path.join(persistenceRoot(), subdir);
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+function readPersistedJson(subdir, id) {
+  if (!persistenceEnabled()) return null;
+  const filePath = path.join(ensurePersistenceDir(subdir), `${id}.json`);
+  if (!fs.existsSync(filePath)) return null;
+  try {
+    return JSON.parse(fs.readFileSync(filePath, "utf-8"));
+  } catch {
+    return null;
+  }
+}
+function writePersistedJson(subdir, id, value) {
+  if (!persistenceEnabled()) return;
+  const filePath = path.join(ensurePersistenceDir(subdir), `${id}.json`);
+  fs.writeFileSync(filePath, JSON.stringify(value, null, 0), "utf-8");
+}
+function deletePersistedJson(subdir, id) {
+  if (!persistenceEnabled()) return;
+  const filePath = path.join(ensurePersistenceDir(subdir), `${id}.json`);
+  if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+}
+function listPersistedIds(subdir) {
+  if (!persistenceEnabled()) return [];
+  const dir = ensurePersistenceDir(subdir);
+  return fs.readdirSync(dir).filter((name) => name.endsWith(".json")).map((name) => name.replace(/\.json$/, ""));
+}
+function reviveDates(value, keys) {
+  const next = { ...value };
+  for (const key of keys) {
+    if (typeof next[key] === "string") {
+      next[key] = new Date(String(next[key]));
+    }
+  }
+  return next;
+}
+
+// server/store/sessionStore.ts
 var SESSION_TTL_MS = 4 * 60 * 60 * 1e3;
 var SessionStore = class {
   store = /* @__PURE__ */ new Map();
+  constructor() {
+    this.loadPersistedSessions();
+  }
+  loadPersistedSessions() {
+    if (!persistenceEnabled()) return;
+    for (const id of listPersistedIds("sessions")) {
+      const raw = readPersistedJson("sessions", id);
+      if (!raw) continue;
+      const session = reviveDates(raw, ["createdAt", "lastAccessAt"]);
+      if (Date.now() - session.lastAccessAt.getTime() > SESSION_TTL_MS) {
+        deletePersistedJson("sessions", id);
+        continue;
+      }
+      this.store.set(id, session);
+    }
+  }
+  persist(id, session) {
+    writePersistedJson("sessions", id, session);
+  }
   generateSessionId() {
     return randomUUID();
   }
@@ -32,6 +103,7 @@ var SessionStore = class {
     if (!session) return void 0;
     if (Date.now() - session.lastAccessAt.getTime() > SESSION_TTL_MS) {
       this.store.delete(id);
+      deletePersistedJson("sessions", id);
       return void 0;
     }
     session.lastAccessAt = /* @__PURE__ */ new Date();
@@ -46,6 +118,7 @@ var SessionStore = class {
       ...data
     };
     this.store.set(id, session);
+    this.persist(id, session);
     return session;
   }
   updateSession(id, updater) {
@@ -54,6 +127,7 @@ var SessionStore = class {
     return this.set(id, updater(current));
   }
   clearSession(id) {
+    deletePersistedJson("sessions", id);
     return this.store.delete(id);
   }
   delete(id) {
@@ -69,6 +143,7 @@ var SessionStore = class {
     for (const [id, session] of this.store.entries()) {
       if (session.lastAccessAt.getTime() < cutoff) {
         this.store.delete(id);
+        deletePersistedJson("sessions", id);
         removed++;
       }
     }
@@ -342,10 +417,24 @@ var ACCEPTED_MIME_TYPES = /* @__PURE__ */ new Set([
   // .xls
   "text/csv",
   "application/csv",
-  "text/plain"
+  "text/plain",
   // some browsers send CSV with this type
+  "application/pdf",
+  "image/png",
+  "image/jpeg",
+  "image/jpg",
+  "image/webp"
 ]);
-var ACCEPTED_EXTENSIONS = /* @__PURE__ */ new Set([".xlsx", ".xls", ".csv"]);
+var ACCEPTED_EXTENSIONS = /* @__PURE__ */ new Set([
+  ".xlsx",
+  ".xls",
+  ".csv",
+  ".pdf",
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".webp"
+]);
 function fileFilter(_req, file, cb) {
   const originalName = file.originalname?.toLowerCase() ?? "";
   const ext = originalName.slice(originalName.lastIndexOf("."));
@@ -356,7 +445,7 @@ function fileFilter(_req, file, cb) {
   } else {
     cb(
       new Error(
-        `Only Excel (.xlsx, .xls) and CSV (.csv) files are accepted. Received: "${file.originalname}" (${file.mimetype}).`
+        `Only Excel (.xlsx, .xls), CSV (.csv), PDF (.pdf), or image (.png/.jpg/.webp) files are accepted. Received: "${file.originalname}" (${file.mimetype}).`
       )
     );
   }
@@ -977,6 +1066,92 @@ function parseSecondaryMatrix(matrix) {
     return null;
   }
 }
+var SKIP_MERGE_SHEET_HINTS = [
+  "enter details",
+  "instruction",
+  "cover",
+  "index",
+  "readme",
+  "income statement",
+  "balance sheet",
+  "cash flow",
+  "changes in equity",
+  "notes",
+  "policy"
+];
+function shouldSkipMergeSheet(name) {
+  const normalized = name.trim().toLowerCase();
+  if (isSecondarySheetName(name)) return true;
+  return SKIP_MERGE_SHEET_HINTS.some((hint) => normalized.includes(hint));
+}
+function sheetLooksLikeTrialBalance(matrix) {
+  for (let r = 0; r < Math.min(matrix.length, MAX_HEADER_SCAN); r++) {
+    const row = matrix[r] ?? [];
+    const cells = row.map((cell) => normCell(cell));
+    const hasLabel = cells.some(
+      (cell) => COL_HINTS.label.some((hint) => cell === hint || cell.includes(hint))
+    );
+    const hasAmountColumn = cells.some(
+      (cell) => cell.includes("dr") || cell.includes("debit") || cell.includes("cr") || cell.includes("credit") || cell.includes("balance")
+    );
+    if (hasLabel && hasAmountColumn) return true;
+  }
+  return false;
+}
+function mergeAdditionalTrialBalanceSheets(workbook, primaryName, primaryRows) {
+  const leafByLabel = /* @__PURE__ */ new Map();
+  for (const row of primaryRows) {
+    if (row.isGroupRow) continue;
+    leafByLabel.set(row.rawLabel.trim().toLowerCase(), { ...row });
+  }
+  const warnings = [];
+  const mergedSheetNames = [];
+  for (const ws of workbook.worksheets) {
+    if (ws.name === primaryName) continue;
+    if (shouldSkipMergeSheet(ws.name)) continue;
+    const matrix = worksheetToMatrix(ws);
+    if (!sheetLooksLikeTrialBalance(matrix)) continue;
+    let parsed;
+    try {
+      parsed = parseMatrix(matrix);
+    } catch {
+      continue;
+    }
+    const leafCount = parsed.rows.filter((row) => !row.isGroupRow).length;
+    if (leafCount === 0) continue;
+    mergedSheetNames.push(ws.name);
+    for (const row of parsed.rows) {
+      if (row.isGroupRow) continue;
+      const key = row.rawLabel.trim().toLowerCase();
+      const existing = leafByLabel.get(key);
+      if (existing) {
+        existing.openingDr += row.openingDr;
+        existing.openingCr += row.openingCr;
+        existing.duringDr += row.duringDr;
+        existing.duringCr += row.duringCr;
+        existing.closingDr += row.closingDr;
+        existing.closingCr += row.closingCr;
+      } else {
+        leafByLabel.set(key, { ...row });
+      }
+    }
+  }
+  if (mergedSheetNames.length === 0) {
+    return { rows: primaryRows, warnings };
+  }
+  warnings.push(
+    `Merged ${mergedSheetNames.length} additional trial balance sheet(s): ${mergedSheetNames.join(", ")}.`
+  );
+  const groupRows = primaryRows.filter((row) => row.isGroupRow);
+  const mergedLeaves = Array.from(leafByLabel.values()).map((row, idx) => ({
+    ...row,
+    rowIndex: groupRows.length + idx
+  }));
+  return {
+    rows: [...groupRows, ...mergedLeaves],
+    warnings
+  };
+}
 function buildColMapInRange(row, labelCol, startCol, endCol) {
   const colMap = { label: labelCol };
   for (let c = startCol; c <= endCol; c++) {
@@ -1288,6 +1463,11 @@ async function parseTrialBalance(buffer, filename) {
     result.warnings.push(
       `Detected ICAN MEs workbook template for "${workbookMetadata.companyName ?? "entity"}".`
     );
+  }
+  const merged = mergeAdditionalTrialBalanceSheets(workbook, primaryWs.name, result.rows);
+  if (merged.warnings.length > 0) {
+    result.rows = merged.rows;
+    result.warnings.push(...merged.warnings);
   }
   return { ...result, previousYearData, workbookMetadata };
 }
@@ -6627,8 +6807,76 @@ function toRawTBRow(el, idx) {
     rawIndentSpaces
   };
 }
+var DOCUMENT_EXTENSIONS = /* @__PURE__ */ new Set([".pdf", ".png", ".jpg", ".jpeg", ".webp"]);
+function documentMediaType(ext) {
+  if (ext === ".pdf") return "application/pdf";
+  if (ext === ".png") return "image/png";
+  if (ext === ".webp") return "image/webp";
+  return "image/jpeg";
+}
+async function convertDocumentTrialBalance(buffer, filename, ext, apiKey) {
+  const client = new Anthropic2({ apiKey });
+  const rowSchema = '{"rawLabel": string, "openingDr": number, "openingCr": number, "duringDr": number, "duringCr": number, "closingDr": number, "closingCr": number, "isGroupRow": boolean, "parentGroup": string, "rawIndentSpaces": number, "rowLevel": number}';
+  const response = await client.messages.create({
+    model: "claude-sonnet-4-20250514",
+    max_tokens: 8192,
+    system: SYSTEM_PROMPT2,
+    messages: [
+      {
+        role: "user",
+        content: [
+          ext === ".pdf" ? {
+            type: "document",
+            source: {
+              type: "base64",
+              media_type: "application/pdf",
+              data: buffer.toString("base64")
+            }
+          } : {
+            type: "image",
+            source: {
+              type: "base64",
+              media_type: documentMediaType(ext),
+              data: buffer.toString("base64")
+            }
+          },
+          {
+            type: "text",
+            text: `This ${ext === ".pdf" ? "PDF" : "image"} contains a trial balance export or scan. Extract all trial balance rows from the document. Return a JSON array where each element is exactly: ${rowSchema}.`
+          }
+        ]
+      }
+    ]
+  });
+  const text = response.content.filter((part) => part.type === "text").map((part) => part.type === "text" ? part.text : "").join("");
+  const merged = parseAIResponse2(text);
+  const rawRows = merged.map((el, idx) => toRawTBRow(el, idx)).filter((row) => row.isGroupRow || row.closingDr > 0 || row.closingCr > 0 || row.openingDr > 0 || row.openingCr > 0);
+  if (rawRows.filter((row) => !row.isGroupRow).length === 0) {
+    throw Object.assign(
+      new Error(
+        `Could not extract trial balance rows from "${filename}". Try exporting to Excel/CSV or use Manual Upload.`
+      ),
+      { status: 422 }
+    );
+  }
+  const finalized = finalizeRawTBRows(rawRows);
+  return {
+    rows: finalized.rows,
+    ...finalized.totals,
+    warnings: [
+      `Trial balance extracted from ${ext === ".pdf" ? "PDF document" : "scanned/image upload"} via AI OCR.`,
+      ...finalized.warnings
+    ],
+    detectedColumns: {},
+    headerRowIndex: 0,
+    detectedFormat: "ai_converted"
+  };
+}
 async function convertRoughTrialBalance(buffer, filename, apiKey) {
   const ext = filename.toLowerCase().slice(filename.lastIndexOf("."));
+  if (DOCUMENT_EXTENSIONS.has(ext)) {
+    return convertDocumentTrialBalance(buffer, filename, ext, apiKey);
+  }
   let matrix;
   if (ext === ".csv") {
     matrix = parseCSVText(buffer.toString("utf-8"));
@@ -6863,17 +7111,25 @@ router2.post("/:companyId/upload", tbUploadMiddleware, async (req, res, next) =>
         error: "File size exceeds the 50 MB limit. Please reduce the file size by removing unnecessary sheets or rows."
       });
     }
-    const allowed = [
+    const ext = (req.file.originalname ?? "").split(".").pop()?.toLowerCase();
+    const documentExts = /* @__PURE__ */ new Set(["pdf", "png", "jpg", "jpeg", "webp"]);
+    const spreadsheetExts = /* @__PURE__ */ new Set(["xlsx", "xls", "csv"]);
+    const allowedMimes = [
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       "application/vnd.ms-excel",
       "text/csv",
-      "application/csv"
+      "application/csv",
+      "application/pdf",
+      "image/png",
+      "image/jpeg",
+      "image/webp"
     ];
-    const ext = (req.file.originalname ?? "").split(".").pop()?.toLowerCase();
-    if (!allowed.includes(req.file.mimetype) && !["xlsx", "xls", "csv"].includes(ext ?? "")) {
+    const isDocument = documentExts.has(ext ?? "");
+    const isSpreadsheet = spreadsheetExts.has(ext ?? "") || allowedMimes.includes(req.file.mimetype);
+    if (!isDocument && !isSpreadsheet) {
       return res.status(415).json({
         success: false,
-        error: "Unsupported file format. Please upload .xlsx, .xls, or .csv files exported from your accounting software."
+        error: "Unsupported file format. Upload Excel/CSV exports, or PDF/image scans for AI OCR import."
       });
     }
     let session = sessionStore.get(req.params.companyId);
@@ -6895,7 +7151,19 @@ router2.post("/:companyId/upload", tbUploadMiddleware, async (req, res, next) =>
         code: "SESSION_NOT_FOUND"
       });
     }
-    const parsed = await parseTrialBalance(req.file.buffer, req.file.originalname);
+    let parsed;
+    if (isDocument) {
+      const apiKey = process.env.ANTHROPIC_API_KEY;
+      if (!apiKey) {
+        return res.status(503).json({
+          success: false,
+          error: "PDF/image OCR import requires AI configuration. Export to Excel/CSV or enable ANTHROPIC_API_KEY."
+        });
+      }
+      parsed = await convertRoughTrialBalance(req.file.buffer, req.file.originalname, apiKey);
+    } else {
+      parsed = await parseTrialBalance(req.file.buffer, req.file.originalname);
+    }
     if (parsed.workbookMetadata?.format === "mes_template") {
       const meta = parsed.workbookMetadata;
       const current = session.company ?? {};
@@ -6924,9 +7192,9 @@ router2.post("/:companyId/upload", tbUploadMiddleware, async (req, res, next) =>
       });
     }
     const tb = await classifyAndBuildTB(req.params.companyId, parsed, {
-      useAI: req.query.useAI === "true",
+      useAI: isDocument || req.query.useAI === "true",
       uploadedFileName: req.file.originalname,
-      importMode: "manual",
+      importMode: isDocument ? "ai" : "manual",
       apiKey: process.env.ANTHROPIC_API_KEY
     });
     const validation = tb.validation;
@@ -7222,7 +7490,75 @@ import { Router as Router3 } from "express";
 
 // server/store/subledgerStore.ts
 import crypto2 from "crypto";
+
+// src/utils/subledgerValidation.ts
+var TOLERANCE = 1;
+function sumDebtorDebitTotal(debtors = []) {
+  return debtors.reduce((sum, row) => sum + Math.max(0, row.debitBalance ?? 0), 0);
+}
+function sumCreditorCreditTotal(creditors = []) {
+  return creditors.reduce((sum, row) => sum + Math.max(0, row.creditBalance ?? 0), 0);
+}
+function sumBankTotals(bankAccounts = []) {
+  const bankAssetTotal = bankAccounts.filter((row) => (row.balance ?? 0) > 0).reduce((sum, row) => sum + (row.balance ?? 0), 0);
+  const bankLiabilityTotal = bankAccounts.filter((row) => (row.balance ?? 0) < 0).reduce((sum, row) => sum + Math.abs(row.balance ?? 0), 0);
+  return { bankAssetTotal, bankLiabilityTotal };
+}
+function checkDebtorReconciliation(subledgerTotal, tbTotal, hasRows = true) {
+  const diff = Math.abs(subledgerTotal - tbTotal);
+  const isBalanced = diff <= TOLERANCE || tbTotal === 0 || !hasRows;
+  return { subledgerTotal, tbTotal, diff, isBalanced };
+}
+function checkCreditorReconciliation(subledgerTotal, tbTotal, hasRows = true) {
+  const diff = Math.abs(subledgerTotal - tbTotal);
+  const isBalanced = diff <= TOLERANCE || tbTotal === 0 || !hasRows;
+  return { subledgerTotal, tbTotal, diff, isBalanced };
+}
+function validateSubledgerTotals(data, tbDebtorTotal, tbCreditorTotal) {
+  const warnings = [];
+  const debtors = data.debtors ?? [];
+  const creditors = data.creditors ?? [];
+  const bankAccounts = data.bankAccounts ?? [];
+  const debtorTotal = sumDebtorDebitTotal(debtors);
+  const creditorTotal = sumCreditorCreditTotal(creditors);
+  const { bankAssetTotal, bankLiabilityTotal } = sumBankTotals(bankAccounts);
+  const debtorCheck = checkDebtorReconciliation(debtorTotal, tbDebtorTotal, debtors.length > 0);
+  if (debtors.length > 0 && !debtorCheck.isBalanced) {
+    warnings.push(
+      `Debtor subledger total (NPR ${debtorTotal.toLocaleString("en-IN")}) does not match trial balance trade receivables (NPR ${tbDebtorTotal.toLocaleString("en-IN")}). Difference: NPR ${debtorCheck.diff.toLocaleString("en-IN")}.`
+    );
+  }
+  const creditorCheck = checkCreditorReconciliation(creditorTotal, tbCreditorTotal, creditors.length > 0);
+  if (creditors.length > 0 && !creditorCheck.isBalanced) {
+    warnings.push(
+      `Creditor subledger total (NPR ${creditorTotal.toLocaleString("en-IN")}) does not match trial balance trade payables (NPR ${tbCreditorTotal.toLocaleString("en-IN")}). Difference: NPR ${creditorCheck.diff.toLocaleString("en-IN")}.`
+    );
+  }
+  return {
+    debtorTotal,
+    creditorTotal,
+    bankAssetTotal,
+    bankLiabilityTotal,
+    isValid: warnings.length === 0,
+    warnings
+  };
+}
+
+// server/store/subledgerStore.ts
 var store = /* @__PURE__ */ new Map();
+function persistSubledger(data) {
+  writePersistedJson("subledgers", data.sessionId, data);
+}
+function loadPersistedSubledgers() {
+  if (!persistenceEnabled()) return;
+  for (const id of listPersistedIds("subledgers")) {
+    const raw = readPersistedJson("subledgers", id);
+    if (!raw) continue;
+    const data = reviveDates(raw, ["lastUpdatedAt"]);
+    store.set(id, data);
+  }
+}
+loadPersistedSubledgers();
 function emptySubledger(sessionId) {
   return {
     sessionId,
@@ -7250,6 +7586,7 @@ function upsertDebtors(sessionId, debtors) {
     lastUpdatedAt: /* @__PURE__ */ new Date()
   };
   store.set(sessionId, updated);
+  persistSubledger(updated);
   return updated;
 }
 function upsertCreditors(sessionId, creditors) {
@@ -7266,6 +7603,7 @@ function upsertCreditors(sessionId, creditors) {
     lastUpdatedAt: /* @__PURE__ */ new Date()
   };
   store.set(sessionId, updated);
+  persistSubledger(updated);
   return updated;
 }
 function upsertBankAccounts(sessionId, bankAccounts) {
@@ -7280,6 +7618,7 @@ function upsertBankAccounts(sessionId, bankAccounts) {
     lastUpdatedAt: /* @__PURE__ */ new Date()
   };
   store.set(sessionId, updated);
+  persistSubledger(updated);
   return updated;
 }
 function upsertRelatedParties(sessionId, relatedParties) {
@@ -7298,38 +7637,16 @@ function upsertRelatedParties(sessionId, relatedParties) {
     lastUpdatedAt: /* @__PURE__ */ new Date()
   };
   store.set(sessionId, updated);
+  persistSubledger(updated);
   return updated;
 }
 function deleteSubledger(sessionId) {
+  deletePersistedJson("subledgers", sessionId);
   return store.delete(sessionId);
 }
 function validateSubledger(sessionId, tbDebtorTotal, tbCreditorTotal) {
   const data = getSubledger(sessionId);
-  const warnings = [];
-  const debtorTotal = data.debtors.reduce((s, d) => s + d.debitBalance, 0);
-  const creditorTotal = data.creditors.reduce((s, c) => s + c.creditBalance, 0);
-  const bankAssetTotal = data.bankAccounts.filter((b) => b.balance > 0).reduce((s, b) => s + b.balance, 0);
-  const bankLiabilityTotal = data.bankAccounts.filter((b) => b.balance < 0).reduce((s, b) => s + Math.abs(b.balance), 0);
-  const debtorDiff = Math.abs(debtorTotal - tbDebtorTotal);
-  if (data.debtors.length > 0 && debtorDiff > 1) {
-    warnings.push(
-      `Debtor subledger total (NPR ${debtorTotal.toLocaleString("en-IN")}) does not match trial balance trade receivables (NPR ${tbDebtorTotal.toLocaleString("en-IN")}). Difference: NPR ${debtorDiff.toLocaleString("en-IN")}.`
-    );
-  }
-  const creditorDiff = Math.abs(creditorTotal - tbCreditorTotal);
-  if (data.creditors.length > 0 && creditorDiff > 1) {
-    warnings.push(
-      `Creditor subledger total (NPR ${creditorTotal.toLocaleString("en-IN")}) does not match trial balance trade payables (NPR ${tbCreditorTotal.toLocaleString("en-IN")}). Difference: NPR ${creditorDiff.toLocaleString("en-IN")}.`
-    );
-  }
-  return {
-    debtorTotal,
-    creditorTotal,
-    bankAssetTotal,
-    bankLiabilityTotal,
-    isValid: warnings.length === 0,
-    warnings
-  };
+  return validateSubledgerTotals(data, tbDebtorTotal, tbCreditorTotal);
 }
 function cleanupSubledger(maxAgeHours) {
   const cutoff = Date.now() - maxAgeHours * 60 * 60 * 1e3;
@@ -9672,10 +9989,10 @@ function requestLogger(req, res, next) {
 
 // server/server.ts
 var __filename = fileURLToPath(import.meta.url);
-var __dirname = path.dirname(__filename);
+var __dirname = path2.dirname(__filename);
 var PORT = parseInt(process.env.PORT ?? "3000", 10);
 var isDev = process.env.NODE_ENV !== "production";
-var DIST = path.join(__dirname, "..", "dist");
+var DIST = path2.join(__dirname, "..", "dist");
 var app = express();
 app.use(securityHeaders);
 app.use(requestLogger);
@@ -9721,7 +10038,9 @@ app.get("/api/health", (_req, res) => {
       heapUsed: `${(mem.heapUsed / 1024 / 1024).toFixed(1)} MB`,
       heapTotal: `${(mem.heapTotal / 1024 / 1024).toFixed(1)} MB`
     },
-    timestamp: (/* @__PURE__ */ new Date()).toISOString()
+    timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+    persistence: persistenceEnabled() ? "file-backed" : "memory-only",
+    activeSessions: sessionStore.size()
   });
 });
 app.use("/api/company", company_default);
@@ -9736,7 +10055,7 @@ if (!isDev) {
     index: "index.html"
   }));
   app.get("*", (_req, res) => {
-    res.sendFile(path.join(DIST, "index.html"));
+    res.sendFile(path2.join(DIST, "index.html"));
   });
 } else {
   app.get("/", (_req, res) => {

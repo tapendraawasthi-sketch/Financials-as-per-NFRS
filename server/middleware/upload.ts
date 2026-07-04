@@ -9,10 +9,17 @@ const ACCEPTED_MIME_TYPES = new Set([
   'text/csv',
   'application/csv',
   'text/plain',  // some browsers send CSV with this type
+  'application/pdf',
+  'image/png',
+  'image/jpeg',
+  'image/jpg',
+  'image/webp',
 ]);
 
 /** Accepted file extensions (lower-case). */
-const ACCEPTED_EXTENSIONS = new Set(['.xlsx', '.xls', '.csv']);
+const ACCEPTED_EXTENSIONS = new Set([
+  '.xlsx', '.xls', '.csv', '.pdf', '.png', '.jpg', '.jpeg', '.webp',
+]);
 
 function fileFilter(
   _req: Request,
@@ -29,7 +36,7 @@ function fileFilter(
   } else {
     cb(
       new Error(
-        'Only Excel (.xlsx, .xls) and CSV (.csv) files are accepted. ' +
+        'Only Excel (.xlsx, .xls), CSV (.csv), PDF (.pdf), or image (.png/.jpg/.webp) files are accepted. ' +
           `Received: "${file.originalname}" (${file.mimetype}).`,
       ),
     );

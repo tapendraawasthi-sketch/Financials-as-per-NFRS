@@ -5,9 +5,16 @@
 //   Tab 3: Bank Accounts (individual bank ledgers)
 //   Tab 4: Related Parties (transactions and outstanding balances)
 
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import Button from '../ui/Button';
 import Alert  from '../ui/Alert';
+import {
+  checkCreditorReconciliation,
+  checkDebtorReconciliation,
+  sumCreditorCreditTotal,
+  sumDebtorDebitTotal,
+  type SubledgerValidation,
+} from '../../utils/subledgerValidation';
 
 // ─── Local types (mirror subledgerStore interfaces) ────────────────────────────
 
@@ -250,10 +257,16 @@ function DebtorsTab({
   const delRow  = (id: string) =>
     setRows((prev) => prev.length > 1 ? prev.filter((r) => r.id !== id) : prev);
 
-  const debitTotal  = rows.reduce((s, r) => s + numVal(r.debitBalance), 0);
+  const debitTotal = useMemo(
+    () => sumDebtorDebitTotal(rows.map((row) => ({ debitBalance: numVal(row.debitBalance) }))),
+    [rows],
+  );
   const creditTotal = rows.reduce((s, r) => s + numVal(r.creditBalance), 0);
-  const diff        = Math.abs(debitTotal - tbTotal);
-  const balanced    = diff <= 1 || tbTotal === 0;
+  const reconciliation = useMemo(
+    () => checkDebtorReconciliation(debitTotal, tbTotal, rows.some((row) => row.partyName.trim())),
+    [debitTotal, tbTotal, rows],
+  );
+  const { diff, isBalanced: balanced } = reconciliation;
 
   const handleSave = async () => {
     setSaving(true);
@@ -273,7 +286,13 @@ function DebtorsTab({
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ companyId, debtors: payload }),
       });
-      if (!res.ok) throw new Error((await res.json()).error ?? 'Save failed');
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error ?? 'Save failed');
+      if (body.validation && !body.validation.isValid) {
+        const warning = (body.validation as SubledgerValidation).warnings.join(' ');
+        setError(warning || 'Subledger totals do not match the trial balance.');
+        return;
+      }
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
     } catch (e: any) {
@@ -407,10 +426,16 @@ function CreditorsTab({
   const delRow = (id: string) =>
     setRows((prev) => prev.length > 1 ? prev.filter((r) => r.id !== id) : prev);
 
-  const creditTotal = rows.reduce((s, r) => s + numVal(r.creditBalance), 0);
+  const creditTotal = useMemo(
+    () => sumCreditorCreditTotal(rows.map((row) => ({ creditBalance: numVal(row.creditBalance) }))),
+    [rows],
+  );
   const debitTotal  = rows.reduce((s, r) => s + numVal(r.debitBalance), 0);
-  const diff        = Math.abs(creditTotal - tbTotal);
-  const balanced    = diff <= 1 || tbTotal === 0;
+  const reconciliation = useMemo(
+    () => checkCreditorReconciliation(creditTotal, tbTotal, rows.some((row) => row.partyName.trim())),
+    [creditTotal, tbTotal, rows],
+  );
+  const { diff, isBalanced: balanced } = reconciliation;
 
   const handleSave = async () => {
     setSaving(true); setError(null);
@@ -428,7 +453,13 @@ function CreditorsTab({
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ companyId, creditors: payload }),
       });
-      if (!res.ok) throw new Error((await res.json()).error ?? 'Save failed');
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error ?? 'Save failed');
+      if (body.validation && !body.validation.isValid) {
+        const warning = (body.validation as SubledgerValidation).warnings.join(' ');
+        setError(warning || 'Subledger totals do not match the trial balance.');
+        return;
+      }
       setSaved(true); setTimeout(() => setSaved(false), 2500);
     } catch (e: any) {
       setError(e?.message ?? 'Failed to save creditors.');

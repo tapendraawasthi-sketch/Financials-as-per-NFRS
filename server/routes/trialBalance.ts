@@ -125,17 +125,27 @@ router.post('/:companyId/upload', tbUploadMiddleware, async (req: Request, res: 
     }
 
     // ── Format check
-    const allowed = [
+    const ext = (req.file.originalname ?? '').split('.').pop()?.toLowerCase();
+    const documentExts = new Set(['pdf', 'png', 'jpg', 'jpeg', 'webp']);
+    const spreadsheetExts = new Set(['xlsx', 'xls', 'csv']);
+    const allowedMimes = [
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       'application/vnd.ms-excel',
       'text/csv',
       'application/csv',
+      'application/pdf',
+      'image/png',
+      'image/jpeg',
+      'image/webp',
     ];
-    const ext = (req.file.originalname ?? '').split('.').pop()?.toLowerCase();
-    if (!allowed.includes(req.file.mimetype) && !['xlsx','xls','csv'].includes(ext ?? '')) {
+
+    const isDocument = documentExts.has(ext ?? '');
+    const isSpreadsheet = spreadsheetExts.has(ext ?? '') || allowedMimes.includes(req.file.mimetype);
+
+    if (!isDocument && !isSpreadsheet) {
       return res.status(415).json({
         success: false,
-        error: 'Unsupported file format. Please upload .xlsx, .xls, or .csv files exported from your accounting software.',
+        error: 'Unsupported file format. Upload Excel/CSV exports, or PDF/image scans for AI OCR import.',
       });
     }
 
@@ -160,7 +170,19 @@ router.post('/:companyId/upload', tbUploadMiddleware, async (req: Request, res: 
       });
     }
 
-    const parsed = await parseTrialBalance(req.file.buffer, req.file.originalname);
+    let parsed;
+    if (isDocument) {
+      const apiKey = process.env.ANTHROPIC_API_KEY;
+      if (!apiKey) {
+        return res.status(503).json({
+          success: false,
+          error: 'PDF/image OCR import requires AI configuration. Export to Excel/CSV or enable ANTHROPIC_API_KEY.',
+        });
+      }
+      parsed = await convertRoughTrialBalance(req.file.buffer, req.file.originalname, apiKey);
+    } else {
+      parsed = await parseTrialBalance(req.file.buffer, req.file.originalname);
+    }
 
     if (parsed.workbookMetadata?.format === 'mes_template') {
       const meta = parsed.workbookMetadata;
@@ -195,9 +217,9 @@ router.post('/:companyId/upload', tbUploadMiddleware, async (req: Request, res: 
     }
 
     const tb = await classifyAndBuildTB(req.params.companyId, parsed, {
-      useAI: req.query.useAI === 'true',
+      useAI: isDocument || req.query.useAI === 'true',
       uploadedFileName: req.file.originalname,
-      importMode: 'manual',
+      importMode: isDocument ? 'ai' : 'manual',
       apiKey: process.env.ANTHROPIC_API_KEY,
     });
 

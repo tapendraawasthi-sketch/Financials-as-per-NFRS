@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ChevronDown, ChevronRight, TrendingUp, TrendingDown, Calculator } from 'lucide-react';
 import { DepreciationSummary, TaxDepreciationPool } from '../../types';
+import { ITA_TAX_DEPRECIATION_POOLS } from '../../data/taxDepreciationPools';
 import { formatNPR } from '../../utils/numberFormat';
 
 interface DepreciationScheduleProps {
@@ -18,12 +19,7 @@ function fmt(n: number, rl: number): string {
   return formatNPR(rounded);
 }
 
-const TAX_POOLS: { pool: string; rate: number; label: string }[] = [
-  { pool: 'A', rate: 0.05,  label: 'Pool A (5%)  – Buildings / Structures' },
-  { pool: 'B', rate: 0.25,  label: 'Pool B (25%) – Computers / IT Assets' },
-  { pool: 'C', rate: 0.20,  label: 'Pool C (20%) – Vehicles / Plant & Machinery' },
-  { pool: 'D', rate: 0.15,  label: 'Pool D (15%) – Furniture / Office Equipment' },
-];
+const TAX_POOLS = ITA_TAX_DEPRECIATION_POOLS;
 
 export default function DepreciationSchedule({
   summary,
@@ -55,11 +51,15 @@ export default function DepreciationSchedule({
   const taxDepreciation = useServerPools
     ? (taxDepreciationPools ?? []).reduce((sum, pool) => sum + (pool.taxDepreciation ?? 0), 0)
     : summary.reduce((total, s) => {
-      const pool = TAX_POOLS.find(p =>
-        s.categoryId.toLowerCase().includes('building')   ? p.pool === 'A' :
-        s.categoryId.toLowerCase().includes('computer')   ? p.pool === 'B' :
-        s.categoryId.toLowerCase().includes('vehicle')    ? p.pool === 'C' : p.pool === 'D'
-      ) ?? TAX_POOLS[3];
+      const cat = s.categoryId.toLowerCase();
+      const pool = TAX_POOLS.find((entry) => {
+        if (entry.pool === 'A') return cat.includes('building') || cat.includes('land');
+        if (entry.pool === 'B') return cat.includes('computer') || cat.includes('intangible') || cat.includes('software');
+        if (entry.pool === 'C') return cat.includes('office') || cat.includes('furniture');
+        if (entry.pool === 'D') return cat.includes('vehicle');
+        if (entry.pool === 'E') return cat.includes('plant') || cat.includes('machine') || cat.includes('machinery');
+        return false;
+      }) ?? TAX_POOLS[4];
       const basis = s.openingCost + s.additions - s.disposals;
       return total + basis * pool.rate;
     }, 0);
@@ -271,21 +271,19 @@ export default function DepreciationSchedule({
                 {(useServerPools ? taxDepreciationPools! : TAX_POOLS).map((entry) => {
                   if (useServerPools) {
                     const pool = entry as TaxDepreciationPool;
-                    const additions = 0;
-                    const disposals = 0;
-                    const basis = pool.openingBasis;
-                    const taxDepn = pool.taxDepreciation;
+                    const basis = pool.depreciationBasis ?? pool.openingBasis ?? 0;
+                    const taxDepn = pool.taxDepreciation ?? 0;
                     const rate = pool.rate;
                     const label = pool.poolName || `Pool ${pool.pool}`;
 
                     return (
-                      <tr key={pool.pool}>
+                      <tr key={`${pool.pool}-${label}`}>
                         <td className="px-3 py-2 text-left">
                           <span className="font-semibold" style={{ color: 'var(--ink-900)' }}>{label}</span>
                         </td>
-                        <td className={tdCls}>{fmt(basis, roundingLevel)}</td>
-                        <td className={tdCls}>–</td>
-                        <td className={tdCls}>–</td>
+                        <td className={tdCls}>{fmt(pool.openingBasis ?? 0, roundingLevel)}</td>
+                        <td className={tdCls}>{pool.additions ? fmt(pool.additions, roundingLevel) : '–'}</td>
+                        <td className={tdCls}>{pool.disposals ? `(${fmt(pool.disposals, roundingLevel)})` : '–'}</td>
                         <td className={`${tdCls} font-medium`}>{fmt(basis, roundingLevel)}</td>
                         <td className="px-3 py-2 text-right text-sm" style={{ color: 'var(--ink-500)' }}>{(rate * 100).toFixed(0)}%</td>
                         <td className={tdCls} style={{ fontWeight: 600, color: 'var(--brand-700)', background: 'var(--brand-50)' }}>{fmt(taxDepn, roundingLevel)}</td>
@@ -294,12 +292,14 @@ export default function DepreciationSchedule({
                   }
 
                   const { pool, rate, label } = entry as { pool: string; rate: number; label: string };
-                  const poolSummaries = summary.filter(s => {
+                  const poolSummaries = summary.filter((s) => {
                     const cat = s.categoryId.toLowerCase();
                     if (pool === 'A') return cat.includes('building') || cat.includes('land');
-                    if (pool === 'B') return cat.includes('computer') || cat.includes('it') || cat.includes('software');
-                    if (pool === 'C') return cat.includes('vehicle') || cat.includes('plant') || cat.includes('machine');
-                    return true;
+                    if (pool === 'B') return cat.includes('computer') || cat.includes('intangible') || cat.includes('software');
+                    if (pool === 'C') return cat.includes('office') || cat.includes('furniture');
+                    if (pool === 'D') return cat.includes('vehicle');
+                    if (pool === 'E') return cat.includes('plant') || cat.includes('machine') || cat.includes('machinery');
+                    return false;
                   });
 
                   const openBasis = poolSummaries.reduce((a, s) => a + s.openingCost - s.openingAccumDepn, 0);

@@ -85,12 +85,107 @@ function toRawTBRow(el: AIExtractedRow, idx: number): RawTBRow {
   };
 }
 
+const DOCUMENT_EXTENSIONS = new Set(['.pdf', '.png', '.jpg', '.jpeg', '.webp']);
+
+function documentMediaType(ext: string): string {
+  if (ext === '.pdf') return 'application/pdf';
+  if (ext === '.png') return 'image/png';
+  if (ext === '.webp') return 'image/webp';
+  return 'image/jpeg';
+}
+
+async function convertDocumentTrialBalance(
+  buffer: Buffer,
+  filename: string,
+  ext: string,
+  apiKey: string,
+): Promise<RawTBParseResult & { detectedFormat: string }> {
+  const client = new Anthropic({ apiKey });
+  const rowSchema =
+    '{"rawLabel": string, "openingDr": number, "openingCr": number, ' +
+    '"duringDr": number, "duringCr": number, "closingDr": number, "closingCr": number, ' +
+    '"isGroupRow": boolean, "parentGroup": string, "rawIndentSpaces": number, "rowLevel": number}';
+
+  const response = await client.messages.create({
+    model: 'claude-sonnet-4-20250514',
+    max_tokens: 8192,
+    system: SYSTEM_PROMPT,
+    messages: [
+      {
+        role: 'user',
+        content: [
+          ext === '.pdf'
+            ? {
+                type: 'document' as const,
+                source: {
+                  type: 'base64' as const,
+                  media_type: 'application/pdf',
+                  data: buffer.toString('base64'),
+                },
+              }
+            : {
+                type: 'image' as const,
+                source: {
+                  type: 'base64' as const,
+                  media_type: documentMediaType(ext),
+                  data: buffer.toString('base64'),
+                },
+              },
+          {
+            type: 'text',
+            text:
+              `This ${ext === '.pdf' ? 'PDF' : 'image'} contains a trial balance export or scan. ` +
+              `Extract all trial balance rows from the document. Return a JSON array where each element is exactly: ${rowSchema}.`,
+          },
+        ],
+      },
+    ],
+  });
+
+  const text = response.content
+    .filter((part) => part.type === 'text')
+    .map((part) => (part.type === 'text' ? part.text : ''))
+    .join('');
+
+  const merged = parseAIResponse(text);
+  const rawRows = merged
+    .map((el, idx) => toRawTBRow(el, idx))
+    .filter((row) => row.isGroupRow || row.closingDr > 0 || row.closingCr > 0 || row.openingDr > 0 || row.openingCr > 0);
+
+  if (rawRows.filter((row) => !row.isGroupRow).length === 0) {
+    throw Object.assign(
+      new Error(
+        `Could not extract trial balance rows from "${filename}". Try exporting to Excel/CSV or use Manual Upload.`,
+      ),
+      { status: 422 },
+    );
+  }
+
+  const finalized = finalizeRawTBRows(rawRows);
+  return {
+    rows: finalized.rows,
+    ...finalized.totals,
+    warnings: [
+      `Trial balance extracted from ${ext === '.pdf' ? 'PDF document' : 'scanned/image upload'} via AI OCR.`,
+      ...finalized.warnings,
+    ],
+    detectedColumns: {},
+    headerRowIndex: 0,
+    detectedFormat: 'ai_converted' as RawTBParseResult['detectedFormat'],
+  };
+}
+
 export async function convertRoughTrialBalance(
   buffer: Buffer,
   filename: string,
   apiKey: string,
 ): Promise<RawTBParseResult & { detectedFormat: string }> {
   const ext = filename.toLowerCase().slice(filename.lastIndexOf('.'));
+
+  if (DOCUMENT_EXTENSIONS.has(ext)) {
+    return convertDocumentTrialBalance(buffer, filename, ext, apiKey);
+  }
+
   let matrix: unknown[][];
 
   if (ext === '.csv') {

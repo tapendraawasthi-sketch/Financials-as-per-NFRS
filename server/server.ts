@@ -16,6 +16,7 @@ import outputRouter       from './routes/output.js';
 import { errorMiddleware }                     from './middleware/errorHandler.js';
 import { securityHeaders, createRateLimiter, requestLogger } from './middleware/security.js';
 import { sessionStore }                        from './store/sessionStore.js';
+import { persistenceEnabled }                    from './store/persistence.js';
 
 // ── ESM __dirname shim ────────────────────────────────────────────────────
 const __filename = fileURLToPath(import.meta.url);
@@ -93,6 +94,8 @@ app.get('/api/health', (_req: Request, res: Response) => {
       heapTotal: `${(mem.heapTotal / 1024 / 1024).toFixed(1)} MB`,
     },
     timestamp: new Date().toISOString(),
+    persistence: persistenceEnabled() ? 'file-backed' : 'memory-only',
+    activeSessions: sessionStore.size(),
   });
 });
 

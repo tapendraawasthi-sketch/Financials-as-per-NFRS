@@ -729,6 +729,116 @@ function parseSecondaryMatrix(matrix: unknown[][]): RawTBRow[] | null {
   }
 }
 
+const SKIP_MERGE_SHEET_HINTS = [
+  'enter details',
+  'instruction',
+  'cover',
+  'index',
+  'readme',
+  'income statement',
+  'balance sheet',
+  'cash flow',
+  'changes in equity',
+  'notes',
+  'policy',
+];
+
+function shouldSkipMergeSheet(name: string): boolean {
+  const normalized = name.trim().toLowerCase();
+  if (isSecondarySheetName(name)) return true;
+  return SKIP_MERGE_SHEET_HINTS.some((hint) => normalized.includes(hint));
+}
+
+function sheetLooksLikeTrialBalance(matrix: unknown[][]): boolean {
+  for (let r = 0; r < Math.min(matrix.length, MAX_HEADER_SCAN); r++) {
+    const row = matrix[r] ?? [];
+    const cells = row.map((cell) => normCell(cell));
+    const hasLabel = cells.some((cell) =>
+      COL_HINTS.label.some((hint) => cell === hint || cell.includes(hint)),
+    );
+    const hasAmountColumn = cells.some((cell) =>
+      cell.includes('dr')
+      || cell.includes('debit')
+      || cell.includes('cr')
+      || cell.includes('credit')
+      || cell.includes('balance'),
+    );
+    if (hasLabel && hasAmountColumn) return true;
+  }
+  return false;
+}
+
+/** Merge additional division/branch TB worksheets into the primary parse result. */
+export function mergeAdditionalTrialBalanceSheets(
+  workbook: ExcelJS.Workbook,
+  primaryName: string,
+  primaryRows: RawTBRow[],
+): { rows: RawTBRow[]; warnings: string[] } {
+  const leafByLabel = new Map<string, RawTBRow>();
+  for (const row of primaryRows) {
+    if (row.isGroupRow) continue;
+    leafByLabel.set(row.rawLabel.trim().toLowerCase(), { ...row });
+  }
+
+  const warnings: string[] = [];
+  const mergedSheetNames: string[] = [];
+
+  for (const ws of workbook.worksheets) {
+    if (ws.name === primaryName) continue;
+    if (shouldSkipMergeSheet(ws.name)) continue;
+
+    const matrix = worksheetToMatrix(ws);
+    if (!sheetLooksLikeTrialBalance(matrix)) continue;
+
+    let parsed: RawTBParseResult;
+    try {
+      parsed = parseMatrix(matrix);
+    } catch {
+      continue;
+    }
+
+    const leafCount = parsed.rows.filter((row) => !row.isGroupRow).length;
+    if (leafCount === 0) continue;
+
+    mergedSheetNames.push(ws.name);
+
+    for (const row of parsed.rows) {
+      if (row.isGroupRow) continue;
+      const key = row.rawLabel.trim().toLowerCase();
+      const existing = leafByLabel.get(key);
+      if (existing) {
+        existing.openingDr += row.openingDr;
+        existing.openingCr += row.openingCr;
+        existing.duringDr += row.duringDr;
+        existing.duringCr += row.duringCr;
+        existing.closingDr += row.closingDr;
+        existing.closingCr += row.closingCr;
+      } else {
+        leafByLabel.set(key, { ...row });
+      }
+    }
+  }
+
+  if (mergedSheetNames.length === 0) {
+    return { rows: primaryRows, warnings };
+  }
+
+  warnings.push(
+    `Merged ${mergedSheetNames.length} additional trial balance sheet(s): ${mergedSheetNames.join(', ')}.`,
+  );
+
+  const groupRows = primaryRows.filter((row) => row.isGroupRow);
+  const mergedLeaves = Array.from(leafByLabel.values()).map((row, idx) => ({
+    ...row,
+    rowIndex: groupRows.length + idx,
+  }));
+
+  return {
+    rows: [...groupRows, ...mergedLeaves],
+    warnings,
+  };
+}
+
 function buildColMapInRange(
   row: unknown[],
   labelCol: number,
@@ -1164,6 +1274,12 @@ export async function parseTrialBalance(
     result.warnings.push(
       `Detected ICAN MEs workbook template for "${workbookMetadata.companyName ?? 'entity'}".`,
     );
+  }
+
+  const merged = mergeAdditionalTrialBalanceSheets(workbook, primaryWs.name, result.rows);
+  if (merged.warnings.length > 0) {
+    result.rows = merged.rows;
+    result.warnings.push(...merged.warnings);
   }
 
   return { ...result, previousYearData, workbookMetadata };
