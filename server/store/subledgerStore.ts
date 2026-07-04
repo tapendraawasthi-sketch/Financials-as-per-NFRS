@@ -6,8 +6,20 @@
 // Keyed by sessionId (same as companyId in sessionStore).
 
 import crypto from 'crypto';
+import {
+  deletePersistedJson,
+  listPersistedIds,
+  persistenceEnabled,
+  readPersistedJson,
+  reviveDates,
+  writePersistedJson,
+} from './persistence.js';
+import {
+  validateSubledgerTotals,
+  type SubledgerValidation,
+} from '../../src/utils/subledgerValidation.js';
 
-// ─── Interfaces ────────────────────────────────────────────────────────────────
+export type { SubledgerValidation } from '../../src/utils/subledgerValidation.js';
 
 export interface DebtorEntry {
   id: string;
@@ -81,20 +93,25 @@ export interface SubledgerData {
   lastUpdatedAt: Date;
 }
 
-// ─── Validation helpers ────────────────────────────────────────────────────────
-
-export interface SubledgerValidation {
-  debtorTotal: number;
-  creditorTotal: number;
-  bankAssetTotal: number;
-  bankLiabilityTotal: number;
-  isValid: boolean;
-  warnings: string[];
-}
-
-// ─── In-memory store ───────────────────────────────────────────────────────────
+// ─── Interfaces ────────────────────────────────────────────────────────────────
 
 const store = new Map<string, SubledgerData>();
+
+function persistSubledger(data: SubledgerData): void {
+  writePersistedJson('subledgers', data.sessionId, data);
+}
+
+function loadPersistedSubledgers(): void {
+  if (!persistenceEnabled()) return;
+  for (const id of listPersistedIds('subledgers')) {
+    const raw = readPersistedJson<SubledgerData>('subledgers', id);
+    if (!raw) continue;
+    const data = reviveDates(raw, ['lastUpdatedAt']);
+    store.set(id, data);
+  }
+}
+
+loadPersistedSubledgers();
 
 function emptySubledger(sessionId: string): SubledgerData {
   return {
@@ -130,6 +147,7 @@ export function upsertDebtors(sessionId: string, debtors: DebtorEntry[]): Subled
     lastUpdatedAt: new Date(),
   };
   store.set(sessionId, updated);
+  persistSubledger(updated);
   return updated;
 }
 
@@ -148,6 +166,7 @@ export function upsertCreditors(sessionId: string, creditors: CreditorEntry[]): 
     lastUpdatedAt: new Date(),
   };
   store.set(sessionId, updated);
+  persistSubledger(updated);
   return updated;
 }
 
@@ -167,6 +186,7 @@ export function upsertBankAccounts(
     lastUpdatedAt: new Date(),
   };
   store.set(sessionId, updated);
+  persistSubledger(updated);
   return updated;
 }
 
@@ -190,11 +210,13 @@ export function upsertRelatedParties(
     lastUpdatedAt: new Date(),
   };
   store.set(sessionId, updated);
+  persistSubledger(updated);
   return updated;
 }
 
 /** Delete subledger data for a session. */
 export function deleteSubledger(sessionId: string): boolean {
+  deletePersistedJson('subledgers', sessionId);
   return store.delete(sessionId);
 }
 
@@ -205,45 +227,7 @@ export function validateSubledger(
   tbCreditorTotal: number,
 ): SubledgerValidation {
   const data = getSubledger(sessionId);
-  const warnings: string[] = [];
-
-  const debtorTotal = data.debtors.reduce((s, d) => s + d.debitBalance, 0);
-  const creditorTotal = data.creditors.reduce((s, c) => s + c.creditBalance, 0);
-  const bankAssetTotal = data.bankAccounts
-    .filter((b) => b.balance > 0)
-    .reduce((s, b) => s + b.balance, 0);
-  const bankLiabilityTotal = data.bankAccounts
-    .filter((b) => b.balance < 0)
-    .reduce((s, b) => s + Math.abs(b.balance), 0);
-
-  // Debtor reconciliation
-  const debtorDiff = Math.abs(debtorTotal - tbDebtorTotal);
-  if (data.debtors.length > 0 && debtorDiff > 1) {
-    warnings.push(
-      `Debtor subledger total (NPR ${debtorTotal.toLocaleString('en-IN')}) does not match ` +
-      `trial balance trade receivables (NPR ${tbDebtorTotal.toLocaleString('en-IN')}). ` +
-      `Difference: NPR ${debtorDiff.toLocaleString('en-IN')}.`
-    );
-  }
-
-  // Creditor reconciliation
-  const creditorDiff = Math.abs(creditorTotal - tbCreditorTotal);
-  if (data.creditors.length > 0 && creditorDiff > 1) {
-    warnings.push(
-      `Creditor subledger total (NPR ${creditorTotal.toLocaleString('en-IN')}) does not match ` +
-      `trial balance trade payables (NPR ${tbCreditorTotal.toLocaleString('en-IN')}). ` +
-      `Difference: NPR ${creditorDiff.toLocaleString('en-IN')}.`
-    );
-  }
-
-  return {
-    debtorTotal,
-    creditorTotal,
-    bankAssetTotal,
-    bankLiabilityTotal,
-    isValid: warnings.length === 0,
-    warnings,
-  };
+  return validateSubledgerTotals(data, tbDebtorTotal, tbCreditorTotal);
 }
 
 /** Cleanup stale entries (mirrors sessionStore cleanup pattern). */

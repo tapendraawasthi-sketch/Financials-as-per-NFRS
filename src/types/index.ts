@@ -2,10 +2,11 @@
 
 import type { CompanyProfile as CompanyProfileBase, AccountingPolicies as AccountingPoliciesBase, InventoryDetails } from './company';
 import type { BalanceSheet as BalanceSheetBase, IncomeStatement as IncomeStatementBase, ChangesInEquity as ChangesInEquityBase, NotesData as NotesDataBase } from './financials';
-import type { MappedTBRow as MappedTBRowBase, NFRSCategory, RawTBRow, RawTBParseResult, ParsedTrialBalance } from './trialBalance';
+import type { MappedTBRow as MappedTBRowBase, NFRSCategory, RawTBRow, RawTBParseResult, ParsedTrialBalance, NormalizedTrialBalancePreview } from './trialBalance';
 import type { YearEndAdjustments as YearEndAdjustmentsBase, AssetRegisterEntry as AssetRegisterEntryBase, InvestmentAdjustment as InvestmentAdjustmentBase } from './adjustments';
 
 export type { NFRSCategory, RawTBRow, RawTBParseResult, ParsedTrialBalance, InventoryDetails, PreviousYearBalances } from './company';
+export type { NormalizedTrialBalancePreview } from './trialBalance';
 export type { FiscalYearEntry as FiscalYearInfo } from '../data/fiscalYears';
 export type { CashFlowStatement, PPENote, InvestmentsNote } from './financials';
 export type { BankAccountDetail, CreditorEntry, DebtorEntry, RelatedPartyEntry } from './adjustments';
@@ -165,8 +166,15 @@ export interface TaxDepreciationPool {
   poolName: string;
   rate: number;
   openingBasis: number;
+  additions?: number;
+  disposals?: number;
+  absorbed?: number;
+  unabsorbed?: number;
+  depreciationBasis?: number;
   taxDepreciation: number;
   closingBasis: number;
+  nextYearBasis?: number;
+  repairExpense?: number;
 }
 
 export interface JournalEntry {

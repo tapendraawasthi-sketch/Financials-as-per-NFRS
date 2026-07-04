@@ -17,6 +17,7 @@ import {
   NotesData,
 } from '../types';
 import { ValidationResult } from '../utils/validation';
+import type { NormalizedTrialBalancePreview, RawTBRow } from '../types/trialBalance';
 
 // ── Base fetch wrapper ─────────────────────────────────────────────────────────
 
@@ -203,6 +204,79 @@ export const tbApi = {
       xhr.send(formData);
     }),
 
+  parsePreviewUpload: (
+    companyId: string,
+    file: File,
+    mode: 'manual' | 'ai' = 'manual',
+    onProgress?: (pct: number) => void,
+    companySnapshot?: Partial<CompanyProfile>,
+  ): Promise<NormalizedTrialBalancePreview> =>
+    new Promise<NormalizedTrialBalancePreview>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      const formData = new FormData();
+      formData.append('trialbalance', file);
+      if (companySnapshot) {
+        formData.append('company', JSON.stringify(companySnapshot));
+      }
+
+      xhr.upload.onprogress = (e: ProgressEvent) => {
+        if (e.lengthComputable && onProgress) {
+          onProgress(Math.round((e.loaded / e.total) * (mode === 'ai' ? 40 : 70)));
+        }
+      };
+      xhr.upload.onloadend = () => { if (onProgress) onProgress(mode === 'ai' ? 45 : 75); };
+
+      xhr.onload = () => {
+        if (onProgress) onProgress(100);
+        try {
+          const data = JSON.parse(xhr.responseText) as {
+            success?: boolean;
+            data?: NormalizedTrialBalancePreview;
+            error?: string;
+          };
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve(data.data ?? (data as unknown as NormalizedTrialBalancePreview));
+          } else {
+            reject(new Error(data.error || `Parse preview failed with status ${xhr.status}`));
+          }
+        } catch {
+          reject(new Error(`Failed to parse server response: ${xhr.responseText.slice(0, 200)}`));
+        }
+      };
+      xhr.onerror = () => reject(new Error('Network error during upload.'));
+      xhr.ontimeout = () => reject(new Error('Upload timed out.'));
+      xhr.timeout = mode === 'ai' ? 300_000 : 120_000;
+
+      xhr.open('POST', `/api/trial-balance/${companyId}/parse-preview?mode=${mode}`);
+      xhr.send(formData);
+    }),
+
+  confirmNormalized: (
+    companyId: string,
+    rows: RawTBRow[],
+    useAI?: boolean,
+  ): Promise<ParsedTrialBalance> =>
+    apiRequest<ParsedTrialBalance>('POST', `/api/trial-balance/${companyId}/confirm-normalized`, {
+      rows,
+      useAI,
+    }),
+
+  exportNormalized: async (companyId: string, rows?: RawTBRow[]): Promise<Blob> => {
+    if (rows?.length) {
+      await apiRequest('POST', `/api/trial-balance/${companyId}/normalized/save`, { rows });
+    }
+    const response = await fetch(`/api/trial-balance/${companyId}/normalized/export`);
+    if (!response.ok) {
+      let message = `Export failed: ${response.status}`;
+      try {
+        const body = await response.json();
+        if (body.error) message = body.error;
+      } catch { /* ignore */ }
+      throw new Error(message);
+    }
+    return response.blob();
+  },
+
   getByCompany: (companyId: string): Promise<ParsedTrialBalance> =>
     apiRequest<ParsedTrialBalance>('GET', `/api/trial-balance/${companyId}`),
 
@@ -303,6 +377,12 @@ export const adjustmentsApi = {
     items: InvestmentAdjustment[],
   ): Promise<{ saved: boolean }> =>
     apiRequest<{ saved: boolean }>('POST', `/api/adjustments/${companyId}/investments`, { items }),
+
+  saveDisallowedForTax: (
+    companyId: string,
+    disallowedForTax: YearEndAdjustments['disallowedForTax'],
+  ): Promise<{ saved: boolean }> =>
+    apiRequest('POST', `/api/adjustments/${companyId}/disallowed-tax`, { disallowedForTax }),
 
   getByCompany: (companyId: string): Promise<YearEndAdjustments> =>
     apiRequest<YearEndAdjustments>('GET', `/api/adjustments/${companyId}`),

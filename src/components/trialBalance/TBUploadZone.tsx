@@ -86,10 +86,12 @@ export default function TBUploadZone({
   const [aiOn,        setAiOn]        = useState(useAI);
 
   const handleFile = useCallback(async (file: File) => {
-    const allowed = ['xlsx', 'xls', 'csv'];
-    const ext     = file.name.split('.').pop()?.toLowerCase() ?? '';
-    if (!allowed.includes(ext)) {
-      onError(`Unsupported file type: .${ext}. Please upload .xlsx, .xls, or .csv`);
+    const spreadsheetExts = ['xlsx', 'xls', 'csv'];
+    const documentExts = ['pdf', 'png', 'jpg', 'jpeg', 'webp'];
+    const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
+    const isDocument = documentExts.includes(ext);
+    if (!spreadsheetExts.includes(ext) && !isDocument) {
+      onError(`Unsupported file type: .${ext}. Please upload Excel/CSV exports or PDF/image scans.`);
       return;
     }
 
@@ -112,8 +114,15 @@ export default function TBUploadZone({
         onCompanyResolved?.(serverCompany);
       }
 
-      setProcessingPhase(uploadingMessage ?? 'Uploading and parsing trial balance…');
-      const uploadFn = onUpload ?? ((id, f, prog, snap) => tbApi.upload(id, f, aiOn, prog, snap));
+      setProcessingPhase(
+        isDocument
+          ? 'Extracting trial balance from document via AI OCR…'
+          : (uploadingMessage ?? 'Uploading and parsing trial balance…'),
+      );
+      const uploadFn = onUpload ?? ((id, f, prog, snap) => {
+        if (isDocument || aiOn) return tbApi.aiConvertUpload(id, f, prog, snap);
+        return tbApi.upload(id, f, false, prog, snap);
+      });
       const payload = await uploadFn(
         serverCompany.id,
         file,
@@ -238,7 +247,7 @@ export default function TBUploadZone({
                 Drop file here or click to browse
               </p>
               <p className="text-xs mt-1" style={{ color: 'var(--ink-400)' }}>
-                Accepts .xlsx, .xls, .csv — ICAN MEs templates, Tally/Busy grouped exports
+                Accepts .xlsx, .xls, .csv, plus PDF/image scans (AI OCR)
               </p>
               <div className="mt-4 flex justify-center" onClick={(e) => e.stopPropagation()}>
                 <Button type="button" variant="secondary" size="sm" onClick={loadDummyData}>
@@ -325,7 +334,7 @@ export default function TBUploadZone({
           <input
             ref={fileRef}
             type="file"
-            accept=".xlsx,.xls,.csv"
+            accept=".xlsx,.xls,.csv,.pdf,.png,.jpg,.jpeg,.webp"
             className="hidden"
             onChange={handleInputChange}
             aria-hidden="true"

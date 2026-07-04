@@ -194,12 +194,12 @@ function computeTaxDepPool(
   taxableIncome: number,
   repairExpenses: Record<string, number> = {},
 ) {
-  return TAX_POOLS.map((pool) => {
+  const poolResults = TAX_POOLS.map((pool) => {
     const poolAssets = assets.filter((a) => pool.classes.includes(a.assetClass));
     let additions = 0;
     let disposals = 0;
     for (const a of poolAssets) {
-      additions += a.additionsCY + a.originalCost;
+      additions += a.additionsCY ?? 0;
       disposals += a.disposalValue ?? 0;
     }
 
@@ -210,23 +210,46 @@ function computeTaxDepPool(
     additions += capitalizedRepairs;
 
     const depreciationBasis = openingBasis + additions - disposals;
-    const absorbed = additions;
     const depreciation = depreciationBasis * pool.rate;
     const netDepreciation = depreciation;
-    const unabsorbed = Math.max(0, netDepreciation - taxableIncome * (2 / 3));
-    const taxableDepreciation = netDepreciation - unabsorbed;
-    const nextYearBasis = depreciationBasis - taxableDepreciation;
 
     return {
       poolName: pool.poolName,
+      pool: pool.poolName,
       rate: pool.rate,
       openingBasis,
       additions,
       disposals,
-      absorbed,
-      unabsorbed: Math.round(unabsorbed * 100) / 100,
-      nextYearBasis: Math.round(Math.max(0, nextYearBasis) * 100) / 100,
+      depreciationBasis: Math.round(depreciationBasis * 100) / 100,
+      netDepreciation: Math.round(netDepreciation * 100) / 100,
       repairExpense,
+    };
+  });
+
+  const totalNetDep = poolResults.reduce((s, p) => s + p.netDepreciation, 0);
+  const maxAllowable = taxableIncome * (2 / 3);
+  const totalUnabsorbed = Math.max(0, totalNetDep - maxAllowable);
+
+  return poolResults.map((pool) => {
+    const share = totalNetDep > 0 ? pool.netDepreciation / totalNetDep : 0;
+    const unabsorbed = Math.round(totalUnabsorbed * share * 100) / 100;
+    const taxableDepreciation = Math.round((pool.netDepreciation - unabsorbed) * 100) / 100;
+    const nextYearBasis = Math.max(0, pool.depreciationBasis - taxableDepreciation);
+
+    return {
+      poolName: pool.poolName,
+      pool: pool.poolName,
+      rate: pool.rate,
+      openingBasis: pool.openingBasis,
+      additions: pool.additions,
+      disposals: pool.disposals,
+      absorbed: taxableDepreciation,
+      unabsorbed,
+      taxDepreciation: taxableDepreciation,
+      depreciationBasis: pool.depreciationBasis,
+      closingBasis: Math.round(nextYearBasis * 100) / 100,
+      nextYearBasis: Math.round(nextYearBasis * 100) / 100,
+      repairExpense: pool.repairExpense,
     };
   });
 }
@@ -319,6 +342,12 @@ export function calculateTaxDepreciation(
   assets: AssetRegisterEntry[],
   _categories: unknown[],
   openingPoolBases: Record<string, number>,
+  taxableIncome = 0,
+  repairExpenses?: Record<string, number>,
 ) {
-  return computeDepreciation(assets, undefined, { taxOpeningBases: openingPoolBases }).taxDepSchedule;
+  return computeDepreciation(assets, undefined, {
+    taxOpeningBases: openingPoolBases,
+    taxableIncome,
+    repairExpenses,
+  }).taxDepSchedule;
 }

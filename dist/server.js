@@ -1,7 +1,7 @@
 // server/server.ts
 import "dotenv/config";
 import express from "express";
-import path from "path";
+import path2 from "path";
 import { fileURLToPath } from "url";
 import http from "http";
 
@@ -21,9 +21,80 @@ function errorMiddleware(err, _req, res, _next) {
 
 // server/store/sessionStore.ts
 import { randomUUID } from "crypto";
+
+// server/store/persistence.ts
+import fs from "fs";
+import path from "path";
+var DEFAULT_ROOT = path.join(process.cwd(), "data");
+function persistenceEnabled() {
+  return process.env.SESSION_PERSIST !== "false";
+}
+function persistenceRoot() {
+  return process.env.SESSION_PERSIST_DIR ?? path.join(DEFAULT_ROOT, "persisted");
+}
+function ensurePersistenceDir(subdir) {
+  const dir = path.join(persistenceRoot(), subdir);
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+function readPersistedJson(subdir, id) {
+  if (!persistenceEnabled()) return null;
+  const filePath = path.join(ensurePersistenceDir(subdir), `${id}.json`);
+  if (!fs.existsSync(filePath)) return null;
+  try {
+    return JSON.parse(fs.readFileSync(filePath, "utf-8"));
+  } catch {
+    return null;
+  }
+}
+function writePersistedJson(subdir, id, value) {
+  if (!persistenceEnabled()) return;
+  const filePath = path.join(ensurePersistenceDir(subdir), `${id}.json`);
+  fs.writeFileSync(filePath, JSON.stringify(value, null, 0), "utf-8");
+}
+function deletePersistedJson(subdir, id) {
+  if (!persistenceEnabled()) return;
+  const filePath = path.join(ensurePersistenceDir(subdir), `${id}.json`);
+  if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+}
+function listPersistedIds(subdir) {
+  if (!persistenceEnabled()) return [];
+  const dir = ensurePersistenceDir(subdir);
+  return fs.readdirSync(dir).filter((name) => name.endsWith(".json")).map((name) => name.replace(/\.json$/, ""));
+}
+function reviveDates(value, keys) {
+  const next = { ...value };
+  for (const key of keys) {
+    if (typeof next[key] === "string") {
+      next[key] = new Date(String(next[key]));
+    }
+  }
+  return next;
+}
+
+// server/store/sessionStore.ts
 var SESSION_TTL_MS = 4 * 60 * 60 * 1e3;
 var SessionStore = class {
   store = /* @__PURE__ */ new Map();
+  constructor() {
+    this.loadPersistedSessions();
+  }
+  loadPersistedSessions() {
+    if (!persistenceEnabled()) return;
+    for (const id of listPersistedIds("sessions")) {
+      const raw = readPersistedJson("sessions", id);
+      if (!raw) continue;
+      const session = reviveDates(raw, ["createdAt", "lastAccessAt"]);
+      if (Date.now() - session.lastAccessAt.getTime() > SESSION_TTL_MS) {
+        deletePersistedJson("sessions", id);
+        continue;
+      }
+      this.store.set(id, session);
+    }
+  }
+  persist(id, session) {
+    writePersistedJson("sessions", id, session);
+  }
   generateSessionId() {
     return randomUUID();
   }
@@ -32,6 +103,7 @@ var SessionStore = class {
     if (!session) return void 0;
     if (Date.now() - session.lastAccessAt.getTime() > SESSION_TTL_MS) {
       this.store.delete(id);
+      deletePersistedJson("sessions", id);
       return void 0;
     }
     session.lastAccessAt = /* @__PURE__ */ new Date();
@@ -46,6 +118,7 @@ var SessionStore = class {
       ...data
     };
     this.store.set(id, session);
+    this.persist(id, session);
     return session;
   }
   updateSession(id, updater) {
@@ -54,6 +127,7 @@ var SessionStore = class {
     return this.set(id, updater(current));
   }
   clearSession(id) {
+    deletePersistedJson("sessions", id);
     return this.store.delete(id);
   }
   delete(id) {
@@ -69,6 +143,7 @@ var SessionStore = class {
     for (const [id, session] of this.store.entries()) {
       if (session.lastAccessAt.getTime() < cutoff) {
         this.store.delete(id);
+        deletePersistedJson("sessions", id);
         removed++;
       }
     }
@@ -342,10 +417,24 @@ var ACCEPTED_MIME_TYPES = /* @__PURE__ */ new Set([
   // .xls
   "text/csv",
   "application/csv",
-  "text/plain"
+  "text/plain",
   // some browsers send CSV with this type
+  "application/pdf",
+  "image/png",
+  "image/jpeg",
+  "image/jpg",
+  "image/webp"
 ]);
-var ACCEPTED_EXTENSIONS = /* @__PURE__ */ new Set([".xlsx", ".xls", ".csv"]);
+var ACCEPTED_EXTENSIONS = /* @__PURE__ */ new Set([
+  ".xlsx",
+  ".xls",
+  ".csv",
+  ".pdf",
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".webp"
+]);
 function fileFilter(_req, file, cb) {
   const originalName = file.originalname?.toLowerCase() ?? "";
   const ext = originalName.slice(originalName.lastIndexOf("."));
@@ -356,7 +445,7 @@ function fileFilter(_req, file, cb) {
   } else {
     cb(
       new Error(
-        `Only Excel (.xlsx, .xls) and CSV (.csv) files are accepted. Received: "${file.originalname}" (${file.mimetype}).`
+        `Only Excel (.xlsx, .xls), CSV (.csv), PDF (.pdf), or image (.png/.jpg/.webp) files are accepted. Received: "${file.originalname}" (${file.mimetype}).`
       )
     );
   }
@@ -977,6 +1066,92 @@ function parseSecondaryMatrix(matrix) {
     return null;
   }
 }
+var SKIP_MERGE_SHEET_HINTS = [
+  "enter details",
+  "instruction",
+  "cover",
+  "index",
+  "readme",
+  "income statement",
+  "balance sheet",
+  "cash flow",
+  "changes in equity",
+  "notes",
+  "policy"
+];
+function shouldSkipMergeSheet(name) {
+  const normalized = name.trim().toLowerCase();
+  if (isSecondarySheetName(name)) return true;
+  return SKIP_MERGE_SHEET_HINTS.some((hint) => normalized.includes(hint));
+}
+function sheetLooksLikeTrialBalance(matrix) {
+  for (let r = 0; r < Math.min(matrix.length, MAX_HEADER_SCAN); r++) {
+    const row = matrix[r] ?? [];
+    const cells = row.map((cell) => normCell(cell));
+    const hasLabel = cells.some(
+      (cell) => COL_HINTS.label.some((hint) => cell === hint || cell.includes(hint))
+    );
+    const hasAmountColumn = cells.some(
+      (cell) => cell.includes("dr") || cell.includes("debit") || cell.includes("cr") || cell.includes("credit") || cell.includes("balance")
+    );
+    if (hasLabel && hasAmountColumn) return true;
+  }
+  return false;
+}
+function mergeAdditionalTrialBalanceSheets(workbook, primaryName, primaryRows) {
+  const leafByLabel = /* @__PURE__ */ new Map();
+  for (const row of primaryRows) {
+    if (row.isGroupRow) continue;
+    leafByLabel.set(row.rawLabel.trim().toLowerCase(), { ...row });
+  }
+  const warnings = [];
+  const mergedSheetNames = [];
+  for (const ws of workbook.worksheets) {
+    if (ws.name === primaryName) continue;
+    if (shouldSkipMergeSheet(ws.name)) continue;
+    const matrix = worksheetToMatrix(ws);
+    if (!sheetLooksLikeTrialBalance(matrix)) continue;
+    let parsed;
+    try {
+      parsed = parseMatrix(matrix);
+    } catch {
+      continue;
+    }
+    const leafCount = parsed.rows.filter((row) => !row.isGroupRow).length;
+    if (leafCount === 0) continue;
+    mergedSheetNames.push(ws.name);
+    for (const row of parsed.rows) {
+      if (row.isGroupRow) continue;
+      const key = row.rawLabel.trim().toLowerCase();
+      const existing = leafByLabel.get(key);
+      if (existing) {
+        existing.openingDr += row.openingDr;
+        existing.openingCr += row.openingCr;
+        existing.duringDr += row.duringDr;
+        existing.duringCr += row.duringCr;
+        existing.closingDr += row.closingDr;
+        existing.closingCr += row.closingCr;
+      } else {
+        leafByLabel.set(key, { ...row });
+      }
+    }
+  }
+  if (mergedSheetNames.length === 0) {
+    return { rows: primaryRows, warnings };
+  }
+  warnings.push(
+    `Merged ${mergedSheetNames.length} additional trial balance sheet(s): ${mergedSheetNames.join(", ")}.`
+  );
+  const groupRows = primaryRows.filter((row) => row.isGroupRow);
+  const mergedLeaves = Array.from(leafByLabel.values()).map((row, idx) => ({
+    ...row,
+    rowIndex: groupRows.length + idx
+  }));
+  return {
+    rows: [...groupRows, ...mergedLeaves],
+    warnings
+  };
+}
 function buildColMapInRange(row, labelCol, startCol, endCol) {
   const colMap = { label: labelCol };
   for (let c = startCol; c <= endCol; c++) {
@@ -1080,10 +1255,10 @@ function parseMatrixWithColMap(matrix, colMap, headerRowIndex, mode, warningsPre
     totalClosingDr += row.closingDr;
     totalClosingCr += row.closingCr;
   }
-  const round22 = (n) => Math.round(n * 100) / 100;
-  totalClosingDr = round22(totalClosingDr);
-  totalClosingCr = round22(totalClosingCr);
-  const difference = round22(totalClosingDr - totalClosingCr);
+  const round23 = (n) => Math.round(n * 100) / 100;
+  totalClosingDr = round23(totalClosingDr);
+  totalClosingCr = round23(totalClosingCr);
+  const difference = round23(totalClosingDr - totalClosingCr);
   const isBalanced = Math.abs(difference) < 1;
   if (!isBalanced) {
     warnings.push(
@@ -1091,7 +1266,7 @@ function parseMatrixWithColMap(matrix, colMap, headerRowIndex, mode, warningsPre
     );
   }
   if (mode === "tally_grouped") {
-    const duringDiff = Math.abs(round22(totalDuringDr) - round22(totalDuringCr));
+    const duringDiff = Math.abs(round23(totalDuringDr) - round23(totalDuringCr));
     if (!isBalanced && duringDiff < 1e3) {
       warnings.push(
         "Closing totals differ but during-period movement is balanced (common in Tally/Busy grouped exports)."
@@ -1100,10 +1275,10 @@ function parseMatrixWithColMap(matrix, colMap, headerRowIndex, mode, warningsPre
   }
   return {
     rows: rowsWithParents,
-    totalOpeningDr: round22(totalOpeningDr),
-    totalOpeningCr: round22(totalOpeningCr),
-    totalDuringDr: round22(totalDuringDr),
-    totalDuringCr: round22(totalDuringCr),
+    totalOpeningDr: round23(totalOpeningDr),
+    totalOpeningCr: round23(totalOpeningCr),
+    totalDuringDr: round23(totalDuringDr),
+    totalDuringCr: round23(totalDuringCr),
     totalClosingDr,
     totalClosingCr,
     isBalanced,
@@ -1288,6 +1463,11 @@ async function parseTrialBalance(buffer, filename) {
     result.warnings.push(
       `Detected ICAN MEs workbook template for "${workbookMetadata.companyName ?? "entity"}".`
     );
+  }
+  const merged = mergeAdditionalTrialBalanceSheets(workbook, primaryWs.name, result.rows);
+  if (merged.warnings.length > 0) {
+    result.rows = merged.rows;
+    result.warnings.push(...merged.warnings);
   }
   return { ...result, previousYearData, workbookMetadata };
 }
@@ -2996,6 +3176,294 @@ import ExcelJS3 from "exceljs";
 
 // server/services/excelWriter.ts
 import ExcelJS2 from "exceljs";
+
+// server/services/mesEnterDetailsFields.ts
+function buildMesEnterDetailsFields(company, adjustments) {
+  const policies = company.accountingPolicies;
+  const inv = adjustments?.inventoryDetails;
+  const taxRate = policies?.incomeTaxRatePercent ?? company.incomeTaxRate ?? 25;
+  const bonusRate = policies?.bonusRatePercent ?? (company.employeeBonusRate ?? 0.1) * 100;
+  const employees = company.noOfEmployees ?? company.numberOfEmployees ?? 0;
+  const dividendDeclared = company.dividendDeclaredPercent ?? 0;
+  const dividendCapacity = Math.max(0, 100 - dividendDeclared);
+  const fields = [
+    { label: "name of entity", value: company.companyName ?? company.name ?? "" },
+    { label: "address", value: company.fullAddress ?? company.address ?? "" },
+    { label: "this year", value: company.fiscalYear?.bsFY ?? company.fiscalYearCurrent ?? "" },
+    { label: "last year", value: company.previousFiscalYear?.bsFY ?? company.fiscalYearPrevious ?? "" },
+    { label: "reporting date (bs)", value: company.fiscalYear?.endDateBS ?? company.reportingDateBS ?? "" },
+    { label: "reporting date (ad)", value: company.fiscalYear?.endDateAD ?? company.reportingDateAD ?? "" },
+    { label: "entity type", value: company.entityType ?? company.typeOfEntity ?? company.companyType ?? "" },
+    { label: "applicable standard", value: company.applicableStandard ?? "NAS for MEs" },
+    { label: "pan / vat number", value: company.panVatNumber ?? company.panNo ?? "" },
+    { label: "registration no.", value: company.registrationNumber ?? company.registrationNo ?? "" },
+    { label: "chairperson", value: company.chairperson ?? "" },
+    { label: "director", value: company.director ?? "" },
+    { label: "accounts head", value: company.accountsHead ?? "" },
+    { label: "auditor", value: company.auditorInfo?.auditorName ?? company.auditor ?? "" },
+    { label: "name of audit firm", value: company.auditorInfo?.auditorFirmName ?? company.auditFirmName ?? "" },
+    { label: "ican registration no.", value: company.auditorInfo?.icanRegNumber ?? "" },
+    { label: "number of employees", value: employees, isNumeric: true },
+    { label: "income tax rate (%)", value: taxRate, isNumeric: true },
+    { label: "bonus rate (%)", value: typeof bonusRate === "number" && bonusRate <= 1 ? bonusRate * 100 : bonusRate, isNumeric: true },
+    { label: "rounding level (npr)", value: policies?.roundingLevel ?? 100, isNumeric: true },
+    { label: "authorized share capital", value: company.authorizedCapital ?? 0, isNumeric: true },
+    { label: "issued share capital (cy)", value: company.issuedCapitalCY ?? 0, isNumeric: true },
+    { label: "dividend capacity (%)", value: dividendCapacity, isNumeric: true },
+    { label: "dividend declared (%)", value: dividendDeclared, isNumeric: true },
+    { label: "dividend payable (npr)", value: adjustments?.dividendPayable ?? 0, isNumeric: true }
+  ];
+  if (inv) {
+    fields.push(
+      { label: "inventory \u2014 raw materials (cy)", value: inv.rawMaterialsCY ?? 0, isNumeric: true },
+      { label: "inventory \u2014 raw materials (py)", value: inv.rawMaterialsPY ?? 0, isNumeric: true },
+      { label: "inventory \u2014 work in progress (cy)", value: inv.wipCY ?? 0, isNumeric: true },
+      { label: "inventory \u2014 work in progress (py)", value: inv.wipPY ?? 0, isNumeric: true },
+      { label: "inventory \u2014 finished goods (cy)", value: inv.finishedGoodsCY ?? 0, isNumeric: true },
+      { label: "inventory \u2014 finished goods (py)", value: inv.finishedGoodsPY ?? 0, isNumeric: true }
+    );
+  }
+  return fields;
+}
+
+// server/services/mesTrialBalanceWriter.ts
+var NUMBER_FORMAT = "#,##0.00";
+var SUBHEADER_BG = "E2EFDA";
+var THIN_BORDER = {
+  top: { style: "thin", color: { argb: "FFD1D5DB" } },
+  left: { style: "thin", color: { argb: "FFD1D5DB" } },
+  bottom: { style: "thin", color: { argb: "FFD1D5DB" } },
+  right: { style: "thin", color: { argb: "FFD1D5DB" } }
+};
+function applyHeaderStyle(cell) {
+  cell.font = { name: "Arial", size: 11, bold: true, color: { argb: "FF1E3A5F" } };
+  cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFD6E4F0" } };
+}
+function applySubHeaderStyle(cell) {
+  cell.font = { name: "Arial", size: 10, bold: true };
+  cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: `FF${SUBHEADER_BG}` } };
+  cell.border = THIN_BORDER;
+}
+function applyInputStyle(cell) {
+  cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE8F5E9" } };
+}
+var MES_TB_TOTAL_COLS = 19;
+var MES_TB_CY_COLS = [2, 3, 4, 5, 6, 7, 8, 9];
+var MES_TB_PY_COLS = [12, 13, 14, 15, 16, 17, 18, 19];
+var SECTION_MAP = [
+  { prefixes: ["BS Equity"], header: "CAPITAL ACCOUNT & RESERVES" },
+  { prefixes: ["BS NCL Borrowings"], header: "NON-CURRENT LIABILITIES - LOANS & BORROWINGS" },
+  { prefixes: ["BS NCL Employee Benefits"], header: "NON-CURRENT LIABILITIES - EMPLOYEE BENEFITS" },
+  { prefixes: ["BS NCL Provisions"], header: "NON-CURRENT LIABILITIES - PROVISIONS" },
+  { prefixes: ["BS NCL"], header: "NON-CURRENT LIABILITIES - OTHER" },
+  { prefixes: ["BS CL Trade Payables"], header: "CURRENT LIABILITIES - TRADE PAYABLES" },
+  { prefixes: ["BS CL Borrowings"], header: "CURRENT LIABILITIES - LOANS & BORROWINGS" },
+  { prefixes: ["BS CL Tax"], header: "CURRENT LIABILITIES - TAX PAYABLE" },
+  { prefixes: ["BS CL Employee"], header: "CURRENT LIABILITIES - EMPLOYEE PAYABLES" },
+  { prefixes: ["BS CL Provisions"], header: "CURRENT LIABILITIES - PROVISIONS" },
+  { prefixes: ["BS CL Other"], header: "CURRENT LIABILITIES - OTHER" },
+  { prefixes: ["BS CA Tax"], header: "CURRENT ASSETS - ADVANCE TAX" },
+  { prefixes: ["BS NCA PPE"], header: "PROPERTY, PLANT & EQUIPMENT" },
+  { prefixes: ["BS NCA/CA Investments", "BS NCA Investments"], header: "INVESTMENTS" },
+  { prefixes: ["BS NCA"], header: "OTHER NON-CURRENT ASSETS" },
+  { prefixes: ["BS CA Inventory"], header: "CURRENT ASSETS - INVENTORY" },
+  { prefixes: ["BS CA Receivables"], header: "CURRENT ASSETS - TRADE RECEIVABLES" },
+  { prefixes: ["BS CA Other Receivables"], header: "CURRENT ASSETS - OTHER RECEIVABLES" },
+  { prefixes: ["BS CA Cash"], header: "CURRENT ASSETS - CASH & BANK" },
+  { prefixes: ["BS CA"], header: "CURRENT ASSETS - OTHER" },
+  { prefixes: ["IS Revenue"], header: "DIRECT INCOME" },
+  { prefixes: ["IS Other Income"], header: "INDIRECT INCOME" },
+  { prefixes: ["IS COGS"], header: "DIRECT EXPENSES" },
+  { prefixes: ["IS Employee Benefits"], header: "EMPLOYEE BENEFIT EXPENSES" },
+  { prefixes: ["IS Finance Costs"], header: "FINANCE COSTS" },
+  { prefixes: ["IS Depreciation"], header: "DEPRECIATION" },
+  { prefixes: ["IS Impairment"], header: "IMPAIRMENT EXPENSES" },
+  { prefixes: ["IS Admin"], header: "ADMINISTRATIVE EXPENSES" },
+  { prefixes: ["IS Tax"], header: "INCOME TAX EXPENSE" }
+];
+function colLetter(col) {
+  let letter = "";
+  let n = col;
+  while (n > 0) {
+    const rem = (n - 1) % 26;
+    letter = String.fromCharCode(65 + rem) + letter;
+    n = Math.floor((n - 1) / 26);
+  }
+  return letter;
+}
+function normLabel(s) {
+  return s.toLowerCase().trim().replace(/\s+/g, " ");
+}
+function buildSectionAccounts() {
+  const sectionAccounts = /* @__PURE__ */ new Map();
+  for (const entry of CHART_OF_ACCOUNTS) {
+    if (entry.isGroup || entry.statementLine === "N/A") continue;
+    let header = null;
+    for (const { prefixes, header: h } of SECTION_MAP) {
+      if (prefixes.some((p) => entry.statementLine.startsWith(p))) {
+        header = h;
+        break;
+      }
+    }
+    if (!header) continue;
+    if (!sectionAccounts.has(header)) sectionAccounts.set(header, []);
+    sectionAccounts.get(header).push({ displayLabel: entry.displayLabel, category: entry.category });
+  }
+  return SECTION_MAP.map(({ header }) => header).filter((header) => sectionAccounts.has(header)).map((header) => ({ header, accounts: sectionAccounts.get(header) }));
+}
+function indexRows(rows) {
+  const map = /* @__PURE__ */ new Map();
+  for (const row of rows) {
+    if (row.isGroupRow) continue;
+    map.set(normLabel(row.rawLabel), row);
+    if (row.displayLabel) map.set(normLabel(row.displayLabel), row);
+    if (row.nfrsCategory) map.set(String(row.nfrsCategory), row);
+  }
+  return map;
+}
+function indexPyRows(rows) {
+  const map = /* @__PURE__ */ new Map();
+  for (const row of rows ?? []) {
+    if (row.isGroupRow) continue;
+    map.set(normLabel(row.rawLabel), row);
+  }
+  return map;
+}
+function writeAmountCells(row, cols, amounts, styled = false) {
+  amounts.forEach((amt, i) => {
+    const cell = row.getCell(cols[i]);
+    cell.value = amt || null;
+    cell.numFmt = NUMBER_FORMAT;
+    cell.alignment = { horizontal: "right" };
+    if (styled) applyInputStyle(cell);
+    cell.border = THIN_BORDER;
+  });
+}
+function rowAmounts(r) {
+  return [
+    r.openingDr,
+    r.openingCr,
+    r.duringDr,
+    r.duringCr,
+    r.adjustmentDr,
+    r.adjustmentCr,
+    r.closingDr,
+    r.closingCr
+  ];
+}
+function writeMesFormatTrialBalance(ws, tb, company) {
+  ws.getColumn(1).width = 42;
+  for (const col of [...MES_TB_CY_COLS, ...MES_TB_PY_COLS]) {
+    ws.getColumn(col).width = 14;
+  }
+  const companyName = company?.companyName ?? tb.companyName ?? "[COMPANY NAME]";
+  const fy = company?.fiscalYear?.bsFY ?? tb.fiscalYear ?? "";
+  ws.mergeCells(1, 1, 1, MES_TB_TOTAL_COLS);
+  const titleCell = ws.getCell(1, 1);
+  titleCell.value = companyName;
+  titleCell.alignment = { horizontal: "center", vertical: "middle" };
+  applyHeaderStyle(titleCell);
+  ws.getRow(1).height = 26;
+  ws.mergeCells(2, 1, 2, MES_TB_TOTAL_COLS);
+  const subCell = ws.getCell(2, 1);
+  subCell.value = `TRIAL BALANCE \u2014 FISCAL YEAR ${fy}`;
+  subCell.alignment = { horizontal: "center", vertical: "middle" };
+  applyHeaderStyle(subCell);
+  ws.mergeCells(3, 1, 3, 9);
+  ws.getCell(3, 1).value = "CURRENT YEAR";
+  ws.getCell(3, 1).font = { name: "Arial", size: 10, bold: true };
+  ws.getCell(3, 1).alignment = { horizontal: "center" };
+  ws.mergeCells(3, 11, 3, 19);
+  ws.getCell(3, 11).value = "PREVIOUS YEAR";
+  ws.getCell(3, 11).font = { name: "Arial", size: 10, bold: true };
+  ws.getCell(3, 11).alignment = { horizontal: "center" };
+  const cyHeaders = [
+    "Particulars",
+    "Opening Dr.",
+    "Opening Cr.",
+    "During Dr.",
+    "During Cr.",
+    "Adjustment Dr.",
+    "Adjustment Cr.",
+    "Closing Dr.",
+    "Closing Cr."
+  ];
+  const headerRow = ws.getRow(5);
+  cyHeaders.forEach((h, i) => {
+    const c = headerRow.getCell(i + 1);
+    c.value = h;
+    applySubHeaderStyle(c);
+    c.alignment = { horizontal: i === 0 ? "left" : "center", vertical: "middle" };
+  });
+  cyHeaders.forEach((h, i) => {
+    const c = headerRow.getCell(11 + i);
+    c.value = h;
+    applySubHeaderStyle(c);
+    c.alignment = { horizontal: i === 0 ? "left" : "center", vertical: "middle" };
+  });
+  const cyIndex = indexRows(tb.rows);
+  const pyIndex = indexPyRows(tb.previousYearData ?? void 0);
+  const matchedCy = /* @__PURE__ */ new Set();
+  let currentRow = 6;
+  const dataStartRow = currentRow;
+  for (const { header, accounts } of buildSectionAccounts()) {
+    ws.mergeCells(currentRow, 1, currentRow, MES_TB_TOTAL_COLS);
+    const sectionCell = ws.getRow(currentRow).getCell(1);
+    sectionCell.value = header;
+    sectionCell.font = { name: "Arial", size: 10, bold: true };
+    sectionCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: `FF${SUBHEADER_BG}` } };
+    currentRow++;
+    for (const account of accounts) {
+      const cyRow = cyIndex.get(normLabel(account.displayLabel)) ?? cyIndex.get(account.category);
+      if (!cyRow) continue;
+      matchedCy.add(cyRow);
+      const pyRow = pyIndex.get(normLabel(account.displayLabel)) ?? pyIndex.get(normLabel(cyRow.rawLabel));
+      const row = ws.getRow(currentRow);
+      row.getCell(1).value = account.displayLabel;
+      row.getCell(1).font = { name: "Arial", size: 10 };
+      writeAmountCells(row, MES_TB_CY_COLS, rowAmounts(cyRow));
+      if (pyRow) {
+        writeAmountCells(row, MES_TB_PY_COLS, rowAmounts(pyRow));
+      } else {
+        writeAmountCells(row, MES_TB_PY_COLS, [0, 0, 0, 0, 0, 0, 0, 0], true);
+      }
+      currentRow++;
+    }
+  }
+  const unmatched = tb.rows.filter((r) => !r.isGroupRow && !matchedCy.has(r));
+  if (unmatched.length > 0) {
+    ws.mergeCells(currentRow, 1, currentRow, MES_TB_TOTAL_COLS);
+    ws.getRow(currentRow).getCell(1).value = "OTHER ACCOUNTS";
+    ws.getRow(currentRow).getCell(1).font = { name: "Arial", size: 10, bold: true };
+    currentRow++;
+    for (const cyRow of unmatched) {
+      const pyRow = pyIndex.get(normLabel(cyRow.rawLabel));
+      const row = ws.getRow(currentRow);
+      row.getCell(1).value = cyRow.displayLabel ?? cyRow.rawLabel;
+      writeAmountCells(row, MES_TB_CY_COLS, rowAmounts(cyRow));
+      if (pyRow) writeAmountCells(row, MES_TB_PY_COLS, rowAmounts(pyRow));
+      else writeAmountCells(row, MES_TB_PY_COLS, [0, 0, 0, 0, 0, 0, 0, 0], true);
+      currentRow++;
+    }
+  }
+  const dataEndRow = currentRow - 1;
+  const totalRow = ws.getRow(currentRow);
+  totalRow.getCell(1).value = "GRAND TOTAL";
+  totalRow.getCell(1).font = { name: "Arial", size: 10, bold: true };
+  const doubleTop = { style: "double", color: { argb: "FF1E40AF" } };
+  for (const col of [...MES_TB_CY_COLS, ...MES_TB_PY_COLS]) {
+    const cell = totalRow.getCell(col);
+    const letter = colLetter(col);
+    cell.value = { formula: `SUM(${letter}${dataStartRow}:${letter}${dataEndRow})`, result: 0 };
+    cell.numFmt = NUMBER_FORMAT;
+    cell.alignment = { horizontal: "right" };
+    cell.font = { name: "Arial", size: 10, bold: true };
+    cell.border = { top: doubleTop };
+  }
+  ws.views = [{ state: "frozen", ySplit: 5 }];
+}
+
+// server/services/excelWriter.ts
 var COLORS = {
   BRAND_BLUE: "1E40AF",
   HEADER_BG: "1E3A8A",
@@ -3018,18 +3486,18 @@ var FONTS = {
   NOTE_REF: { name: "Arial", size: 9, italic: true, color: { argb: "FF64748B" } },
   TITLE: { name: "Arial", size: 11, bold: true, color: { argb: `FF${COLORS.WHITE}` } }
 };
-var NUMBER_FORMAT = "#,##0";
-var THIN_BORDER = { style: "thin", color: { argb: `FF${COLORS.BORDER_COLOR}` } };
+var NUMBER_FORMAT2 = "#,##0";
+var THIN_BORDER2 = { style: "thin", color: { argb: `FF${COLORS.BORDER_COLOR}` } };
 var MEDIUM_BORDER = { style: "medium", color: { argb: `FF${COLORS.BRAND_BLUE}` } };
-function applyHeaderStyle(cell) {
+function applyHeaderStyle2(cell) {
   cell.font = { name: "Arial", size: 11, bold: true, color: { argb: `FF${COLORS.WHITE}` } };
   cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: `FF${COLORS.BRAND_BLUE}` } };
 }
-function applySubHeaderStyle(cell) {
+function applySubHeaderStyle2(cell) {
   cell.font = { name: "Arial", size: 10, bold: true, color: { argb: `FF${COLORS.BRAND_BLUE}` } };
   cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: `FF${COLORS.SUBHEADER_BG}` } };
 }
-function applyInputStyle(cell) {
+function applyInputStyle2(cell) {
   cell.font = { name: "Arial", size: 10 };
   cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: `FF${COLORS.GREEN_INPUT}` } };
 }
@@ -3046,16 +3514,16 @@ function applyTotalStyle(cell) {
   cell.border = { ...cell.border, top: MEDIUM_BORDER };
 }
 function applyHeaderFill(cell, colorHex = COLORS.HEADER_BG) {
-  if (colorHex === COLORS.SUBHEADER_BG) applySubHeaderStyle(cell);
-  else applyHeaderStyle(cell);
+  if (colorHex === COLORS.SUBHEADER_BG) applySubHeaderStyle2(cell);
+  else applyHeaderStyle2(cell);
 }
 function applyGreenInput(cell) {
-  applyInputStyle(cell);
+  applyInputStyle2(cell);
 }
 function writeNoteSheetTitle(ws, title) {
   const cell = ws.getRow(1).getCell(1);
   cell.value = title;
-  applyHeaderStyle(cell);
+  applyHeaderStyle2(cell);
 }
 var PPE_WORKINGS_CLASSES = [
   "Land",
@@ -3113,7 +3581,7 @@ function proRataDays(purchaseSerial, fiscalYear) {
 }
 function setAmountCell(cell, value) {
   cell.value = value || null;
-  cell.numFmt = NUMBER_FORMAT;
+  cell.numFmt = NUMBER_FORMAT2;
   cell.alignment = { horizontal: "right" };
 }
 function writeSumTotalRow(ws, row, labelCol, sumCols, fromRow, toRow, label = "Total") {
@@ -3122,9 +3590,9 @@ function writeSumTotalRow(ws, row, labelCol, sumCols, fromRow, toRow, label = "T
   exRow.getCell(labelCol).font = FONTS.TOTAL;
   sumCols.forEach((col) => {
     const cell = exRow.getCell(col);
-    const colLetter2 = ws.getColumn(col).letter ?? String.fromCharCode(64 + col);
-    cell.value = { formula: `SUM(${colLetter2}${fromRow}:${colLetter2}${toRow})`, result: 0 };
-    cell.numFmt = NUMBER_FORMAT;
+    const colLetter3 = ws.getColumn(col).letter ?? String.fromCharCode(64 + col);
+    cell.value = { formula: `SUM(${colLetter3}${fromRow}:${colLetter3}${toRow})`, result: 0 };
+    cell.numFmt = NUMBER_FORMAT2;
     cell.alignment = { horizontal: "right" };
     cell.font = FONTS.TOTAL;
     cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: `FF${COLORS.TOTAL_BG}` } };
@@ -3147,14 +3615,14 @@ function agingBucketAmount(amount, days) {
   return [0, 0, 0, amount];
 }
 function applyAllBorders(cell) {
-  cell.border = { top: THIN_BORDER, bottom: THIN_BORDER, left: THIN_BORDER, right: THIN_BORDER };
+  cell.border = { top: THIN_BORDER2, bottom: THIN_BORDER2, left: THIN_BORDER2, right: THIN_BORDER2 };
 }
 function writeSectionHeader(ws, row, text, lastColIndex = 4) {
   const exRow = ws.getRow(row);
   const cell = exRow.getCell(1);
   ws.mergeCells(row, 1, row, lastColIndex);
   cell.value = text;
-  applySubHeaderStyle(cell);
+  applySubHeaderStyle2(cell);
   cell.alignment = { horizontal: "left", vertical: "middle" };
   exRow.height = 18;
 }
@@ -3163,7 +3631,7 @@ function writeStatementHeader(ws, companyName, statementTitle, periodLine, curYe
   const r1 = ws.getCell("A1");
   r1.value = companyName.toUpperCase();
   r1.alignment = { horizontal: "center", vertical: "middle" };
-  applyHeaderStyle(r1);
+  applyHeaderStyle2(r1);
   ws.getRow(1).height = 26;
   ws.mergeCells("A2:F2");
   const r2 = ws.getCell("A2");
@@ -3192,7 +3660,7 @@ function writeStatementHeader(ws, companyName, statementTitle, periodLine, curYe
   headerRow.getCell(3).value = curYearLabel;
   headerRow.getCell(4).value = prevYearLabel;
   headerRow.eachCell({ includeEmpty: false }, (cell) => {
-    applySubHeaderStyle(cell);
+    applySubHeaderStyle2(cell);
     cell.alignment = { horizontal: Number(cell.col) === 1 ? "left" : "center", vertical: "middle" };
     applyAllBorders(cell);
   });
@@ -3217,12 +3685,12 @@ function writeAmountRow(ws, rowNum, r) {
   } else applyBodyStyle(cell2);
   const cell3 = exRow.getCell(3);
   cell3.value = r.cy || null;
-  cell3.numFmt = NUMBER_FORMAT;
+  cell3.numFmt = NUMBER_FORMAT2;
   cell3.alignment = { horizontal: "right" };
   applyBodyStyle(cell3);
   const cell4 = exRow.getCell(4);
   cell4.value = r.py || null;
-  cell4.numFmt = NUMBER_FORMAT;
+  cell4.numFmt = NUMBER_FORMAT2;
   cell4.alignment = { horizontal: "right" };
   applyBodyStyle(cell4);
   [cell1, cell2, cell3, cell4].forEach(applyAllBorders);
@@ -3415,27 +3883,25 @@ function writeInstructions(ws) {
     ws.getRow(i + 3).getCell(2).font = { name: "Arial", size: 10 };
   });
 }
-function writeEnterDetails(ws, company) {
-  const fields = [
-    ["Company Name", company.companyName ?? ""],
-    ["PAN / VAT Number", company.panVatNumber ?? ""],
-    ["Registration No.", company.registrationNumber ?? ""],
-    ["Company Type", company.companyType ?? ""],
-    ["Fiscal Year", company.fiscalYear?.bsFY ?? ""],
-    ["Chairperson", company.chairperson ?? ""],
-    ["Director", company.director ?? ""],
-    ["Accounts Head", company.accountsHead ?? ""],
-    ["Auditor Name", company.auditorInfo?.auditorName ?? ""],
-    ["Audit Firm", company.auditorInfo?.auditorFirmName ?? ""]
-  ];
-  fields.forEach(([label, value], i) => {
-    const row = ws.getRow(i + 2);
-    row.getCell(1).value = label;
-    row.getCell(1).font = { name: "Arial", size: 10, bold: true };
-    const vc = row.getCell(2);
-    vc.value = value;
-    applyInputStyle(vc);
-    vc.border = THIN_BORDER;
+function writeEnterDetails(ws, company, adjustments) {
+  ws.getColumn(1).width = 4;
+  ws.getColumn(2).width = 34;
+  ws.getColumn(3).width = 36;
+  ws.mergeCells(1, 2, 1, 3);
+  const title = ws.getCell(1, 2);
+  title.value = "ENTER DETAILS \u2014 NAS FOR MEs";
+  title.font = { name: "Arial", size: 12, bold: true };
+  title.alignment = { horizontal: "center" };
+  const fields = buildMesEnterDetailsFields(company, adjustments);
+  fields.forEach(({ label, value, isNumeric }, i) => {
+    const row = ws.getRow(i + 3);
+    row.getCell(2).value = label;
+    row.getCell(2).font = { name: "Arial", size: 10, bold: true };
+    const vc = row.getCell(3);
+    vc.value = value === "" ? null : value;
+    if (isNumeric && typeof value === "number") vc.numFmt = NUMBER_FORMAT2;
+    applyInputStyle2(vc);
+    vc.border = THIN_BORDER2;
   });
 }
 function writeBalanceSheet(ws, bs, company) {
@@ -3545,7 +4011,7 @@ function writeBalanceSheet(ws, bs, company) {
     if (!targetRow || !fromRow || !toRow) return;
     const cell = ws.getRow(targetRow).getCell(col);
     cell.value = fromRow === toRow ? { formula: `${col}${fromRow}`, result: cell.value ?? 0 } : { formula: `SUM(${col}${fromRow}:${col}${toRow})`, result: cell.value ?? 0 };
-    cell.numFmt = NUMBER_FORMAT;
+    cell.numFmt = NUMBER_FORMAT2;
     applyTotalStyle(cell);
   };
   if (bsRowMap.totalNcaRow && bsRowMap.ppeRow && bsRowMap.ncaOtherRow) {
@@ -3562,7 +4028,7 @@ function writeBalanceSheet(ws, bs, company) {
   }
   const checkCell = ws.getRow(row).getCell(3);
   checkCell.value = { formula: `=C${row - rows.length + rows.findIndex((r) => r.isTotal && r.label.includes("TOTAL ASSETS")) + 6}-C${row - 1}` };
-  checkCell.numFmt = NUMBER_FORMAT;
+  checkCell.numFmt = NUMBER_FORMAT2;
   ws.getRow(row).getCell(1).value = "Balance Check (must be zero):";
   ws.getRow(row).getCell(1).font = { name: "Arial", size: 9, italic: true };
   row++;
@@ -3656,7 +4122,7 @@ function writeIncomeStatement(ws, is, company) {
         result: cell.value ?? 0
       };
     }
-    cell.numFmt = NUMBER_FORMAT;
+    cell.numFmt = NUMBER_FORMAT2;
     applyTotalStyle(cell);
   };
   applySumFormula(isRowMap.totalIncomeRow, incomeDetailRows, "C");
@@ -3669,7 +4135,7 @@ function writeIncomeStatement(ws, is, company) {
       formula: `C${isRowMap.totalIncomeRow}-C${isRowMap.totalExpensesRow}`,
       result: pbtCell.value ?? 0
     };
-    pbtCell.numFmt = NUMBER_FORMAT;
+    pbtCell.numFmt = NUMBER_FORMAT2;
     applyTotalStyle(pbtCell);
   }
   if (isRowMap.netProfitRow && isRowMap.profitBeforeTaxRow && isRowMap.taxRow) {
@@ -3678,7 +4144,7 @@ function writeIncomeStatement(ws, is, company) {
       formula: `C${isRowMap.profitBeforeTaxRow}-C${isRowMap.taxRow}`,
       result: npCell.value ?? 0
     };
-    npCell.numFmt = NUMBER_FORMAT;
+    npCell.numFmt = NUMBER_FORMAT2;
     applyTotalStyle(npCell);
   }
   writeSignatureLine(ws, row + 1, company);
@@ -3768,7 +4234,7 @@ function writeChangesInEquity(ws, ce, company) {
   const r1 = ws.getCell("A1");
   r1.value = (company.companyName ?? "").toUpperCase();
   r1.alignment = { horizontal: "center" };
-  applyHeaderStyle(r1);
+  applyHeaderStyle2(r1);
   ws.mergeCells("A2:F2");
   ws.getCell("A2").value = "STATEMENT OF CHANGES IN EQUITY";
   ws.getCell("A2").font = { name: "Arial", size: 12, bold: true };
@@ -3805,7 +4271,7 @@ function writeChangesInEquity(ws, ce, company) {
         cell.value = val;
       } else {
         cell.value = val || null;
-        cell.numFmt = NUMBER_FORMAT;
+        cell.numFmt = NUMBER_FORMAT2;
         cell.alignment = { horizontal: "right" };
       }
       applyAllBorders(cell);
@@ -3828,7 +4294,7 @@ function writeNote31_PPE(ws, depnSummary) {
     const c = hRow.getCell(i + 1);
     c.value = h;
     c.alignment = { horizontal: i === 0 ? "left" : "center" };
-    applySubHeaderStyle(c);
+    applySubHeaderStyle2(c);
     applyAllBorders(c);
   });
   const costRows = [
@@ -3848,12 +4314,12 @@ function writeNote31_PPE(ws, depnSummary) {
     depnSummary.forEach((d, i) => {
       const v = fn(d);
       row.getCell(i + 2).value = v || null;
-      row.getCell(i + 2).numFmt = NUMBER_FORMAT;
+      row.getCell(i + 2).numFmt = NUMBER_FORMAT2;
       row.getCell(i + 2).alignment = { horizontal: "right" };
       total += v;
     });
     row.getCell(depnSummary.length + 2).value = total || null;
-    row.getCell(depnSummary.length + 2).numFmt = NUMBER_FORMAT;
+    row.getCell(depnSummary.length + 2).numFmt = NUMBER_FORMAT2;
     row.getCell(depnSummary.length + 2).alignment = { horizontal: "right" };
     row.height = 15;
   });
@@ -3863,6 +4329,7 @@ function writeNote31_PPE(ws, depnSummary) {
   const depnRows = [
     ["Balance at Beginning of Year", (d) => d.openingAccumDepn],
     ["Charge for the Year", (d) => d.depnForYear],
+    ["Impairment Losses", (d) => d.impairmentLosses ?? 0],
     ["On Disposals", (d) => -d.depnOnDisposal],
     ["Balance at End of Year", (d) => d.closingAccumDepn]
   ];
@@ -3873,12 +4340,12 @@ function writeNote31_PPE(ws, depnSummary) {
     depnSummary.forEach((d, i) => {
       const v = fn(d);
       row.getCell(i + 2).value = v || null;
-      row.getCell(i + 2).numFmt = NUMBER_FORMAT;
+      row.getCell(i + 2).numFmt = NUMBER_FORMAT2;
       row.getCell(i + 2).alignment = { horizontal: "right" };
       total += v;
     });
     row.getCell(depnSummary.length + 2).value = total || null;
-    row.getCell(depnSummary.length + 2).numFmt = NUMBER_FORMAT;
+    row.getCell(depnSummary.length + 2).numFmt = NUMBER_FORMAT2;
     row.getCell(depnSummary.length + 2).alignment = { horizontal: "right" };
     row.height = 15;
   });
@@ -3899,7 +4366,7 @@ function writeNote31_PPE(ws, depnSummary) {
       const v = fn(d);
       const c = row.getCell(i + 2);
       c.value = v || null;
-      c.numFmt = NUMBER_FORMAT;
+      c.numFmt = NUMBER_FORMAT2;
       c.alignment = { horizontal: "right" };
       c.font = FONTS.TOTAL;
       applyHeaderFill(c, COLORS.TOTAL_BG);
@@ -3907,13 +4374,36 @@ function writeNote31_PPE(ws, depnSummary) {
     });
     const tc = row.getCell(depnSummary.length + 2);
     tc.value = total || null;
-    tc.numFmt = NUMBER_FORMAT;
+    tc.numFmt = NUMBER_FORMAT2;
     tc.alignment = { horizontal: "right" };
     tc.font = FONTS.TOTAL;
     applyHeaderFill(tc, COLORS.TOTAL_BG);
     row.height = 15;
   });
   SHEET_ROW_REGISTRY.ppeNetBookValueRow = r - 1;
+  const totalSecured = depnSummary.reduce((s, d) => s + (d.securedAmount ?? 0), 0);
+  const hasCwip = depnSummary.some(
+    (d) => d.categoryId === "under_construction" || /under construction|cwip/i.test(d.categoryName)
+  ) && depnSummary.some((d) => d.closingCost > 0 && /under construction|cwip/i.test(d.categoryName));
+  if (totalSecured > 0 || hasCwip) {
+    r += 1;
+    ws.getRow(r).getCell(1).value = "DISCLOSURES";
+    ws.getRow(r).getCell(1).font = FONTS.SUBHEADING;
+    r += 1;
+  }
+  if (totalSecured > 0) {
+    const securedClasses = depnSummary.filter((d) => d.hasSecuredAssets).map((d) => `${d.categoryName}: NPR ${(d.securedAmount ?? 0).toLocaleString("en-IN")}`).join("; ");
+    const secRow = ws.getRow(r++);
+    secRow.getCell(1).value = `Security (if any): The following PPE classes are pledged as security for borrowings \u2014 ${securedClasses}. Total secured carrying amount: NPR ${totalSecured.toLocaleString("en-IN")}.`;
+    secRow.getCell(1).font = { name: "Arial", size: 9, italic: true };
+    ws.mergeCells(r - 1, 1, r - 1, depnSummary.length + 2);
+  }
+  if (hasCwip) {
+    const cwipRow = ws.getRow(r++);
+    cwipRow.getCell(1).value = "PPE under construction: Assets under construction are carried at cost and are not depreciated until available for use, in accordance with NAS for MEs.";
+    cwipRow.getCell(1).font = { name: "Arial", size: 9, italic: true };
+    ws.mergeCells(r - 1, 1, r - 1, depnSummary.length + 2);
+  }
   return {
     ppeNetBookValueRow: r - 1,
     ppeDepreciationRow: SHEET_ROW_REGISTRY.ppeDepreciationRow
@@ -3926,7 +4416,7 @@ function writeNote37_Inventories(ws, note37) {
   headers.forEach((h, i) => {
     const c = hRow.getCell(i + 1);
     c.value = h;
-    applySubHeaderStyle(c);
+    applySubHeaderStyle2(c);
     applyAllBorders(c);
   });
   const rows = [
@@ -3944,7 +4434,7 @@ function writeNote37_Inventories(ws, note37) {
     [cy, py].forEach((v, ci) => {
       const c = r.getCell(ci + 2);
       c.value = v || null;
-      c.numFmt = NUMBER_FORMAT;
+      c.numFmt = NUMBER_FORMAT2;
       c.alignment = { horizontal: "right" };
       if (i === rows.length - 1) {
         c.font = FONTS.TOTAL;
@@ -3962,27 +4452,27 @@ function writeNote38_Cash(ws, note38) {
   ["Particulars", "Current Year", "Previous Year"].forEach((h, i) => {
     const c = hRow.getCell(i + 1);
     c.value = h;
-    applySubHeaderStyle(c);
+    applySubHeaderStyle2(c);
     applyAllBorders(c);
   });
   let r = 4;
   const cashRow = ws.getRow(r++);
   cashRow.getCell(1).value = "Cash in Hand";
   cashRow.getCell(2).value = note38.cashInHand_cy || null;
-  cashRow.getCell(2).numFmt = NUMBER_FORMAT;
+  cashRow.getCell(2).numFmt = NUMBER_FORMAT2;
   cashRow.getCell(2).alignment = { horizontal: "right" };
   note38.bankBalances?.forEach((b) => {
     const row = ws.getRow(r++);
     row.getCell(1).value = b.bankName;
     row.getCell(2).value = b.cy || null;
-    row.getCell(2).numFmt = NUMBER_FORMAT;
+    row.getCell(2).numFmt = NUMBER_FORMAT2;
     row.getCell(2).alignment = { horizontal: "right" };
   });
   const totRow = ws.getRow(r);
   totRow.getCell(1).value = "Total Cash and Equivalents";
   totRow.getCell(1).font = FONTS.TOTAL;
   totRow.getCell(2).value = note38.totalCash_cy || null;
-  totRow.getCell(2).numFmt = NUMBER_FORMAT;
+  totRow.getCell(2).numFmt = NUMBER_FORMAT2;
   totRow.getCell(2).alignment = { horizontal: "right" };
   totRow.getCell(2).font = FONTS.TOTAL;
   applyHeaderFill(totRow.getCell(2), COLORS.TOTAL_BG);
@@ -4006,7 +4496,7 @@ function writeNote39_ShareCapital(ws, note39) {
     const r = ws.getRow(3 + i);
     r.getCell(1).value = label;
     r.getCell(2).value = val || null;
-    r.getCell(2).numFmt = NUMBER_FORMAT;
+    r.getCell(2).numFmt = NUMBER_FORMAT2;
     r.getCell(2).alignment = { horizontal: "right" };
   });
   SHEET_ROW_REGISTRY.shareCapitalRow = 3 + rows.length - 1;
@@ -4015,7 +4505,7 @@ function writeNote39_ShareCapital(ws, note39) {
 function writeNote311_Borrowings(ws, note311) {
   writeNoteSheetTitle(ws, "3.11  Loans and Borrowings");
   ws.getRow(2).getCell(1).value = "Non-Current Borrowings";
-  applySubHeaderStyle(ws.getRow(2).getCell(1));
+  applySubHeaderStyle2(ws.getRow(2).getCell(1));
   const hRow = ws.getRow(3);
   ["Lender", "Interest Rate %", "Security", "Current Year", "Previous Year"].forEach((h, i) => {
     const c = hRow.getCell(i + 1);
@@ -4033,7 +4523,7 @@ function writeNote311_Borrowings(ws, note311) {
       const c = row.getCell(i + 1);
       c.value = v || null;
       if (i >= 3) {
-        c.numFmt = NUMBER_FORMAT;
+        c.numFmt = NUMBER_FORMAT2;
         c.alignment = { horizontal: "right" };
       }
     });
@@ -4050,7 +4540,7 @@ function writeNote311_Borrowings(ws, note311) {
       const c = row.getCell(i + 1);
       c.value = v || null;
       if (i >= 3) {
-        c.numFmt = NUMBER_FORMAT;
+        c.numFmt = NUMBER_FORMAT2;
         c.alignment = { horizontal: "right" };
       }
     });
@@ -4083,7 +4573,7 @@ function writeNote323_Tax(ws, note323, taxCalcSheetName, taxCalcNetPayableRow) {
     } else {
       amountCell.value = val || null;
     }
-    amountCell.numFmt = NUMBER_FORMAT;
+    amountCell.numFmt = NUMBER_FORMAT2;
     amountCell.alignment = { horizontal: "right" };
     applyBodyStyle(amountCell);
   });
@@ -4165,7 +4655,7 @@ function writePPEWorkingsSheet(ws, assets, fiscalYear, depreciationResults = [])
       setAmountCell(r.getCell(4), addition || null);
       setAmountCell(r.getCell(5), deletion || null);
       r.getCell(6).value = { formula: `C${row - 1}+D${row - 1}-E${row - 1}`, result: balance };
-      r.getCell(6).numFmt = NUMBER_FORMAT;
+      r.getCell(6).numFmt = NUMBER_FORMAT2;
       r.getCell(6).alignment = { horizontal: "right" };
       setAmountCell(r.getCell(7), salesValue || null);
       if (asset.disposed && disposalSerial) {
@@ -4181,10 +4671,10 @@ function writePPEWorkingsSheet(ws, assets, fiscalYear, depreciationResults = [])
       setAmountCell(r.getCell(12), depnYear || null);
       setAmountCell(r.getCell(13), depnDeletion || null);
       r.getCell(14).value = { formula: `K${row - 1}+L${row - 1}-M${row - 1}`, result: accumClose };
-      r.getCell(14).numFmt = NUMBER_FORMAT;
+      r.getCell(14).numFmt = NUMBER_FORMAT2;
       r.getCell(14).alignment = { horizontal: "right" };
       r.getCell(15).value = { formula: `F${row - 1}-N${row - 1}`, result: closingWdv };
-      r.getCell(15).numFmt = NUMBER_FORMAT;
+      r.getCell(15).numFmt = NUMBER_FORMAT2;
       r.getCell(15).alignment = { horizontal: "right" };
       setAmountCell(r.getCell(16), openingWdv || null);
       setAmountCell(r.getCell(17), asset.disposed ? wdvOnDisposal : null);
@@ -4207,6 +4697,8 @@ function writeTaxDepreciationSheet(ws, taxDepPools, _fiscalYear) {
     "Pool Name",
     "Opening Depreciation Basis",
     "Additions",
+    "Disposals",
+    "Depreciation Basis",
     "Absorbed Portion",
     "Unabsorbed Portion",
     "Tax Depn Rate",
@@ -4226,25 +4718,32 @@ function writeTaxDepreciationSheet(ws, taxDepPools, _fiscalYear) {
   pools.forEach((pool, i) => {
     const r = ws.getRow(4 + i);
     const rate = Number(pool.rate ?? 0);
+    const openingBasis = Number(pool.openingBasis ?? 0);
+    const additions = Number(pool.additions ?? 0);
+    const disposals = Number(pool.disposals ?? 0);
+    const depreciationBasis = Number(pool.depreciationBasis ?? openingBasis + additions - disposals);
+    const absorbed = Number(pool.absorbed ?? pool.taxDepreciation ?? 0);
+    const unabsorbed = Number(pool.unabsorbed ?? 0);
+    const taxDep = Number(pool.taxDepreciation ?? absorbed);
+    const closingBasis = Number(pool.closingBasis ?? pool.nextYearBasis ?? Math.max(0, depreciationBasis - taxDep));
     r.getCell(1).value = String(pool.poolName ?? pool.pool ?? "");
-    setAmountCell(r.getCell(2), Number(pool.openingBasis ?? 0) || null);
-    setAmountCell(r.getCell(3), Number(pool.additions ?? 0) || null);
-    setAmountCell(r.getCell(4), Number(pool.absorbed ?? pool.additions ?? 0) || null);
-    setAmountCell(r.getCell(5), Number(pool.unabsorbed ?? 0) || null);
-    r.getCell(6).value = rate ? rate : null;
-    r.getCell(6).numFmt = "0.00%";
-    r.getCell(6).alignment = { horizontal: "right" };
-    setAmountCell(r.getCell(7), Number(pool.taxDepreciation ?? 0) || null);
-    setAmountCell(
-      r.getCell(8),
-      Number(pool.nextYearBasis ?? pool.closingBasis ?? 0) || null
-    );
+    setAmountCell(r.getCell(2), openingBasis || null);
+    setAmountCell(r.getCell(3), additions || null);
+    setAmountCell(r.getCell(4), disposals || null);
+    setAmountCell(r.getCell(5), depreciationBasis || null);
+    setAmountCell(r.getCell(6), absorbed || null);
+    setAmountCell(r.getCell(7), unabsorbed || null);
+    r.getCell(8).value = rate ? rate : null;
+    r.getCell(8).numFmt = "0.00%";
+    r.getCell(8).alignment = { horizontal: "right" };
+    setAmountCell(r.getCell(9), taxDep || null);
+    setAmountCell(r.getCell(10), closingBasis || null);
     for (let ci = 1; ci <= headers.length; ci++) applyAllBorders(r.getCell(ci));
   });
   const firstDataRow = 4;
   const lastDataRow = 4 + pools.length - 1;
   const totalRow = 4 + pools.length;
-  writeSumTotalRow(ws, totalRow, 1, [7], firstDataRow, lastDataRow, "Total Tax Depreciation");
+  writeSumTotalRow(ws, totalRow, 1, [9], firstDataRow, lastDataRow, "Total Tax Depreciation");
   const noteRow = ws.getRow(totalRow + 2);
   noteRow.getCell(1).value = "Copy Closing Basis into Opening Basis each year.";
   noteRow.getCell(1).font = { name: "Arial", size: 9, italic: true, color: { argb: "FF64748B" } };
@@ -4285,7 +4784,7 @@ function writeDisallowForTaxSheet(ws, disallowItems) {
   writeSumTotalRow(ws, totalRow, 1, [2, 3, 4], firstDataRow, lastDataRow, "Total Disallowed");
   return { totalDisallowedRow: totalRow };
 }
-function writeFairValueChangeSheet(ws, listedShares) {
+function writeFairValueChangeSheet(ws, listedShares, options) {
   writeNoteSheetTitle(ws, "Fair Value Change");
   const headers = [
     "Company Name",
@@ -4309,26 +4808,57 @@ function writeFairValueChangeSheet(ws, listedShares) {
     ws.getColumn(i + 1).width = i === 0 ? 32 : 16;
   });
   const rows = listedShares.length > 0 ? listedShares : [{}];
+  const firstDataRow = 4;
   rows.forEach((share, i) => {
-    const r = ws.getRow(4 + i);
+    const r = ws.getRow(firstDataRow + i);
+    const rowNum = firstDataRow + i;
+    r.getCell(1).value = String(share.companyName ?? share.name ?? share.investmentName ?? "");
+    if (listedShares.length === 0) {
+      for (let ci = 1; ci <= headers.length; ci++) applyGreenInput(r.getCell(ci));
+      return;
+    }
     const openingUnits = Number(share.openingUnits ?? share.units ?? 0);
     const purchased = Number(share.purchasedUnits ?? share.purchasesDuringYear ?? share.additions ?? 0);
     const sold = Number(share.soldUnits ?? share.salesDuringYear ?? share.disposals ?? 0);
-    const closingUnits = Number(share.closingUnits ?? openingUnits + purchased - sold);
     const openingLtp = Number(share.openingLtp ?? share.openingLTP ?? share.costPerUnit ?? 0);
     const closingLtp = Number(share.closingLtp ?? share.closingLTP ?? share.ltp ?? 0);
-    const openingFv = Number(share.openingFV ?? share.openingBalance ?? share.totalCost ?? openingUnits * openingLtp);
-    const closingFv = Number(share.closingFV ?? share.carryingAmount ?? share.marketValue ?? closingUnits * closingLtp);
-    const fvGainLoss = Number(share.fvGainLoss ?? share.fairValueGainLoss ?? closingFv - openingFv);
-    r.getCell(1).value = String(share.companyName ?? share.name ?? share.investmentName ?? "");
-    [openingUnits, purchased, sold, closingUnits].forEach((v, ci) => setAmountCell(r.getCell(2 + ci), v || null));
+    const openingFv = Number(share.openingFV ?? share.openingBalance ?? share.totalCost ?? 0);
+    setAmountCell(r.getCell(2), openingUnits || null);
+    setAmountCell(r.getCell(3), purchased || null);
+    setAmountCell(r.getCell(4), sold || null);
+    r.getCell(5).value = { formula: `B${rowNum}+C${rowNum}-D${rowNum}`, result: openingUnits + purchased - sold };
+    r.getCell(5).numFmt = NUMBER_FORMAT2;
+    r.getCell(5).alignment = { horizontal: "right" };
     setAmountCell(r.getCell(6), openingLtp || null);
     setAmountCell(r.getCell(7), closingLtp || null);
     setAmountCell(r.getCell(8), openingFv || null);
-    setAmountCell(r.getCell(9), closingFv || null);
-    setAmountCell(r.getCell(10), fvGainLoss || null);
+    r.getCell(9).value = { formula: `E${rowNum}*G${rowNum}`, result: 0 };
+    r.getCell(9).numFmt = NUMBER_FORMAT2;
+    r.getCell(9).alignment = { horizontal: "right" };
+    r.getCell(10).value = { formula: `I${rowNum}-H${rowNum}`, result: 0 };
+    r.getCell(10).numFmt = NUMBER_FORMAT2;
+    r.getCell(10).alignment = { horizontal: "right" };
     for (let ci = 1; ci <= headers.length; ci++) applyAllBorders(r.getCell(ci));
   });
+  const lastDataRow = firstDataRow + rows.length - 1;
+  const totalRow = lastDataRow + 1;
+  writeSumTotalRow(ws, totalRow, 1, [10], firstDataRow, lastDataRow, "Total FV Gain / (Loss)");
+  const tbFv = options?.trialBalanceFvAdjustment ?? 0;
+  const verifyStart = totalRow + 2;
+  ws.getRow(verifyStart).getCell(1).value = "Verification";
+  ws.getRow(verifyStart).getCell(1).font = FONTS.SUBHEADING;
+  ws.getRow(verifyStart + 1).getCell(1).value = "Workings total FV change";
+  ws.getRow(verifyStart + 1).getCell(2).value = { formula: `J${totalRow}`, result: 0 };
+  ws.getRow(verifyStart + 1).getCell(2).numFmt = NUMBER_FORMAT2;
+  ws.getRow(verifyStart + 2).getCell(1).value = "Per trial balance / notes";
+  ws.getRow(verifyStart + 2).getCell(2).value = tbFv || null;
+  ws.getRow(verifyStart + 2).getCell(2).numFmt = NUMBER_FORMAT2;
+  ws.getRow(verifyStart + 3).getCell(1).value = "Match?";
+  ws.getRow(verifyStart + 3).getCell(2).value = {
+    formula: `ABS(B${verifyStart + 1}-B${verifyStart + 2})<1`,
+    result: Math.abs(tbFv) < 1
+  };
+  return { totalFvGainLossRow: totalRow, verificationMatchRow: verifyStart + 3 };
 }
 function writeSundryDebtors(ws, data) {
   writeNoteSheetTitle(ws, "Sundry Debtors");
@@ -4441,50 +4971,15 @@ function writeBankAccounts(ws, note38) {
     r.getCell(1).value = b.bankName;
     r.getCell(2).value = b.accountType;
     r.getCell(3).value = b.cy || null;
-    r.getCell(3).numFmt = NUMBER_FORMAT;
+    r.getCell(3).numFmt = NUMBER_FORMAT2;
     r.getCell(3).alignment = { horizontal: "right" };
     r.getCell(4).value = b.py || null;
-    r.getCell(4).numFmt = NUMBER_FORMAT;
+    r.getCell(4).numFmt = NUMBER_FORMAT2;
     r.getCell(4).alignment = { horizontal: "right" };
   });
 }
-function writeTrialBalance(ws, tb) {
-  ws.columns = [
-    { key: "label", width: 40 },
-    { key: "cat", width: 28 },
-    { key: "note", width: 8 },
-    { key: "opdr", width: 14 },
-    { key: "opcr", width: 14 },
-    { key: "durdr", width: 14 },
-    { key: "durcr", width: 14 },
-    { key: "adjdr", width: 14 },
-    { key: "adjcr", width: 14 },
-    { key: "cldr", width: 14 },
-    { key: "clcr", width: 14 },
-    { key: "net", width: 16 }
-  ];
-  const headers = ["Account Name", "NFRS Category", "Note", "Opening Dr", "Opening Cr", "During Dr", "During Cr", "Adj Dr", "Adj Cr", "Closing Dr", "Closing Cr", "Net Balance"];
-  const hRow = ws.getRow(1);
-  headers.forEach((h, i) => {
-    const c = hRow.getCell(i + 1);
-    c.value = h;
-    applySubHeaderStyle(c);
-    applyAllBorders(c);
-  });
-  tb.rows.forEach((row, idx) => {
-    const r = ws.getRow(2 + idx);
-    const vals = [row.rawLabel, row.nfrsCategory, row.matchedLabel ?? "", row.openingDr, row.openingCr, row.duringDr, row.duringCr, row.adjustmentDr, row.adjustmentCr, row.closingDr, row.closingCr, (row.closingDr ?? 0) - (row.closingCr ?? 0)];
-    vals.forEach((v, i) => {
-      const c = r.getCell(i + 1);
-      c.value = v || null;
-      if (i >= 3) {
-        c.numFmt = NUMBER_FORMAT;
-        c.alignment = { horizontal: "right" };
-      }
-      applyAllBorders(c);
-    });
-    r.height = 14;
-  });
+function writeTrialBalance(ws, tb, company) {
+  writeMesFormatTrialBalance(ws, tb, company);
 }
 function writeAdjustments(ws, adj) {
   writeNoteSheetTitle(ws, "Adjustment Journal Entries");
@@ -4492,7 +4987,7 @@ function writeAdjustments(ws, adj) {
   ["#", "Description", "Dr Account", "Cr Account", "Amount", "Note Ref", "Source"].forEach((h, i) => {
     const c = hRow.getCell(i + 1);
     c.value = h;
-    applySubHeaderStyle(c);
+    applySubHeaderStyle2(c);
     applyAllBorders(c);
   });
   adj.journalEntries.forEach((je, i) => {
@@ -4501,7 +4996,7 @@ function writeAdjustments(ws, adj) {
       const c = r.getCell(ci + 1);
       c.value = v || null;
       if (ci === 4) {
-        c.numFmt = NUMBER_FORMAT;
+        c.numFmt = NUMBER_FORMAT2;
         c.alignment = { horizontal: "right" };
       }
       applyAllBorders(c);
@@ -4514,7 +5009,7 @@ function writeTaxCalculationSheet(ws, taxData, fiscalYear) {
   const r1 = ws.getCell("A1");
   r1.value = (taxData.companyName || "Company Name").toUpperCase();
   r1.alignment = { horizontal: "center", vertical: "middle" };
-  applyHeaderStyle(r1);
+  applyHeaderStyle2(r1);
   ws.getRow(1).height = 26;
   ws.mergeCells("A2:D2");
   const r2 = ws.getCell("A2");
@@ -4536,7 +5031,7 @@ function writeTaxCalculationSheet(ws, taxData, fiscalYear) {
   ["Particulars", "Note", "As per Books", "For Income Tax"].forEach((h, i) => {
     const c = headerRow.getCell(i + 1);
     c.value = h;
-    applySubHeaderStyle(c);
+    applySubHeaderStyle2(c);
     c.alignment = { horizontal: i === 0 ? "left" : "center", vertical: "middle" };
     applyAllBorders(c);
   });
@@ -4633,10 +5128,10 @@ function writeTaxCalculationSheet(ws, taxData, fiscalYear) {
     const taxCell = r.getCell(4);
     if (idx === 4 && taxData.taxDepSheetName && taxData.taxDepTotalRow) {
       taxCell.value = {
-        formula: cellRef(taxData.taxDepSheetName, "G", taxData.taxDepTotalRow).replace(/^=/, ""),
+        formula: cellRef(taxData.taxDepSheetName, "I", taxData.taxDepTotalRow).replace(/^=/, ""),
         result: 0
       };
-      taxCell.numFmt = NUMBER_FORMAT;
+      taxCell.numFmt = NUMBER_FORMAT2;
       taxCell.alignment = { horizontal: "right" };
     } else {
       setAmountCell(taxCell, item.taxValue ?? null);
@@ -4659,7 +5154,7 @@ function writeTaxCalculationSheet(ws, taxData, fiscalYear) {
   };
   [3, 4].forEach((ci) => {
     const c = assessableRow.getCell(ci);
-    c.numFmt = NUMBER_FORMAT;
+    c.numFmt = NUMBER_FORMAT2;
     c.alignment = { horizontal: "right" };
     applyTotalStyle(c);
     applyAllBorders(c);
@@ -4670,16 +5165,16 @@ function writeTaxCalculationSheet(ws, taxData, fiscalYear) {
   donationR.getCell(1).value = "Less: Donation u/s 12";
   const donationCell = donationR.getCell(4);
   donationCell.value = taxData.donations ?? 0;
-  donationCell.numFmt = NUMBER_FORMAT;
+  donationCell.numFmt = NUMBER_FORMAT2;
   donationCell.alignment = { horizontal: "right" };
-  applyInputStyle(donationCell);
+  applyInputStyle2(donationCell);
   applyAllBorders(donationCell);
   applyAllBorders(donationR.getCell(1));
   const incomeLossRow = row++;
   const incomeLossR = ws.getRow(incomeLossRow);
   incomeLossR.getCell(1).value = "Income/(Loss)";
   incomeLossR.getCell(4).value = { formula: `D${assessableIncomeRow}-D${donationRow}`, result: 0 };
-  incomeLossR.getCell(4).numFmt = NUMBER_FORMAT;
+  incomeLossR.getCell(4).numFmt = NUMBER_FORMAT2;
   incomeLossR.getCell(4).alignment = { horizontal: "right" };
   applyTotalStyle(incomeLossR.getCell(4));
   applyAllBorders(incomeLossR.getCell(1));
@@ -4689,16 +5184,16 @@ function writeTaxCalculationSheet(ws, taxData, fiscalYear) {
   lossCarryR.getCell(1).value = "Carry forward of losses u/s 20";
   const lossCarryCell = lossCarryR.getCell(4);
   lossCarryCell.value = taxData.lossCarryForward ?? 0;
-  lossCarryCell.numFmt = NUMBER_FORMAT;
+  lossCarryCell.numFmt = NUMBER_FORMAT2;
   lossCarryCell.alignment = { horizontal: "right" };
-  applyInputStyle(lossCarryCell);
+  applyInputStyle2(lossCarryCell);
   applyAllBorders(lossCarryCell);
   applyAllBorders(lossCarryR.getCell(1));
   const taxableIncomeRow = row++;
   const taxableR = ws.getRow(taxableIncomeRow);
   taxableR.getCell(1).value = "Taxable Income/(Loss)";
   taxableR.getCell(4).value = { formula: `D${incomeLossRow}-D${lossCarryRow}`, result: 0 };
-  taxableR.getCell(4).numFmt = NUMBER_FORMAT;
+  taxableR.getCell(4).numFmt = NUMBER_FORMAT2;
   taxableR.getCell(4).alignment = { horizontal: "right" };
   applyTotalStyle(taxableR.getCell(4));
   applyAllBorders(taxableR.getCell(1));
@@ -4717,7 +5212,7 @@ function writeTaxCalculationSheet(ws, taxData, fiscalYear) {
   const incomeTaxR = ws.getRow(incomeTaxLiabilityRow);
   incomeTaxR.getCell(1).value = "Income Tax Liability";
   incomeTaxR.getCell(4).value = { formula: `MAX(0,D${taxableIncomeRow}*D${taxRateRow})`, result: 0 };
-  incomeTaxR.getCell(4).numFmt = NUMBER_FORMAT;
+  incomeTaxR.getCell(4).numFmt = NUMBER_FORMAT2;
   incomeTaxR.getCell(4).alignment = { horizontal: "right" };
   applyTotalStyle(incomeTaxR.getCell(4));
   applyAllBorders(incomeTaxR.getCell(1));
@@ -4727,9 +5222,9 @@ function writeTaxCalculationSheet(ws, taxData, fiscalYear) {
   feeR.getCell(1).value = "Fee u/s 117";
   const feeCell = feeR.getCell(4);
   feeCell.value = taxData.feeSection117 ?? 0;
-  feeCell.numFmt = NUMBER_FORMAT;
+  feeCell.numFmt = NUMBER_FORMAT2;
   feeCell.alignment = { horizontal: "right" };
-  applyInputStyle(feeCell);
+  applyInputStyle2(feeCell);
   applyAllBorders(feeCell);
   applyAllBorders(feeR.getCell(1));
   const lateTaxInputRow = row + 3;
@@ -4738,7 +5233,7 @@ function writeTaxCalculationSheet(ws, taxData, fiscalYear) {
   const int118R = ws.getRow(interest118Row);
   int118R.getCell(1).value = "Interest u/s 118";
   int118R.getCell(4).value = { formula: `IF(D${lateTaxInputRow}>0,D${lateTaxInputRow}*0.15,0)`, result: 0 };
-  int118R.getCell(4).numFmt = NUMBER_FORMAT;
+  int118R.getCell(4).numFmt = NUMBER_FORMAT2;
   int118R.getCell(4).alignment = { horizontal: "right" };
   applyAllBorders(int118R.getCell(1));
   applyAllBorders(int118R.getCell(4));
@@ -4746,7 +5241,7 @@ function writeTaxCalculationSheet(ws, taxData, fiscalYear) {
   const int119R = ws.getRow(interest119Row);
   int119R.getCell(1).value = "Interest u/s 119";
   int119R.getCell(4).value = { formula: `IF(D${shortfallInputRow}>0,D${shortfallInputRow}*0.15,0)`, result: 0 };
-  int119R.getCell(4).numFmt = NUMBER_FORMAT;
+  int119R.getCell(4).numFmt = NUMBER_FORMAT2;
   int119R.getCell(4).alignment = { horizontal: "right" };
   applyAllBorders(int119R.getCell(1));
   applyAllBorders(int119R.getCell(4));
@@ -4757,7 +5252,7 @@ function writeTaxCalculationSheet(ws, taxData, fiscalYear) {
     formula: `D${incomeTaxLiabilityRow}+D${feeRow}+D${interest118Row}+D${interest119Row}`,
     result: 0
   };
-  totalTaxR.getCell(4).numFmt = NUMBER_FORMAT;
+  totalTaxR.getCell(4).numFmt = NUMBER_FORMAT2;
   totalTaxR.getCell(4).alignment = { horizontal: "right" };
   applyTotalStyle(totalTaxR.getCell(4));
   applyAllBorders(totalTaxR.getCell(1));
@@ -4768,17 +5263,17 @@ function writeTaxCalculationSheet(ws, taxData, fiscalYear) {
   lateTaxR.getCell(1).font = { name: "Arial", size: 9, italic: true, color: { argb: "FF64748B" } };
   const lateTaxCell = lateTaxR.getCell(4);
   lateTaxCell.value = taxData.lateTaxPaidAmount ?? 0;
-  lateTaxCell.numFmt = NUMBER_FORMAT;
+  lateTaxCell.numFmt = NUMBER_FORMAT2;
   lateTaxCell.alignment = { horizontal: "right" };
-  applyInputStyle(lateTaxCell);
+  applyInputStyle2(lateTaxCell);
   const shortfallR = ws.getRow(shortfallInputRow);
   shortfallR.getCell(1).value = "Advance tax shortfall (input for s119)";
   shortfallR.getCell(1).font = { name: "Arial", size: 9, italic: true, color: { argb: "FF64748B" } };
   const shortfallCell = shortfallR.getCell(4);
   shortfallCell.value = taxData.advanceTaxShortfall ?? 0;
-  shortfallCell.numFmt = NUMBER_FORMAT;
+  shortfallCell.numFmt = NUMBER_FORMAT2;
   shortfallCell.alignment = { horizontal: "right" };
-  applyInputStyle(shortfallCell);
+  applyInputStyle2(shortfallCell);
   SHEET_ROW_REGISTRY.taxCalcIncomeTaxRow = incomeTaxLiabilityRow;
   SHEET_ROW_REGISTRY.taxCalcNetPayableRow = totalTaxLiabilityRow;
   SHEET_ROW_REGISTRY.assessableIncomeRow = assessableIncomeRow;
@@ -4797,14 +5292,14 @@ function writeTaxProfitReconciliationSheet(ws, data) {
   ws.mergeCells("A1:B1");
   const titleCell = ws.getCell("A1");
   titleCell.value = `TAX PROFIT RECONCILIATION FOR FY ${data.fiscalYear}`;
-  applyHeaderStyle(titleCell);
+  applyHeaderStyle2(titleCell);
   titleCell.alignment = { horizontal: "center", vertical: "middle" };
   ws.getRow(1).height = 24;
   const headerRow = ws.getRow(3);
   ["Particulars", "Amount"].forEach((h, i) => {
     const c = headerRow.getCell(i + 1);
     c.value = h;
-    applySubHeaderStyle(c);
+    applySubHeaderStyle2(c);
     applyAllBorders(c);
   });
   let row = 4;
@@ -4822,16 +5317,16 @@ function writeTaxProfitReconciliationSheet(ws, data) {
     formula: cellRef(data.disallowSheetName, "C", data.disallowTotalRow).replace(/^=/, ""),
     result: 0
   };
-  disallowCell.numFmt = NUMBER_FORMAT;
+  disallowCell.numFmt = NUMBER_FORMAT2;
   disallowCell.alignment = { horizontal: "right" };
   const taxDepRow = row++;
   ws.getRow(taxDepRow).getCell(1).value = "Less: Tax depreciation";
   const taxDepCell = ws.getRow(taxDepRow).getCell(2);
   taxDepCell.value = {
-    formula: `-${cellRef(data.taxDepSheetName, "G", data.taxDepTotalRow).replace(/^=/, "")}`,
+    formula: `-${cellRef(data.taxDepSheetName, "I", data.taxDepTotalRow).replace(/^=/, "")}`,
     result: 0
   };
-  taxDepCell.numFmt = NUMBER_FORMAT;
+  taxDepCell.numFmt = NUMBER_FORMAT2;
   taxDepCell.alignment = { horizontal: "right" };
   const exemptRow = row++;
   ws.getRow(exemptRow).getCell(1).value = "Less: Exempt income (Dividend income)";
@@ -4840,9 +5335,9 @@ function writeTaxProfitReconciliationSheet(ws, data) {
   ws.getRow(otherAdjRow).getCell(1).value = "Add/Less: Other adjustments";
   const otherAdjCell = ws.getRow(otherAdjRow).getCell(2);
   otherAdjCell.value = 0;
-  otherAdjCell.numFmt = NUMBER_FORMAT;
+  otherAdjCell.numFmt = NUMBER_FORMAT2;
   otherAdjCell.alignment = { horizontal: "right" };
-  applyInputStyle(otherAdjCell);
+  applyInputStyle2(otherAdjCell);
   const assessableIncomeRow = row++;
   const assessableR = ws.getRow(assessableIncomeRow);
   assessableR.getCell(1).value = "Assessable Income";
@@ -4850,7 +5345,7 @@ function writeTaxProfitReconciliationSheet(ws, data) {
     formula: `B${profitRow}+B${depnRow}+B${disallowRow}+B${taxDepRow}+B${exemptRow}+B${otherAdjRow}`,
     result: 0
   };
-  assessableR.getCell(2).numFmt = NUMBER_FORMAT;
+  assessableR.getCell(2).numFmt = NUMBER_FORMAT2;
   assessableR.getCell(2).alignment = { horizontal: "right" };
   applyTotalStyle(assessableR.getCell(2));
   const reconciliationCheckRow = row + 1;
@@ -4922,7 +5417,10 @@ function normalizeNotesForExcel(notes, is, bs) {
     const d = item;
     return {
       ...d,
-      netBookValueClosing: d.netBookValueClosing ?? d.nbvClosing ?? Math.max(0, (d.closingCost ?? 0) - (d.closingAccumDepn ?? 0))
+      netBookValueClosing: d.netBookValueClosing ?? d.nbvClosing ?? Math.max(0, (d.closingCost ?? 0) - (d.closingAccumDepn ?? 0)),
+      impairmentLosses: d.impairmentLosses ?? 0,
+      securedAmount: d.securedAmount ?? 0,
+      hasSecuredAssets: d.hasSecuredAssets ?? false
     };
   });
   const note37_inventories = n37?.rawMaterials ? {
@@ -5126,7 +5624,7 @@ function writeNote33_Receivables(ws, note) {
     ["Particulars", "Current Year", "Previous Year"].forEach((label, idx) => {
       const cell = ws.getRow(rowNum).getCell(idx + 1);
       cell.value = label;
-      applySubHeaderStyle(cell);
+      applySubHeaderStyle2(cell);
       applyAllBorders(cell);
       cell.alignment = { horizontal: idx === 0 ? "left" : "right" };
     });
@@ -5141,7 +5639,7 @@ function writeNote33_Receivables(ws, note) {
       applyBodyStyle(cell);
       applyAllBorders(cell);
       if (col > 1) {
-        cell.numFmt = NUMBER_FORMAT;
+        cell.numFmt = NUMBER_FORMAT2;
         cell.alignment = { horizontal: "right" };
       }
       if (bold) applyTotalStyle(cell);
@@ -5209,7 +5707,7 @@ function writeGenericNoteRecord(ws, title, data) {
   ["Particulars", "Current Year", "Previous Year"].forEach((h, i) => {
     const c = hRow.getCell(i + 1);
     c.value = h;
-    applySubHeaderStyle(c);
+    applySubHeaderStyle2(c);
     applyAllBorders(c);
   });
   const entries = Object.entries(safeData);
@@ -5222,7 +5720,7 @@ function writeGenericNoteRecord(ws, title, data) {
     r.getCell(3).value = vals.py || null;
     [2, 3].forEach((ci) => {
       const c = r.getCell(ci);
-      c.numFmt = NUMBER_FORMAT;
+      c.numFmt = NUMBER_FORMAT2;
       c.alignment = { horizontal: "right" };
       applyBodyStyle(c);
     });
@@ -5253,7 +5751,7 @@ function writeGenericNoteRecord(ws, title, data) {
     };
   }
   [cyCell, pyCell].forEach((c) => {
-    c.numFmt = NUMBER_FORMAT;
+    c.numFmt = NUMBER_FORMAT2;
     c.alignment = { horizontal: "right" };
     applyTotalStyle(c);
   });
@@ -5275,8 +5773,8 @@ async function generateNFRSWorkbook(params) {
     };
     writeWorkings(addSheet("Workings", COLORS.LIGHT_GRAY), company, wb);
     writeInstructions(addSheet("Instructions", COLORS.LIGHT_GRAY));
-    writeEnterDetails(addSheet("Enter Details", COLORS.GREEN_INPUT), company);
-    writeTrialBalance(addSheet("Trial Balance", COLORS.BRAND_BLUE), trialBalance);
+    writeEnterDetails(addSheet("Enter Details", COLORS.GREEN_INPUT), company, adjustments);
+    writeTrialBalance(addSheet("Trial Balance", COLORS.BRAND_BLUE), trialBalance, company);
     const bsRowMap = writeBalanceSheet(addSheet("Balance Sheet", COLORS.BRAND_BLUE), balanceSheet, company);
     const isRowMap = writeIncomeStatement(addSheet("Income Statement", COLORS.BRAND_BLUE), incomeStatement, company);
     const ceRowMap = writeChangesInEquity(addSheet("Change in Equity", COLORS.BRAND_BLUE), changesInEquity, company);
@@ -5459,7 +5957,11 @@ async function generateNFRSWorkbook(params) {
       taxCalcSheetName: "Tax Calculation",
       taxCalcAssessableRow: taxCalcMap.assessableIncomeRow ?? 0
     });
-    writeFairValueChangeSheet(addSheet("Fair Value Change", "16A34A"), listedSharesData);
+    writeFairValueChangeSheet(
+      addSheet("Fair Value Change", "16A34A"),
+      listedSharesData,
+      { trialBalanceFvAdjustment: adjustments.totalInvestmentFVAdjustment ?? 0 }
+    );
     writeSundryDebtors(addSheet("Sundry Debtors", "16A34A"), { adjustments, trialBalance });
     writeSundryCreditors(addSheet("Sundry Creditors", "16A34A"), { adjustments, trialBalance });
     writeBankAccounts(addSheet("Bank Accounts", "16A34A"), notes.note38_cashAndEquivalents);
@@ -5523,7 +6025,7 @@ function applyBalanceSheetCrossReferences(wb, balanceSheetSheetName, noteSheetNa
     const cell = ws.getRow(rowNum).getCell(col);
     const existingNumFmt = cell.numFmt;
     cell.value = { formula: formula.replace(/^=/, ""), result: 0 };
-    cell.numFmt = existingNumFmt || NUMBER_FORMAT;
+    cell.numFmt = existingNumFmt || NUMBER_FORMAT2;
     cell.font = { name: "Arial", size: 10 };
     cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE3F2FD" } };
   };
@@ -5581,7 +6083,7 @@ function applyBalanceSheetCrossReferences(wb, balanceSheetSheetName, noteSheetNa
   } else if (rowMap.totalNcaRow && rowMap.totalCaRow) {
     totalAssetsCell.value = { formula: `${cyCol}${rowMap.totalNcaRow}+${cyCol}${rowMap.totalCaRow}`, result: 0 };
   }
-  totalAssetsCell.numFmt = NUMBER_FORMAT;
+  totalAssetsCell.numFmt = NUMBER_FORMAT2;
   applyTotalStyle(totalAssetsCell);
   console.log("[excelWriter] Balance sheet cross-references applied.");
 }
@@ -5593,7 +6095,7 @@ function applyIncomeStatementCrossReferences(wb, isSheetName, noteSheetNames, ro
     const cell = ws.getRow(rowNum).getCell(col);
     const existingNumFmt = cell.numFmt;
     cell.value = { formula: formula.replace(/^=/, ""), result: 0 };
-    cell.numFmt = existingNumFmt || NUMBER_FORMAT;
+    cell.numFmt = existingNumFmt || NUMBER_FORMAT2;
     cell.font = { name: "Arial", size: 10 };
     cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE3F2FD" } };
   };
@@ -5624,7 +6126,7 @@ function applyCashFlowCrossReferences(wb, cfSheetName, isSheetName, cfMap, isMap
     formula: cellRef(isSheetName, cyCol, isMap.profitBeforeTaxRow).replace(/^=/, ""),
     result: cell.value ?? 0
   };
-  cell.numFmt = NUMBER_FORMAT;
+  cell.numFmt = NUMBER_FORMAT2;
   cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE3F2FD" } };
 }
 function applyChangesInEquityCrossReferences(wb, ceSheetName, isSheetName, ceMap, isMap, cyCol = "C") {
@@ -5634,7 +6136,7 @@ function applyChangesInEquityCrossReferences(wb, ceSheetName, isSheetName, ceMap
   for (const col of ["E", "F"]) {
     const cell = ws.getRow(ceMap.profitForYearRow).getCell(col);
     cell.value = { formula: isRef, result: cell.value ?? 0 };
-    cell.numFmt = NUMBER_FORMAT;
+    cell.numFmt = NUMBER_FORMAT2;
     cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE3F2FD" } };
   }
 }
@@ -5644,7 +6146,7 @@ function applyCashFlowReconciliation(wb, cfSheetName, _bsSheetName, rowMap, cyCo
   const closingFormula = `${cyCol}${rowMap.openingCashRow}+${cyCol}${rowMap.netOperatingRow}+${cyCol}${rowMap.netInvestingRow}+${cyCol}${rowMap.netFinancingRow}`;
   const cell = ws.getRow(rowMap.closingCashRow).getCell(cyCol);
   cell.value = { formula: closingFormula, result: 0 };
-  cell.numFmt = NUMBER_FORMAT;
+  cell.numFmt = NUMBER_FORMAT2;
   applyTotalStyle(cell);
   cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: `FF${COLORS.TOTAL_BG}` } };
   console.log("[excelWriter] Cash flow reconciliation formula applied.");
@@ -5668,7 +6170,7 @@ function applyWorkingsValidationRefs(wb, maps) {
   checks.forEach((check, idx) => {
     const resultCell = ws.getRow(valStart + idx).getCell(3);
     resultCell.value = { formula: check.formula, result: 0 };
-    resultCell.numFmt = NUMBER_FORMAT;
+    resultCell.numFmt = NUMBER_FORMAT2;
     applyBodyStyle(resultCell);
   });
 }
@@ -5959,7 +6461,7 @@ function appendComplianceStatement(ws, params, startRow) {
 var TOTAL_COLS = 19;
 var CY_AMOUNT_COLS = [2, 3, 4, 5, 6, 7, 8, 9];
 var PY_AMOUNT_COLS = [12, 13, 14, 15, 16, 17, 18, 19];
-var SECTION_MAP = [
+var SECTION_MAP2 = [
   { prefixes: ["BS Equity"], header: "CAPITAL ACCOUNT & RESERVES" },
   { prefixes: ["BS NCL Borrowings"], header: "NON-CURRENT LIABILITIES - LOANS & BORROWINGS" },
   { prefixes: ["BS NCL Employee Benefits"], header: "NON-CURRENT LIABILITIES - EMPLOYEE BENEFITS" },
@@ -5991,14 +6493,14 @@ var SECTION_MAP = [
   { prefixes: ["IS Tax"], header: "INCOME TAX EXPENSE" }
 ];
 function resolveSectionHeader(statementLine) {
-  for (const { prefixes, header } of SECTION_MAP) {
+  for (const { prefixes, header } of SECTION_MAP2) {
     for (const prefix of prefixes) {
       if (statementLine.startsWith(prefix)) return header;
     }
   }
   return null;
 }
-function buildSectionAccounts() {
+function buildSectionAccounts2() {
   const sectionAccounts = /* @__PURE__ */ new Map();
   const sectionOrder = [];
   for (const entry of CHART_OF_ACCOUNTS) {
@@ -6011,9 +6513,9 @@ function buildSectionAccounts() {
     }
     sectionAccounts.get(header).push({ displayLabel: entry.displayLabel });
   }
-  return SECTION_MAP.map(({ header }) => header).filter((header) => sectionAccounts.has(header)).map((header) => ({ header, accounts: sectionAccounts.get(header) }));
+  return SECTION_MAP2.map(({ header }) => header).filter((header) => sectionAccounts.has(header)).map((header) => ({ header, accounts: sectionAccounts.get(header) }));
 }
-function colLetter(col) {
+function colLetter2(col) {
   let letter = "";
   let n = col;
   while (n > 0) {
@@ -6037,13 +6539,13 @@ async function generateTrialBalanceTemplate() {
     const titleCell = ws.getCell(1, 1);
     titleCell.value = "[COMPANY NAME]";
     titleCell.alignment = { horizontal: "center", vertical: "middle" };
-    applyHeaderStyle(titleCell);
+    applyHeaderStyle2(titleCell);
     ws.getRow(1).height = 26;
     ws.mergeCells(2, 1, 2, TOTAL_COLS);
     const subtitleCell = ws.getCell(2, 1);
     subtitleCell.value = "NAS FOR MEs \u2014 TRIAL BALANCE TEMPLATE";
     subtitleCell.alignment = { horizontal: "center", vertical: "middle" };
-    applyHeaderStyle(subtitleCell);
+    applyHeaderStyle2(subtitleCell);
     ws.mergeCells(3, 1, 3, TOTAL_COLS);
     const noteCell = ws.getCell(3, 1);
     noteCell.value = "Fill in GREEN cells only. Do not rename or delete account labels or section headers. You may insert extra rows within a section to add accounts not listed here.";
@@ -6065,17 +6567,17 @@ async function generateTrialBalanceTemplate() {
     cyHeaders.forEach((h, i) => {
       const c = headerRow.getCell(i + 1);
       c.value = h;
-      applySubHeaderStyle(c);
+      applySubHeaderStyle2(c);
       c.alignment = { horizontal: i === 0 ? "left" : "center", vertical: "middle" };
     });
     cyHeaders.forEach((h, i) => {
       const c = headerRow.getCell(11 + i);
       c.value = h;
-      applySubHeaderStyle(c);
+      applySubHeaderStyle2(c);
       c.alignment = { horizontal: i === 0 ? "left" : "center", vertical: "middle" };
     });
     let currentRow = 6;
-    const sections = buildSectionAccounts();
+    const sections = buildSectionAccounts2();
     for (const { header, accounts } of sections) {
       ws.mergeCells(currentRow, 1, currentRow, TOTAL_COLS);
       const sectionCell = ws.getRow(currentRow).getCell(1);
@@ -6095,8 +6597,8 @@ async function generateTrialBalanceTemplate() {
         for (const col of [...CY_AMOUNT_COLS, ...PY_AMOUNT_COLS]) {
           const cell = row.getCell(col);
           cell.value = null;
-          applyInputStyle(cell);
-          cell.numFmt = NUMBER_FORMAT;
+          applyInputStyle2(cell);
+          cell.numFmt = NUMBER_FORMAT2;
           cell.alignment = { horizontal: "right" };
         }
         currentRow++;
@@ -6110,9 +6612,9 @@ async function generateTrialBalanceTemplate() {
     const doubleTop = { style: "double", color: { argb: "FF1E40AF" } };
     for (const col of [...CY_AMOUNT_COLS, ...PY_AMOUNT_COLS]) {
       const cell = totalRow.getCell(col);
-      const letter = colLetter(col);
+      const letter = colLetter2(col);
       cell.value = { formula: `SUM(${letter}${dataStartRow}:${letter}${dataEndRow})`, result: 0 };
-      cell.numFmt = NUMBER_FORMAT;
+      cell.numFmt = NUMBER_FORMAT2;
       cell.alignment = { horizontal: "right" };
       cell.font = { name: "Arial", size: 10, bold: true };
       cell.border = { top: doubleTop };
@@ -6129,8 +6631,145 @@ async function generateTrialBalanceTemplate() {
 // server/services/aiTbConverter.ts
 import Anthropic2 from "@anthropic-ai/sdk";
 import ExcelJS4 from "exceljs";
+
+// server/services/tbHierarchy.ts
+var round2 = (n) => Math.round(n * 100) / 100;
+function deriveClosingBalances(row) {
+  if (row.isGroupRow) return row;
+  let { closingDr, closingCr, openingDr, openingCr, duringDr, duringCr, adjustmentDr, adjustmentCr } = row;
+  if (closingDr === 0 && closingCr === 0) {
+    const netDr = openingDr + duringDr + adjustmentDr;
+    const netCr = openingCr + duringCr + adjustmentCr;
+    const net = netDr - netCr;
+    if (net >= 0) {
+      closingDr = round2(net);
+      closingCr = 0;
+    } else {
+      closingDr = 0;
+      closingCr = round2(Math.abs(net));
+    }
+  }
+  return { ...row, closingDr, closingCr };
+}
+function markGroupRowsByIndentation2(rows) {
+  return rows.map((row, i) => {
+    let hasDeeperDescendant = false;
+    for (let j = i + 1; j < rows.length; j++) {
+      if (rows[j].rawIndentSpaces <= row.rawIndentSpaces) break;
+      hasDeeperDescendant = true;
+      break;
+    }
+    return {
+      ...row,
+      isGroupRow: row.isGroupRow || hasDeeperDescendant,
+      rowLevel: hasDeeperDescendant ? 0 : row.rawIndentSpaces > 4 ? 2 : row.rowLevel ?? 1
+    };
+  });
+}
+function markTallyShorthandAggregates2(rows) {
+  return rows.map((row, i) => {
+    if (row.isGroupRow) return row;
+    const peers = [];
+    for (let j = i + 1; j < rows.length; j++) {
+      if (rows[j].rawIndentSpaces < row.rawIndentSpaces) break;
+      if (rows[j].rawIndentSpaces === row.rawIndentSpaces) {
+        peers.push(rows[j].rawLabel.trim());
+      }
+    }
+    const isShorthandAggregate = peers.some(
+      (peer) => (peer.startsWith(`${row.rawLabel.trim()}:`) || peer.startsWith(`${row.rawLabel.trim()} `)) && peer.length > row.rawLabel.trim().length
+    );
+    return { ...row, isGroupRow: isShorthandAggregate };
+  });
+}
+function assignParentGroups2(rows) {
+  const groupStack = [];
+  return rows.map((row) => {
+    if (row.isGroupRow) {
+      while (groupStack.length > 0 && groupStack[groupStack.length - 1].indentSpaces >= row.rawIndentSpaces) {
+        groupStack.pop();
+      }
+      groupStack.push({
+        label: row.rawLabel,
+        indentSpaces: row.rawIndentSpaces,
+        level: row.rowLevel
+      });
+      return {
+        ...row,
+        parentGroup: groupStack.length > 1 ? groupStack[groupStack.length - 2].label : ""
+      };
+    }
+    const parentGroup = groupStack.length > 0 ? groupStack[groupStack.length - 1].label : "";
+    return { ...row, parentGroup: row.parentGroup || parentGroup };
+  });
+}
+function postProcessHierarchy(rows) {
+  return assignParentGroups2(markTallyShorthandAggregates2(markGroupRowsByIndentation2(rows)));
+}
+function computeRawTBTotals(rows) {
+  const leafRows = rows.filter((r) => !r.isGroupRow);
+  let totalOpeningDr = 0;
+  let totalOpeningCr = 0;
+  let totalDuringDr = 0;
+  let totalDuringCr = 0;
+  let totalClosingDr = 0;
+  let totalClosingCr = 0;
+  for (const row of leafRows) {
+    totalOpeningDr += row.openingDr;
+    totalOpeningCr += row.openingCr;
+    totalDuringDr += row.duringDr;
+    totalDuringCr += row.duringCr;
+    totalClosingDr += row.closingDr;
+    totalClosingCr += row.closingCr;
+  }
+  totalClosingDr = round2(totalClosingDr);
+  totalClosingCr = round2(totalClosingCr);
+  const difference = round2(totalClosingDr - totalClosingCr);
+  return {
+    totalOpeningDr: round2(totalOpeningDr),
+    totalOpeningCr: round2(totalOpeningCr),
+    totalDuringDr: round2(totalDuringDr),
+    totalDuringCr: round2(totalDuringCr),
+    totalClosingDr,
+    totalClosingCr,
+    isBalanced: Math.abs(difference) < 1,
+    difference
+  };
+}
+function finalizeRawTBRows(rows, options = {}) {
+  const deriveClosing = options.deriveClosing !== false;
+  const runHierarchy = options.postProcessHierarchy !== false;
+  let processed = rows.map((row, idx) => ({ ...row, rowIndex: idx }));
+  if (deriveClosing) {
+    processed = processed.map(deriveClosingBalances);
+  }
+  if (runHierarchy) {
+    processed = postProcessHierarchy(processed);
+  } else {
+    processed = assignParentGroups2(processed);
+  }
+  processed = processed.map((row, idx) => ({ ...row, rowIndex: idx }));
+  const totals = computeRawTBTotals(processed);
+  const warnings = [];
+  if (!totals.isBalanced) {
+    warnings.push(
+      `Trial Balance not balanced. Difference: ${Math.abs(totals.difference).toLocaleString("en-IN")}.`
+    );
+  }
+  const derivedCount = rows.filter(
+    (r, i) => !r.isGroupRow && r.closingDr === 0 && r.closingCr === 0 && processed[i] && (processed[i].closingDr > 0 || processed[i].closingCr > 0)
+  ).length;
+  if (derivedCount > 0) {
+    warnings.push(
+      `Closing balances derived for ${derivedCount} account${derivedCount === 1 ? "" : "s"} from opening + movement columns.`
+    );
+  }
+  return { rows: processed, totals, warnings };
+}
+
+// server/services/aiTbConverter.ts
 var BATCH_SIZE = 100;
-var SYSTEM_PROMPT2 = "You are an expert Nepali chartered accountant assistant. You will be given raw rows extracted from a messy, unstructured, or non-standard trial balance export from Nepali accounting software (Tally, Swastik, Busy, or similar). Identify every genuine LEAF ledger account line that has a numeric balance. IGNORE: company name/address rows, titles, date ranges, blank rows, section/group header rows with no amount, and any 'Total'/'Grand Total'/subtotal rows. Balances are sometimes shown as a single combined value like '1,43,51,552.00 Cr' or '9,664.55 Dr' \u2014 split these correctly into the Dr or Cr field based on the suffix and remove commas. If a row has separate Opening/Debit/Credit/Closing columns, map them precisely. If only a closing balance exists, populate closingDr or closingCr only, leave all other fields 0. Never invent numbers you do not see. Respond with ONLY a raw JSON array, no markdown fences, no commentary, no explanation.";
+var SYSTEM_PROMPT2 = `You are an expert Nepali chartered accountant assistant. You will be given raw rows extracted from a messy, unstructured, or non-standard trial balance export from Nepali accounting software (Tally, Swastik, Busy, or similar). Extract ALL rows in document order, including section and group header rows (e.g. "Property, Plant & Equipment", "Employee Benefit Expenses") even when they have no numeric balance. For group headers set isGroupRow=true, all amount fields to 0, and infer rawIndentSpaces from leading spaces in the label (2 spaces per indent level). For leaf ledger accounts with balances, set isGroupRow=false and populate amounts. Set parentGroup to the nearest group header above each leaf row. IGNORE: company name/address rows, titles, date ranges, blank rows, and any 'Total'/'Grand Total'/subtotal rows. Balances are sometimes shown as a single combined value like '1,43,51,552.00 Cr' or '9,664.55 Dr' \u2014 split these correctly into the Dr or Cr field based on the suffix and remove commas. If a row has separate Opening/Debit/Credit/Closing columns, map them precisely. If only a closing balance exists, populate closingDr or closingCr only, leave opening/during at 0. If opening and during-period columns exist but closing is missing, leave closing at 0 (the server will derive closing). Never invent numbers you do not see. Respond with ONLY a raw JSON array, no markdown fences, no commentary, no explanation.`;
 function parseAIResponse2(text) {
   const cleaned = text.replace(/```json\s*/gi, "").replace(/```\s*/gi, "").trim();
   const start = cleaned.indexOf("[");
@@ -6142,8 +6781,102 @@ function parseAIResponse2(text) {
 function isRowEmpty(row) {
   return row.every((cell) => cell === null || cell === void 0 || String(cell).trim() === "");
 }
+function countLeadingSpaces2(s) {
+  const m = s.match(/^(\s*)/);
+  return m ? m[1].length : 0;
+}
+function toRawTBRow(el, idx) {
+  const rawLabel = String(el.rawLabel ?? "").trim();
+  const rawIndentSpaces = el.rawIndentSpaces ?? countLeadingSpaces2(String(el.rawLabel ?? ""));
+  const isGroupRow = Boolean(el.isGroupRow);
+  const rowLevel = el.rowLevel ?? (isGroupRow ? 0 : rawIndentSpaces > 0 ? 1 : 2);
+  return {
+    rowIndex: idx,
+    rawLabel,
+    openingDr: isGroupRow ? 0 : Number(el.openingDr) || 0,
+    openingCr: isGroupRow ? 0 : Number(el.openingCr) || 0,
+    duringDr: isGroupRow ? 0 : Number(el.duringDr) || 0,
+    duringCr: isGroupRow ? 0 : Number(el.duringCr) || 0,
+    adjustmentDr: 0,
+    adjustmentCr: 0,
+    closingDr: isGroupRow ? 0 : Number(el.closingDr) || 0,
+    closingCr: isGroupRow ? 0 : Number(el.closingCr) || 0,
+    rowLevel,
+    isGroupRow,
+    parentGroup: String(el.parentGroup ?? "").trim(),
+    rawIndentSpaces
+  };
+}
+var DOCUMENT_EXTENSIONS = /* @__PURE__ */ new Set([".pdf", ".png", ".jpg", ".jpeg", ".webp"]);
+function documentMediaType(ext) {
+  if (ext === ".pdf") return "application/pdf";
+  if (ext === ".png") return "image/png";
+  if (ext === ".webp") return "image/webp";
+  return "image/jpeg";
+}
+async function convertDocumentTrialBalance(buffer, filename, ext, apiKey) {
+  const client = new Anthropic2({ apiKey });
+  const rowSchema = '{"rawLabel": string, "openingDr": number, "openingCr": number, "duringDr": number, "duringCr": number, "closingDr": number, "closingCr": number, "isGroupRow": boolean, "parentGroup": string, "rawIndentSpaces": number, "rowLevel": number}';
+  const response = await client.messages.create({
+    model: "claude-sonnet-4-20250514",
+    max_tokens: 8192,
+    system: SYSTEM_PROMPT2,
+    messages: [
+      {
+        role: "user",
+        content: [
+          ext === ".pdf" ? {
+            type: "document",
+            source: {
+              type: "base64",
+              media_type: "application/pdf",
+              data: buffer.toString("base64")
+            }
+          } : {
+            type: "image",
+            source: {
+              type: "base64",
+              media_type: documentMediaType(ext),
+              data: buffer.toString("base64")
+            }
+          },
+          {
+            type: "text",
+            text: `This ${ext === ".pdf" ? "PDF" : "image"} contains a trial balance export or scan. Extract all trial balance rows from the document. Return a JSON array where each element is exactly: ${rowSchema}.`
+          }
+        ]
+      }
+    ]
+  });
+  const text = response.content.filter((part) => part.type === "text").map((part) => part.type === "text" ? part.text : "").join("");
+  const merged = parseAIResponse2(text);
+  const rawRows = merged.map((el, idx) => toRawTBRow(el, idx)).filter((row) => row.isGroupRow || row.closingDr > 0 || row.closingCr > 0 || row.openingDr > 0 || row.openingCr > 0);
+  if (rawRows.filter((row) => !row.isGroupRow).length === 0) {
+    throw Object.assign(
+      new Error(
+        `Could not extract trial balance rows from "${filename}". Try exporting to Excel/CSV or use Manual Upload.`
+      ),
+      { status: 422 }
+    );
+  }
+  const finalized = finalizeRawTBRows(rawRows);
+  return {
+    rows: finalized.rows,
+    ...finalized.totals,
+    warnings: [
+      `Trial balance extracted from ${ext === ".pdf" ? "PDF document" : "scanned/image upload"} via AI OCR.`,
+      ...finalized.warnings
+    ],
+    detectedColumns: {},
+    headerRowIndex: 0,
+    detectedFormat: "ai_converted"
+  };
+}
 async function convertRoughTrialBalance(buffer, filename, apiKey) {
   const ext = filename.toLowerCase().slice(filename.lastIndexOf("."));
+  if (DOCUMENT_EXTENSIONS.has(ext)) {
+    return convertDocumentTrialBalance(buffer, filename, ext, apiKey);
+  }
   let matrix;
   if (ext === ".csv") {
     matrix = parseCSVText(buffer.toString("utf-8"));
@@ -6160,6 +6893,7 @@ async function convertRoughTrialBalance(buffer, filename, apiKey) {
   const warnings = [];
   const merged = [];
   const client = new Anthropic2({ apiKey });
+  const rowSchema = '{"rawLabel": string, "openingDr": number, "openingCr": number, "duringDr": number, "duringCr": number, "closingDr": number, "closingCr": number, "isGroupRow": boolean, "parentGroup": string, "rawIndentSpaces": number, "rowLevel": number}';
   for (let i = 0; i < nonEmptyRows.length; i += BATCH_SIZE) {
     const chunk = nonEmptyRows.slice(i, i + BATCH_SIZE);
     const batchNum = Math.floor(i / BATCH_SIZE) + 1;
@@ -6171,10 +6905,10 @@ async function convertRoughTrialBalance(buffer, filename, apiKey) {
         messages: [
           {
             role: "user",
-            content: `Extract ledger rows from this raw data. Return a JSON array where each element is exactly: {"rawLabel": string, "openingDr": number, "openingCr": number, "duringDr": number, "duringCr": number, "closingDr": number, "closingCr": number}.
+            content: `Extract trial balance rows from this raw data. Return a JSON array where each element is exactly: ${rowSchema}. Preserve document order. Include group header rows with isGroupRow=true. Set parentGroup on every leaf row.
 
 Raw rows:
-` + JSON.stringify(chunk)
+${JSON.stringify(chunk)}`
           }
         ]
       });
@@ -6188,34 +6922,15 @@ Raw rows:
       );
     }
   }
-  const elements = merged.map((el) => ({
-    rawLabel: String(el.rawLabel ?? "").trim(),
-    openingDr: Number(el.openingDr) || 0,
-    openingCr: Number(el.openingCr) || 0,
-    duringDr: Number(el.duringDr) || 0,
-    duringCr: Number(el.duringCr) || 0,
-    closingDr: Number(el.closingDr) || 0,
-    closingCr: Number(el.closingCr) || 0
-  })).filter(
-    (el) => el.rawLabel && !(el.openingDr === 0 && el.openingCr === 0 && el.duringDr === 0 && el.duringCr === 0 && el.closingDr === 0 && el.closingCr === 0)
-  );
-  const rows = elements.map((el, idx) => ({
-    rowIndex: idx,
-    rawLabel: el.rawLabel,
-    openingDr: el.openingDr,
-    openingCr: el.openingCr,
-    duringDr: el.duringDr,
-    duringCr: el.duringCr,
-    adjustmentDr: 0,
-    adjustmentCr: 0,
-    closingDr: el.closingDr,
-    closingCr: el.closingCr,
-    rowLevel: 2,
-    isGroupRow: false,
-    parentGroup: "",
-    rawIndentSpaces: 0
-  }));
-  if (rows.length === 0) {
+  const rawRows = merged.map((el) => ({
+    ...el,
+    rawLabel: String(el.rawLabel ?? "").trim()
+  })).filter((el) => {
+    if (!el.rawLabel) return false;
+    if (el.isGroupRow) return true;
+    return !(el.openingDr === 0 && el.openingCr === 0 && el.duringDr === 0 && el.duringCr === 0 && el.closingDr === 0 && el.closingCr === 0);
+  }).map((el, idx) => toRawTBRow(el, idx));
+  if (rawRows.filter((r) => !r.isGroupRow).length === 0) {
     throw Object.assign(
       new Error(
         "AI could not extract any account balances from this file. Please try Manual Upload (Standard Format) instead."
@@ -6223,36 +6938,18 @@ Raw rows:
       { status: 422 }
     );
   }
-  let totalOpeningDr = 0, totalOpeningCr = 0, totalDuringDr = 0, totalDuringCr = 0;
-  let totalClosingDr = 0, totalClosingCr = 0;
-  for (const row of rows) {
-    totalOpeningDr += row.openingDr;
-    totalOpeningCr += row.openingCr;
-    totalDuringDr += row.duringDr;
-    totalDuringCr += row.duringCr;
-    totalClosingDr += row.closingDr;
-    totalClosingCr += row.closingCr;
-  }
-  const round22 = (n) => Math.round(n * 100) / 100;
-  totalClosingDr = round22(totalClosingDr);
-  totalClosingCr = round22(totalClosingCr);
-  const difference = round22(totalClosingDr - totalClosingCr);
-  const isBalanced = Math.abs(difference) < 1;
-  if (!isBalanced) {
+  const finalized = finalizeRawTBRows(rawRows);
+  warnings.push(...finalized.warnings);
+  const parentGroupCount = finalized.rows.filter((r) => !r.isGroupRow && r.parentGroup).length;
+  const leafCount = finalized.rows.filter((r) => !r.isGroupRow).length;
+  if (leafCount > 0 && parentGroupCount === 0) {
     warnings.push(
-      `Trial Balance not balanced. Difference: ${Math.abs(difference).toLocaleString("en-IN")}.`
+      "No parent group context was detected. Account classification may be less accurate for ambiguous accounts."
     );
   }
   return {
-    rows,
-    totalOpeningDr: round22(totalOpeningDr),
-    totalOpeningCr: round22(totalOpeningCr),
-    totalDuringDr: round22(totalDuringDr),
-    totalDuringCr: round22(totalDuringCr),
-    totalClosingDr,
-    totalClosingCr,
-    isBalanced,
-    difference,
+    rows: finalized.rows,
+    ...finalized.totals,
     warnings,
     detectedColumns: {},
     headerRowIndex: 0,
@@ -6260,8 +6957,143 @@ Raw rows:
   };
 }
 
+// server/services/normalizedTbWriter.ts
+import ExcelJS5 from "exceljs";
+var HEADERS = [
+  "Account Name",
+  "Opening Dr",
+  "Opening Cr",
+  "During Dr",
+  "During Cr",
+  "Adjustment Dr",
+  "Adjustment Cr",
+  "Closing Dr",
+  "Closing Cr",
+  "Parent Group"
+];
+async function writeNormalizedTrialBalance(rows, meta) {
+  const wb = new ExcelJS5.Workbook();
+  const ws = wb.addWorksheet("Trial Balance");
+  if (meta?.companyName) {
+    ws.addRow([meta.companyName]);
+    ws.getRow(1).font = { bold: true, size: 14 };
+  }
+  if (meta?.fiscalYear) {
+    ws.addRow([`Fiscal Year: ${meta.fiscalYear}`]);
+  }
+  ws.addRow([]);
+  const headerRow = ws.addRow(HEADERS);
+  headerRow.font = { bold: true };
+  headerRow.fill = {
+    type: "pattern",
+    pattern: "solid",
+    fgColor: { argb: "FFE2EFDA" }
+  };
+  for (const row of rows) {
+    const indent = "  ".repeat(Math.min(4, Math.floor(row.rawIndentSpaces / 2)));
+    const label = row.isGroupRow ? row.rawLabel.toUpperCase() : `${indent}${row.rawLabel}`;
+    const dataRow = ws.addRow([
+      label,
+      row.isGroupRow ? "" : row.openingDr || "",
+      row.isGroupRow ? "" : row.openingCr || "",
+      row.isGroupRow ? "" : row.duringDr || "",
+      row.isGroupRow ? "" : row.duringCr || "",
+      row.isGroupRow ? "" : row.adjustmentDr || "",
+      row.isGroupRow ? "" : row.adjustmentCr || "",
+      row.isGroupRow ? "" : row.closingDr || "",
+      row.isGroupRow ? "" : row.closingCr || "",
+      row.parentGroup || ""
+    ]);
+    if (row.isGroupRow) {
+      dataRow.font = { bold: true };
+    }
+  }
+  ws.columns = [
+    { width: 40 },
+    { width: 14 },
+    { width: 14 },
+    { width: 14 },
+    { width: 14 },
+    { width: 14 },
+    { width: 14 },
+    { width: 14 },
+    { width: 14 },
+    { width: 24 }
+  ];
+  for (let c = 2; c <= 9; c++) {
+    ws.getColumn(c).numFmt = "#,##0.00";
+  }
+  const buffer = await wb.xlsx.writeBuffer();
+  return Buffer.from(buffer);
+}
+
 // server/routes/trialBalance.ts
 var router2 = Router2();
+function ensureSession(req) {
+  let session = sessionStore.get(req.params.companyId);
+  if (!session) {
+    const companyRaw = req.body?.company;
+    if (typeof companyRaw === "string") {
+      try {
+        const company = JSON.parse(companyRaw);
+        sessionStore.set(req.params.companyId, { company: { ...company, id: req.params.companyId } });
+        session = sessionStore.get(req.params.companyId);
+      } catch {
+      }
+    }
+  }
+  if (!session) return null;
+  return { companyId: req.params.companyId, session };
+}
+function countMappingProfileHits(rows, profile) {
+  if (!profile || Object.keys(profile).length === 0) return 0;
+  return rows.filter(
+    (r) => !r.isGroupRow && profile[mappingProfileKey(r.rawLabel, r.parentGroup)]
+  ).length;
+}
+async function classifyAndBuildTB(companyId, parsed, options) {
+  const session = sessionStore.get(companyId);
+  if (!session) throw Object.assign(new Error("Company session not found."), { status: 404 });
+  const leafRows = parsed.rows.filter((r) => !r.isGroupRow);
+  const profileHitCount = countMappingProfileHits(parsed.rows, session.mappingProfile);
+  let rows = classifyAll(parsed.rows);
+  rows = applyMappingProfile(rows, session.mappingProfile);
+  if (options.useAI && options.apiKey) {
+    try {
+      rows = await classifyWithAI(rows, options.apiKey);
+    } catch (aiErr) {
+      console.warn("[trialBalance] AI matching failed:", aiErr);
+    }
+  }
+  const tb = {
+    rows,
+    companyName: session.company?.name ?? session.company?.companyName ?? "",
+    fiscalYear: session.company?.fiscalYearCurrent ?? session.company?.fiscalYear?.bsFY ?? "",
+    isBalanced: parsed.isBalanced,
+    totalAssets: 0,
+    totalLiabilities: 0,
+    totalEquity: 0,
+    warnings: parsed.warnings,
+    companyId,
+    uploadedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    uploadedFileName: options.uploadedFileName,
+    totalClosingDr: parsed.totalClosingDr,
+    totalClosingCr: parsed.totalClosingCr,
+    difference: parsed.difference,
+    detectedFormat: parsed.detectedFormat,
+    detectedColumns: parsed.detectedColumns,
+    headerRowIndex: parsed.headerRowIndex,
+    previousYearData: parsed.previousYearData ?? null,
+    leafAccountCount: leafRows.length,
+    groupRowCount: parsed.rows.filter((r) => r.isGroupRow).length,
+    mappingProfileAppliedCount: profileHitCount,
+    mappingProfileTotalAccounts: leafRows.length,
+    importMode: options.importMode
+  };
+  const validation = validateTrialBalanceTotals(rows);
+  tb.validation = validation;
+  return tb;
+}
 router2.get("/template/download", asyncHandler(async (req, res) => {
   const buffer = await generateTrialBalanceTemplate();
   res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
@@ -6279,17 +7111,25 @@ router2.post("/:companyId/upload", tbUploadMiddleware, async (req, res, next) =>
         error: "File size exceeds the 50 MB limit. Please reduce the file size by removing unnecessary sheets or rows."
       });
     }
-    const allowed = [
+    const ext = (req.file.originalname ?? "").split(".").pop()?.toLowerCase();
+    const documentExts = /* @__PURE__ */ new Set(["pdf", "png", "jpg", "jpeg", "webp"]);
+    const spreadsheetExts = /* @__PURE__ */ new Set(["xlsx", "xls", "csv"]);
+    const allowedMimes = [
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       "application/vnd.ms-excel",
       "text/csv",
-      "application/csv"
+      "application/csv",
+      "application/pdf",
+      "image/png",
+      "image/jpeg",
+      "image/webp"
     ];
-    const ext = (req.file.originalname ?? "").split(".").pop()?.toLowerCase();
-    if (!allowed.includes(req.file.mimetype) && !["xlsx", "xls", "csv"].includes(ext ?? "")) {
+    const isDocument = documentExts.has(ext ?? "");
+    const isSpreadsheet = spreadsheetExts.has(ext ?? "") || allowedMimes.includes(req.file.mimetype);
+    if (!isDocument && !isSpreadsheet) {
       return res.status(415).json({
         success: false,
-        error: "Unsupported file format. Please upload .xlsx, .xls, or .csv files exported from your accounting software."
+        error: "Unsupported file format. Upload Excel/CSV exports, or PDF/image scans for AI OCR import."
       });
     }
     let session = sessionStore.get(req.params.companyId);
@@ -6311,7 +7151,19 @@ router2.post("/:companyId/upload", tbUploadMiddleware, async (req, res, next) =>
         code: "SESSION_NOT_FOUND"
       });
     }
-    const parsed = await parseTrialBalance(req.file.buffer, req.file.originalname);
+    let parsed;
+    if (isDocument) {
+      const apiKey = process.env.ANTHROPIC_API_KEY;
+      if (!apiKey) {
+        return res.status(503).json({
+          success: false,
+          error: "PDF/image OCR import requires AI configuration. Export to Excel/CSV or enable ANTHROPIC_API_KEY."
+        });
+      }
+      parsed = await convertRoughTrialBalance(req.file.buffer, req.file.originalname, apiKey);
+    } else {
+      parsed = await parseTrialBalance(req.file.buffer, req.file.originalname);
+    }
     if (parsed.workbookMetadata?.format === "mes_template") {
       const meta = parsed.workbookMetadata;
       const current = session.company ?? {};
@@ -6339,46 +7191,19 @@ router2.post("/:companyId/upload", tbUploadMiddleware, async (req, res, next) =>
         error: "No data rows found in the uploaded file. Please check your export settings and ensure the file contains account entries."
       });
     }
-    let rows = classifyAll(parsed.rows);
-    rows = applyMappingProfile(rows, session.mappingProfile);
-    if (req.query.useAI === "true" && process.env.ANTHROPIC_API_KEY) {
-      try {
-        rows = await classifyWithAI(rows, process.env.ANTHROPIC_API_KEY);
-      } catch (aiErr) {
-        console.warn("[trialBalance.upload] AI matching failed:", aiErr);
-      }
-    }
-    const tb = {
-      rows,
-      companyName: session.company?.name ?? session.company?.companyName ?? "",
-      fiscalYear: session.company?.fiscalYearCurrent ?? session.company?.fiscalYear?.bsFY ?? "",
-      isBalanced: parsed.isBalanced,
-      totalAssets: 0,
-      totalLiabilities: 0,
-      totalEquity: 0,
-      warnings: parsed.warnings,
-      companyId: req.params.companyId,
-      uploadedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    const tb = await classifyAndBuildTB(req.params.companyId, parsed, {
+      useAI: isDocument || req.query.useAI === "true",
       uploadedFileName: req.file.originalname,
-      totalClosingDr: parsed.totalClosingDr,
-      totalClosingCr: parsed.totalClosingCr,
-      difference: parsed.difference,
-      detectedFormat: parsed.detectedFormat,
-      detectedColumns: parsed.detectedColumns,
-      headerRowIndex: parsed.headerRowIndex,
-      previousYearData: parsed.previousYearData ?? null,
-      leafAccountCount: rows.filter((r) => !r.isGroupRow).length,
-      groupRowCount: rows.filter((r) => r.isGroupRow).length
-    };
-    const validation = validateTrialBalanceTotals(rows);
-    tb.validation = validation;
+      importMode: isDocument ? "ai" : "manual",
+      apiKey: process.env.ANTHROPIC_API_KEY
+    });
+    const validation = tb.validation;
     const diff = Math.abs(validation.totalClosingDr - validation.totalClosingCr);
     if (diff > 1e3) {
       return res.status(422).json({
         success: false,
         error: `Trial balance has a significant imbalance of NPR ${diff.toLocaleString("en-IN")}. Please check your accounting export before proceeding. Rounding differences up to NPR 1,000 are auto-adjusted.`,
         data: tb
-        // still return data so user can review
       });
     }
     sessionStore.set(req.params.companyId, { trialBalance: tb });
@@ -6416,43 +7241,144 @@ router2.post("/:companyId/ai-convert", tbUploadMiddleware, async (req, res, next
       });
     }
     const parsed = await convertRoughTrialBalance(req.file.buffer, req.file.originalname, apiKey);
-    let rows = classifyAll(parsed.rows);
-    rows = applyMappingProfile(rows, session.mappingProfile);
-    try {
-      rows = await classifyWithAI(rows, apiKey);
-    } catch (aiErr) {
-      console.warn("[trialBalance.ai-convert] classification pass failed:", aiErr);
-    }
-    const tb = {
-      rows,
-      companyName: session.company?.name ?? session.company?.companyName ?? "",
-      fiscalYear: session.company?.fiscalYearCurrent ?? session.company?.fiscalYear?.bsFY ?? "",
-      isBalanced: parsed.isBalanced,
-      totalAssets: 0,
-      totalLiabilities: 0,
-      totalEquity: 0,
-      warnings: parsed.warnings,
-      companyId: req.params.companyId,
-      uploadedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    const tb = await classifyAndBuildTB(req.params.companyId, parsed, {
+      useAI: true,
       uploadedFileName: req.file.originalname,
-      totalClosingDr: parsed.totalClosingDr,
-      totalClosingCr: parsed.totalClosingCr,
-      difference: parsed.difference,
-      detectedFormat: parsed.detectedFormat,
-      detectedColumns: parsed.detectedColumns,
-      headerRowIndex: parsed.headerRowIndex,
-      previousYearData: null,
-      leafAccountCount: rows.filter((r) => !r.isGroupRow).length,
-      groupRowCount: rows.filter((r) => r.isGroupRow).length
-    };
-    const validation = validateTrialBalanceTotals(rows);
-    tb.validation = validation;
+      importMode: "ai",
+      apiKey
+    });
     sessionStore.set(req.params.companyId, { trialBalance: tb });
     res.json({ success: true, data: tb });
   } catch (err) {
     next(err);
   }
 });
+router2.post("/:companyId/parse-preview", tbUploadMiddleware, async (req, res, next) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, error: "No file uploaded." });
+    }
+    const ensured = ensureSession(req);
+    if (!ensured) {
+      return res.status(404).json({
+        success: false,
+        error: "Company session not found on server. Save company details first.",
+        code: "SESSION_NOT_FOUND"
+      });
+    }
+    const mode = req.query.mode === "ai" ? "ai" : "manual";
+    let parsed;
+    if (mode === "ai") {
+      const apiKey = process.env.ANTHROPIC_API_KEY;
+      if (!apiKey) {
+        return res.status(503).json({
+          success: false,
+          error: "AI import is not configured. Use manual upload instead."
+        });
+      }
+      parsed = await convertRoughTrialBalance(req.file.buffer, req.file.originalname, apiKey);
+    } else {
+      parsed = await parseTrialBalance(req.file.buffer, req.file.originalname);
+      if (!parsed.rows?.length) {
+        return res.status(422).json({ success: false, error: "No data rows found in the uploaded file." });
+      }
+    }
+    const profileHitCount = countMappingProfileHits(parsed.rows, ensured.session.mappingProfile);
+    const preview = {
+      ...parsed,
+      companyId: req.params.companyId,
+      uploadedAt: (/* @__PURE__ */ new Date()).toISOString(),
+      uploadedFileName: req.file.originalname,
+      importMode: mode,
+      mappingProfileAppliedCount: profileHitCount,
+      mappingProfileTotalAccounts: parsed.rows.filter((r) => !r.isGroupRow).length
+    };
+    sessionStore.set(req.params.companyId, { rawTrialBalance: preview });
+    res.json({ success: true, data: preview });
+  } catch (err) {
+    next(err);
+  }
+});
+router2.post("/:companyId/confirm-normalized", asyncHandler(async (req, res) => {
+  const ensured = ensureSession(req);
+  if (!ensured) {
+    return res.status(404).json({ success: false, error: "Company session not found.", code: "SESSION_NOT_FOUND" });
+  }
+  const inputRows = req.body.rows ?? [];
+  if (!inputRows.length) {
+    return res.status(400).json({ success: false, error: "No trial balance rows provided." });
+  }
+  const stored = ensured.session.rawTrialBalance;
+  const importMode = stored?.importMode ?? "manual";
+  const useAI = req.body.useAI === true || importMode === "ai";
+  const finalized = finalizeRawTBRows(inputRows);
+  const parsed = {
+    rows: finalized.rows,
+    ...finalized.totals,
+    warnings: [
+      ...stored?.warnings ?? [],
+      ...finalized.warnings
+    ],
+    detectedColumns: stored?.detectedColumns ?? {},
+    headerRowIndex: stored?.headerRowIndex ?? 0,
+    detectedFormat: stored?.detectedFormat ?? "full",
+    previousYearData: stored?.previousYearData ?? null
+  };
+  const tb = await classifyAndBuildTB(req.params.companyId, parsed, {
+    useAI,
+    uploadedFileName: stored?.uploadedFileName,
+    importMode,
+    apiKey: process.env.ANTHROPIC_API_KEY
+  });
+  const validation = tb.validation;
+  const diff = Math.abs(validation.totalClosingDr - validation.totalClosingCr);
+  if (importMode === "manual" && diff > 1e3) {
+    return res.status(422).json({
+      success: false,
+      error: `Trial balance has a significant imbalance of NPR ${diff.toLocaleString("en-IN")}.`,
+      data: tb
+    });
+  }
+  sessionStore.set(req.params.companyId, { trialBalance: tb, rawTrialBalance: void 0 });
+  res.json({ success: true, data: tb });
+}));
+router2.post("/:companyId/normalized/save", asyncHandler(async (req, res) => {
+  const session = sessionStore.get(req.params.companyId);
+  if (!session?.rawTrialBalance) {
+    return res.status(404).json({ error: "No normalized preview in session." });
+  }
+  const inputRows = req.body.rows ?? [];
+  if (!inputRows.length) {
+    return res.status(400).json({ error: "No rows provided." });
+  }
+  const finalized = finalizeRawTBRows(inputRows);
+  const existing = session.rawTrialBalance;
+  const updated = {
+    ...existing,
+    rows: finalized.rows,
+    ...finalized.totals,
+    warnings: [...existing.warnings ?? [], ...finalized.warnings]
+  };
+  sessionStore.set(req.params.companyId, { rawTrialBalance: updated });
+  res.json({ success: true, data: updated });
+}));
+router2.get("/:companyId/normalized/export", asyncHandler(async (req, res) => {
+  const session = sessionStore.get(req.params.companyId);
+  const raw = session?.rawTrialBalance;
+  const rows = raw?.rows ?? session?.trialBalance?.rows;
+  if (!rows?.length) {
+    return res.status(404).json({ error: "No normalized trial balance available to export." });
+  }
+  const company = session?.company;
+  const buffer = await writeNormalizedTrialBalance(rows, {
+    companyName: company?.companyName,
+    fiscalYear: company?.fiscalYear?.bsFY,
+    filename: raw?.uploadedFileName
+  });
+  res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  res.setHeader("Content-Disposition", 'attachment; filename="Normalized_Trial_Balance.xlsx"');
+  return res.send(buffer);
+}));
 router2.get("/:companyId", asyncHandler(async (req, res) => {
   const session = sessionStore.get(req.params.companyId);
   if (!session?.trialBalance) return res.status(404).json({ error: "No trial balance loaded for this company." });
@@ -6564,7 +7490,75 @@ import { Router as Router3 } from "express";
 
 // server/store/subledgerStore.ts
 import crypto2 from "crypto";
+
+// src/utils/subledgerValidation.ts
+var TOLERANCE = 1;
+function sumDebtorDebitTotal(debtors = []) {
+  return debtors.reduce((sum, row) => sum + Math.max(0, row.debitBalance ?? 0), 0);
+}
+function sumCreditorCreditTotal(creditors = []) {
+  return creditors.reduce((sum, row) => sum + Math.max(0, row.creditBalance ?? 0), 0);
+}
+function sumBankTotals(bankAccounts = []) {
+  const bankAssetTotal = bankAccounts.filter((row) => (row.balance ?? 0) > 0).reduce((sum, row) => sum + (row.balance ?? 0), 0);
+  const bankLiabilityTotal = bankAccounts.filter((row) => (row.balance ?? 0) < 0).reduce((sum, row) => sum + Math.abs(row.balance ?? 0), 0);
+  return { bankAssetTotal, bankLiabilityTotal };
+}
+function checkDebtorReconciliation(subledgerTotal, tbTotal, hasRows = true) {
+  const diff = Math.abs(subledgerTotal - tbTotal);
+  const isBalanced = diff <= TOLERANCE || tbTotal === 0 || !hasRows;
+  return { subledgerTotal, tbTotal, diff, isBalanced };
+}
+function checkCreditorReconciliation(subledgerTotal, tbTotal, hasRows = true) {
+  const diff = Math.abs(subledgerTotal - tbTotal);
+  const isBalanced = diff <= TOLERANCE || tbTotal === 0 || !hasRows;
+  return { subledgerTotal, tbTotal, diff, isBalanced };
+}
+function validateSubledgerTotals(data, tbDebtorTotal, tbCreditorTotal) {
+  const warnings = [];
+  const debtors = data.debtors ?? [];
+  const creditors = data.creditors ?? [];
+  const bankAccounts = data.bankAccounts ?? [];
+  const debtorTotal = sumDebtorDebitTotal(debtors);
+  const creditorTotal = sumCreditorCreditTotal(creditors);
+  const { bankAssetTotal, bankLiabilityTotal } = sumBankTotals(bankAccounts);
+  const debtorCheck = checkDebtorReconciliation(debtorTotal, tbDebtorTotal, debtors.length > 0);
+  if (debtors.length > 0 && !debtorCheck.isBalanced) {
+    warnings.push(
+      `Debtor subledger total (NPR ${debtorTotal.toLocaleString("en-IN")}) does not match trial balance trade receivables (NPR ${tbDebtorTotal.toLocaleString("en-IN")}). Difference: NPR ${debtorCheck.diff.toLocaleString("en-IN")}.`
+    );
+  }
+  const creditorCheck = checkCreditorReconciliation(creditorTotal, tbCreditorTotal, creditors.length > 0);
+  if (creditors.length > 0 && !creditorCheck.isBalanced) {
+    warnings.push(
+      `Creditor subledger total (NPR ${creditorTotal.toLocaleString("en-IN")}) does not match trial balance trade payables (NPR ${tbCreditorTotal.toLocaleString("en-IN")}). Difference: NPR ${creditorCheck.diff.toLocaleString("en-IN")}.`
+    );
+  }
+  return {
+    debtorTotal,
+    creditorTotal,
+    bankAssetTotal,
+    bankLiabilityTotal,
+    isValid: warnings.length === 0,
+    warnings
+  };
+}
+
+// server/store/subledgerStore.ts
 var store = /* @__PURE__ */ new Map();
+function persistSubledger(data) {
+  writePersistedJson("subledgers", data.sessionId, data);
+}
+function loadPersistedSubledgers() {
+  if (!persistenceEnabled()) return;
+  for (const id of listPersistedIds("subledgers")) {
+    const raw = readPersistedJson("subledgers", id);
+    if (!raw) continue;
+    const data = reviveDates(raw, ["lastUpdatedAt"]);
+    store.set(id, data);
+  }
+}
+loadPersistedSubledgers();
 function emptySubledger(sessionId) {
   return {
     sessionId,
@@ -6592,6 +7586,7 @@ function upsertDebtors(sessionId, debtors) {
     lastUpdatedAt: /* @__PURE__ */ new Date()
   };
   store.set(sessionId, updated);
+  persistSubledger(updated);
   return updated;
 }
 function upsertCreditors(sessionId, creditors) {
@@ -6608,6 +7603,7 @@ function upsertCreditors(sessionId, creditors) {
     lastUpdatedAt: /* @__PURE__ */ new Date()
   };
   store.set(sessionId, updated);
+  persistSubledger(updated);
   return updated;
 }
 function upsertBankAccounts(sessionId, bankAccounts) {
@@ -6622,6 +7618,7 @@ function upsertBankAccounts(sessionId, bankAccounts) {
     lastUpdatedAt: /* @__PURE__ */ new Date()
   };
   store.set(sessionId, updated);
+  persistSubledger(updated);
   return updated;
 }
 function upsertRelatedParties(sessionId, relatedParties) {
@@ -6640,38 +7637,16 @@ function upsertRelatedParties(sessionId, relatedParties) {
     lastUpdatedAt: /* @__PURE__ */ new Date()
   };
   store.set(sessionId, updated);
+  persistSubledger(updated);
   return updated;
 }
 function deleteSubledger(sessionId) {
+  deletePersistedJson("subledgers", sessionId);
   return store.delete(sessionId);
 }
 function validateSubledger(sessionId, tbDebtorTotal, tbCreditorTotal) {
   const data = getSubledger(sessionId);
-  const warnings = [];
-  const debtorTotal = data.debtors.reduce((s, d) => s + d.debitBalance, 0);
-  const creditorTotal = data.creditors.reduce((s, c) => s + c.creditBalance, 0);
-  const bankAssetTotal = data.bankAccounts.filter((b) => b.balance > 0).reduce((s, b) => s + b.balance, 0);
-  const bankLiabilityTotal = data.bankAccounts.filter((b) => b.balance < 0).reduce((s, b) => s + Math.abs(b.balance), 0);
-  const debtorDiff = Math.abs(debtorTotal - tbDebtorTotal);
-  if (data.debtors.length > 0 && debtorDiff > 1) {
-    warnings.push(
-      `Debtor subledger total (NPR ${debtorTotal.toLocaleString("en-IN")}) does not match trial balance trade receivables (NPR ${tbDebtorTotal.toLocaleString("en-IN")}). Difference: NPR ${debtorDiff.toLocaleString("en-IN")}.`
-    );
-  }
-  const creditorDiff = Math.abs(creditorTotal - tbCreditorTotal);
-  if (data.creditors.length > 0 && creditorDiff > 1) {
-    warnings.push(
-      `Creditor subledger total (NPR ${creditorTotal.toLocaleString("en-IN")}) does not match trial balance trade payables (NPR ${tbCreditorTotal.toLocaleString("en-IN")}). Difference: NPR ${creditorDiff.toLocaleString("en-IN")}.`
-    );
-  }
-  return {
-    debtorTotal,
-    creditorTotal,
-    bankAssetTotal,
-    bankLiabilityTotal,
-    isValid: warnings.length === 0,
-    warnings
-  };
+  return validateSubledgerTotals(data, tbDebtorTotal, tbCreditorTotal);
 }
 function cleanupSubledger(maxAgeHours) {
   const cutoff = Date.now() - maxAgeHours * 60 * 60 * 1e3;
@@ -6932,12 +7907,12 @@ function buildPPENote(assets, policies) {
   };
 }
 function computeTaxDepPool(assets, openingBases, taxableIncome, repairExpenses = {}) {
-  return TAX_POOLS.map((pool) => {
+  const poolResults = TAX_POOLS.map((pool) => {
     const poolAssets = assets.filter((a) => pool.classes.includes(a.assetClass));
     let additions = 0;
     let disposals = 0;
     for (const a of poolAssets) {
-      additions += a.additionsCY + a.originalCost;
+      additions += a.additionsCY ?? 0;
       disposals += a.disposalValue ?? 0;
     }
     const openingBasis = openingBases[pool.poolName] ?? 0;
@@ -6946,22 +7921,42 @@ function computeTaxDepPool(assets, openingBases, taxableIncome, repairExpenses =
     const capitalizedRepairs = Math.max(0, repairExpense - repairThreshold);
     additions += capitalizedRepairs;
     const depreciationBasis = openingBasis + additions - disposals;
-    const absorbed = additions;
     const depreciation = depreciationBasis * pool.rate;
     const netDepreciation = depreciation;
-    const unabsorbed = Math.max(0, netDepreciation - taxableIncome * (2 / 3));
-    const taxableDepreciation = netDepreciation - unabsorbed;
-    const nextYearBasis = depreciationBasis - taxableDepreciation;
     return {
       poolName: pool.poolName,
+      pool: pool.poolName,
       rate: pool.rate,
       openingBasis,
       additions,
       disposals,
-      absorbed,
-      unabsorbed: Math.round(unabsorbed * 100) / 100,
-      nextYearBasis: Math.round(Math.max(0, nextYearBasis) * 100) / 100,
+      depreciationBasis: Math.round(depreciationBasis * 100) / 100,
+      netDepreciation: Math.round(netDepreciation * 100) / 100,
       repairExpense
+    };
+  });
+  const totalNetDep = poolResults.reduce((s, p) => s + p.netDepreciation, 0);
+  const maxAllowable = taxableIncome * (2 / 3);
+  const totalUnabsorbed = Math.max(0, totalNetDep - maxAllowable);
+  return poolResults.map((pool) => {
+    const share = totalNetDep > 0 ? pool.netDepreciation / totalNetDep : 0;
+    const unabsorbed = Math.round(totalUnabsorbed * share * 100) / 100;
+    const taxableDepreciation = Math.round((pool.netDepreciation - unabsorbed) * 100) / 100;
+    const nextYearBasis = Math.max(0, pool.depreciationBasis - taxableDepreciation);
+    return {
+      poolName: pool.poolName,
+      pool: pool.poolName,
+      rate: pool.rate,
+      openingBasis: pool.openingBasis,
+      additions: pool.additions,
+      disposals: pool.disposals,
+      absorbed: taxableDepreciation,
+      unabsorbed,
+      taxDepreciation: taxableDepreciation,
+      depreciationBasis: pool.depreciationBasis,
+      closingBasis: Math.round(nextYearBasis * 100) / 100,
+      nextYearBasis: Math.round(nextYearBasis * 100) / 100,
+      repairExpense: pool.repairExpense
     };
   });
 }
@@ -7014,8 +8009,12 @@ function calculateDepreciationSummary(assets, _categories, _fiscalYear) {
     summary
   };
 }
-function calculateTaxDepreciation(assets, _categories, openingPoolBases) {
-  return computeDepreciation(assets, void 0, { taxOpeningBases: openingPoolBases }).taxDepSchedule;
+function calculateTaxDepreciation(assets, _categories, openingPoolBases, taxableIncome = 0, repairExpenses) {
+  return computeDepreciation(assets, void 0, {
+    taxOpeningBases: openingPoolBases,
+    taxableIncome,
+    repairExpenses
+  }).taxDepSchedule;
 }
 
 // server/routes/adjustments.ts
@@ -7048,6 +8047,7 @@ var emptyAdj = (companyId, fiscalYear) => ({
   investmentAdjustments: [],
   provisions: [],
   journalEntries: [],
+  disallowedForTax: [],
   totalDepreciationExpense: 0,
   totalInventoryImpairment: 0,
   totalInvestmentFVAdjustment: 0,
@@ -7078,7 +8078,24 @@ router3.post("/:companyId/calculate-depreciation", asyncHandler(async (req, res)
   const gainOnDisposals = results.filter((r) => (r.gainLossOnDisposal ?? 0) > 0).reduce((s, r) => s + (r.gainLossOnDisposal ?? 0), 0);
   const lossOnDisposals = results.filter((r) => (r.gainLossOnDisposal ?? 0) < 0).reduce((s, r) => s + Math.abs(r.gainLossOnDisposal ?? 0), 0);
   const openingPoolBases = req.body.openingPoolBases ?? {};
-  const taxPools = calculateTaxDepreciation(toDepreciationAssets(adj.assets ?? []), assetCategories, openingPoolBases);
+  const taxableIncome = req.body.taxableIncome ?? 0;
+  const repairExpenses = req.body.repairExpenses ?? {};
+  let effectiveTaxableIncome = taxableIncome;
+  if (!effectiveTaxableIncome && session.trialBalance) {
+    const tbRows = session.trialBalance.rows ?? [];
+    const sumCr2 = (cats) => tbRows.filter((r) => cats.includes(String(r.nfrsCategory ?? ""))).reduce((s, r) => s + (r.closingCr ?? 0), 0);
+    const sumDr2 = (cats) => tbRows.filter((r) => cats.includes(String(r.nfrsCategory ?? ""))).reduce((s, r) => s + (r.closingDr ?? 0), 0);
+    const revenue = sumCr2(["revenue", "sales", "service_income"]);
+    const expenses = sumDr2(["cost_of_sales", "admin_expenses", "employee_benefits", "finance_costs", "depreciation_expense"]);
+    effectiveTaxableIncome = Math.max(0, revenue - expenses);
+  }
+  const taxPools = calculateTaxDepreciation(
+    toDepreciationAssets(adj.assets ?? []),
+    assetCategories,
+    openingPoolBases,
+    effectiveTaxableIncome,
+    repairExpenses
+  );
   const updatedAdj = {
     ...adj,
     depreciationResults: results,
@@ -7106,6 +8123,14 @@ router3.post("/:companyId/provisions", asyncHandler(async (req, res) => {
   const totalProvisions = provisions.reduce((s, p) => s + p.additionForYear, 0);
   sessionStore.set(req.params.companyId, { adjustments: { ...adj, provisions, totalProvisions } });
   return res.json({ message: "Provisions saved.", count: provisions.length, total: totalProvisions });
+}));
+router3.post("/:companyId/disallowed-tax", asyncHandler(async (req, res) => {
+  const session = sessionStore.get(req.params.companyId);
+  if (!session) return res.status(404).json({ error: "Company not found." });
+  const disallowedForTax = req.body.disallowedForTax ?? [];
+  const adj = session.adjustments ?? emptyAdj(req.params.companyId, session.company?.fiscalYear?.bsFY ?? "");
+  sessionStore.set(req.params.companyId, { adjustments: { ...adj, disallowedForTax } });
+  return res.json({ message: "Disallowed tax items saved.", count: disallowedForTax.length });
 }));
 router3.post("/:companyId/inventory", asyncHandler(async (req, res) => {
   const session = sessionStore.get(req.params.companyId);
@@ -7415,6 +8440,7 @@ function buildNotesData(params) {
   const subledger = company.id ? subledgerStore.get(company.id) : null;
   const taxRate = (company.accountingPolicies?.incomeTaxRatePercent ?? 25) / 100;
   const roundingLevel = company.accountingPolicies?.roundingLevel ?? 1;
+  const nas = company.nasCompliance ?? {};
   const normalizedDepSummary = normalizeDepreciationSummary(adj);
   const depnSummaryMap = new Map(
     normalizedDepSummary.map((d) => [d.categoryId, d])
@@ -7935,6 +8961,9 @@ function buildNotesData(params) {
     otherDirectExpenses: directOther,
     totalCostOfProduction: round(materialConsumed + changeInInventories + directWages + directOther)
   };
+  const miscIncomeCy = sumTB(rows, "other_income_misc", "closingCr");
+  const governmentGrantIncomeCy = nas.governmentGrants ? miscIncomeCy : 0;
+  const miscellaneousIncomeCy = nas.governmentGrants ? 0 : miscIncomeCy;
   const note319_otherIncome = {
     interestIncome: { cy: sumTB(rows, "other_income_interest", "closingCr"), py: 0 },
     commissionIncome: { cy: 0, py: 0 },
@@ -7942,14 +8971,16 @@ function buildNotesData(params) {
     dividendReceived: { cy: sumTB(rows, "other_income_dividend", "closingCr"), py: 0 },
     gainOnDisposalAssets: { cy: sumTB(rows, "other_income_disposal_gain", "closingCr"), py: 0 },
     insuranceClaims: { cy: 0, py: 0 },
+    governmentGrantIncome: { cy: governmentGrantIncomeCy, py: 0 },
     fairValueGainOnInvestments: {
       cy: investmentAdjs.filter((i) => (i.fairValueGainLoss ?? 0) > 0).reduce((s, i) => s + (i.fairValueGainLoss ?? 0), 0),
       py: 0
     },
-    miscellaneousIncome: { cy: sumTB(rows, "other_income_misc", "closingCr"), py: 0 },
+    miscellaneousIncome: { cy: miscellaneousIncomeCy, py: 0 },
+    hasForeignCurrencyTransactions: nas.foreignCurrency,
     total: {
       cy: round(
-        sumTB(rows, "other_income_interest", "closingCr") + sumTB(rows, "other_income_rental", "closingCr") + sumTB(rows, "other_income_dividend", "closingCr") + sumTB(rows, "other_income_disposal_gain", "closingCr") + sumTB(rows, "other_income_misc", "closingCr") + investmentAdjs.filter((i) => (i.fairValueGainLoss ?? 0) > 0).reduce((s, i) => s + (i.fairValueGainLoss ?? 0), 0)
+        sumTB(rows, "other_income_interest", "closingCr") + sumTB(rows, "other_income_rental", "closingCr") + sumTB(rows, "other_income_dividend", "closingCr") + sumTB(rows, "other_income_disposal_gain", "closingCr") + miscIncomeCy + investmentAdjs.filter((i) => (i.fairValueGainLoss ?? 0) > 0).reduce((s, i) => s + (i.fairValueGainLoss ?? 0), 0)
       ),
       py: 0
     }
@@ -8002,12 +9033,21 @@ function buildNotesData(params) {
     { cat: "admin_other", label: "CSR & Other Miscellaneous" }
   ];
   const note322_adminExpenses = {
-    lineItems: ADMIN_CATEGORIES2.map((ac) => ({
-      label: ac.label,
-      cy: sumTB(rows, ac.cat, "closingDr"),
-      py: 0
-    })).filter((li) => li.cy > 0),
-    total_cy: round(ADMIN_CATEGORIES2.reduce((s, ac) => s + sumTB(rows, ac.cat, "closingDr"), 0)),
+    lineItems: [
+      ...ADMIN_CATEGORIES2.map((ac) => ({
+        label: ac.label,
+        cy: sumTB(rows, ac.cat, "closingDr"),
+        py: 0
+      })).filter((li) => li.cy > 0),
+      ...nas.foreignCurrency && sumTB(rows, "finance_cost_interest", "closingDr") > 0 ? [{
+        label: "Foreign Exchange / Finance Charges",
+        cy: sumTB(rows, "finance_cost_interest", "closingDr"),
+        py: 0
+      }] : []
+    ],
+    total_cy: round(
+      ADMIN_CATEGORIES2.reduce((s, ac) => s + sumTB(rows, ac.cat, "closingDr"), 0) + (nas.foreignCurrency ? sumTB(rows, "finance_cost_interest", "closingDr") : 0)
+    ),
     total_py: 0
   };
   const bookProfit = IS.profitBeforeTax ?? 0;
@@ -8035,9 +9075,9 @@ function buildNotesData(params) {
   });
   const note323_taxExpense = {
     currentTaxExpense: round(taxResult.currentTaxExpense),
-    deferredTaxExpense: 0,
+    deferredTaxExpense: round(adj.deferredTaxExpense ?? 0),
     priorYearAdjustment: 0,
-    totalTaxExpense: round(taxResult.currentTaxExpense),
+    totalTaxExpense: round(taxResult.currentTaxExpense + (adj.deferredTaxExpense ?? 0)),
     effectiveTaxRate: taxResult.effectiveTaxRate,
     reconciliation: {
       profitBeforeTax: bookProfit,
@@ -8052,11 +9092,11 @@ function buildNotesData(params) {
       poolName: pool.poolName,
       rate: pool.rate,
       openingBasis: pool.openingBasis,
-      additions: pool.additionsFullYear + pool.additionsTwoThirds + pool.additionsOneThird,
-      disposals: pool.disposals,
-      depreciationBasis: pool.depreciationBasis,
-      taxDepreciation: pool.taxDepreciation,
-      closingBasis: pool.closingBasis
+      additions: pool.additions ?? 0,
+      disposals: pool.disposals ?? 0,
+      depreciationBasis: pool.depreciationBasis ?? pool.openingBasis ?? 0,
+      taxDepreciation: pool.taxDepreciation ?? 0,
+      closingBasis: pool.closingBasis ?? pool.nextYearBasis ?? 0
     })),
     advanceTaxPaid,
     tdsCreditAvailable: tdsCredit,
@@ -8102,7 +9142,6 @@ function buildNotesData(params) {
     kmpCompensationTotal: 0,
     noRelatedPartyTransactions: subledgerRelatedParties.length === 0 && rpPayRows.length === 0 && rpReceivableRows.length === 0
   };
-  const nas = company.nasCompliance ?? {};
   const hasContingencies = Boolean(nas.contingentLiabilities || nas.leaseArrangements);
   const contingencyParts = [];
   if (nas.contingentLiabilities) {
@@ -8187,7 +9226,7 @@ function sumOpeningCr(rows, ...categories) {
 function netBalance(rows, ...categories) {
   return sumDr(rows, ...categories) - sumCr(rows, ...categories);
 }
-var round2 = (n) => Math.round(n * 100) / 100;
+var round22 = (n) => Math.round(n * 100) / 100;
 function splitCashAndOverdrafts(rows) {
   const cashCats = /* @__PURE__ */ new Set(["cash_in_hand", "bank_current_account", "bank_fixed_deposit_current"]);
   let cash = 0;
@@ -8198,7 +9237,7 @@ function splitCashAndOverdrafts(rows) {
     if (net >= 0) cash += net;
     else overdrafts += -net;
   }
-  return { cash: round2(cash), overdrafts: round2(overdrafts) };
+  return { cash: round22(cash), overdrafts: round22(overdrafts) };
 }
 var ADMIN_CATEGORIES = CHART_OF_ACCOUNTS.filter((e) => e.statementLine === "IS Admin" && !e.isGroup).map((e) => e.category).concat([
   "admin_electricity",
@@ -8217,41 +9256,41 @@ function inventoryFromAdj(adj, rows) {
 }
 function computeIncomeStatement(tb, adj, company, previousYearIS = {}) {
   const rows = tb.rows;
-  const revenue = round2(sumCr(rows, "revenue_sales", "revenue_services"));
-  const interestIncome = round2(
+  const revenue = round22(sumCr(rows, "revenue_sales", "revenue_services"));
+  const interestIncome = round22(
     sumCr(rows, "other_income_interest", "interest_income")
   );
-  const otherIncome = round2(
+  const otherIncome = round22(
     sumCr(rows, "other_income_dividend", "other_income_rental", "other_income_misc", "other_income_disposal_gain", "commission_income", "insurance_claim_income") + (adj.gainOnDisposals ?? 0) + (adj.investmentAdjustments ?? []).filter((i) => (i.fairValueGainLoss ?? 0) > 0).reduce((s, i) => s + (i.fairValueGainLoss ?? 0), 0)
   );
-  const totalIncome = round2(revenue + interestIncome + otherIncome);
+  const totalIncome = round22(revenue + interestIncome + otherIncome);
   const { openingPY, closingCY } = inventoryFromAdj(adj, rows);
-  const materialConsumed = round2(
+  const materialConsumed = round22(
     openingPY + sumDr(rows, "cogs_purchases", "cogs_opening_stock", "materials_consumed", "purchase") - closingCY
   );
-  const directExpenses = round2(sumDr(rows, "direct_wages", "direct_expenses_other"));
-  const staffBonusProvision = adj.staffBonusProvision ?? round2(sumDr(rows, "emp_expense_bonus"));
-  const employeeBenefitExpense = round2(
+  const directExpenses = round22(sumDr(rows, "direct_wages", "direct_expenses_other"));
+  const staffBonusProvision = adj.staffBonusProvision ?? round22(sumDr(rows, "emp_expense_bonus"));
+  const employeeBenefitExpense = round22(
     sumDr(rows, "emp_expense_salaries", "emp_expense_welfare", "allowances_expense") + sumDr(rows, "emp_expense_pf", "emp_expense_gratuity", "emp_expense_other") + staffBonusProvision + sumDr(rows, "emp_expense_leave")
   );
-  const financeCharges = round2(sumDr(rows, "finance_cost_interest", "finance_cost_bank_charges"));
-  const depreciation = round2(adj.totalDepreciationExpense ?? 0);
-  const impairment = round2(
+  const financeCharges = round22(sumDr(rows, "finance_cost_interest", "finance_cost_bank_charges"));
+  const depreciation = round22(adj.totalDepreciationExpense ?? 0);
+  const impairment = round22(
     sumDr(rows, "impairment_expense") + (adj.investmentAdjustments ?? []).reduce((s, i) => s + (i.impairmentAmount ?? 0), 0) + (adj.investmentAdjustments ?? []).filter((i) => (i.fairValueGainLoss ?? 0) < 0).reduce((s, i) => s + Math.abs(i.fairValueGainLoss ?? 0), 0)
   );
-  const adminAndOtherExpenses = round2(
+  const adminAndOtherExpenses = round22(
     ADMIN_CATEGORIES.reduce((s, cat) => s + sumDr(rows, cat), 0)
   );
-  const totalExpenses = round2(
+  const totalExpenses = round22(
     materialConsumed + directExpenses + employeeBenefitExpense + financeCharges + depreciation + impairment + adminAndOtherExpenses
   );
-  const profitBeforeStaffBonus = round2(totalIncome - (totalExpenses - staffBonusProvision));
-  const staffBonus = round2(staffBonusProvision);
-  const profitBeforeTax = round2(profitBeforeStaffBonus - staffBonus);
-  const incomeTaxExpense = round2(
+  const profitBeforeStaffBonus = round22(totalIncome - (totalExpenses - staffBonusProvision));
+  const staffBonus = round22(staffBonusProvision);
+  const profitBeforeTax = round22(profitBeforeStaffBonus - staffBonus);
+  const incomeTaxExpense = round22(
     adj.incomeTaxProvision ?? adj.currentTaxExpense ?? sumDr(rows, "income_tax_expense")
   );
-  const netProfit = round2(profitBeforeTax - incomeTaxExpense);
+  const netProfit = round22(profitBeforeTax - incomeTaxExpense);
   return {
     revenue,
     interestIncome,
@@ -8304,9 +9343,9 @@ function computeBalanceSheet(tb, adj, is, company, previousYearBS = {}) {
     "ppe_cwip"
   );
   const accumDepn = sumCr(rows, "accum_depreciation");
-  const depnInTB = round2(sumCr(rows, "accum_depreciation") - sumOpeningCr(rows, "accum_depreciation"));
+  const depnInTB = round22(sumCr(rows, "accum_depreciation") - sumOpeningCr(rows, "accum_depreciation"));
   const totalAccumDepn = depnInTB >= adj.totalDepreciationExpense * 0.99 ? accumDepn : accumDepn + adj.totalDepreciationExpense;
-  const nca_ppe = round2(Math.max(0, grossPPE - totalAccumDepn));
+  const nca_ppe = round22(Math.max(0, grossPPE - totalAccumDepn));
   const listedFVAdj = (adj.investmentAdjustments ?? []).filter((i) => i.investmentType === "listed_trading" || i.investmentType === "listed_ats").reduce((s, i) => s + (i.fairValueGainLoss ?? 0), 0);
   const unlistedImpair = (adj.investmentAdjustments ?? []).filter((i) => i.investmentType === "unlisted").reduce((s, i) => s + (i.impairmentAmount ?? 0), 0);
   const invImpairmentProvision = sumCr(
@@ -8314,26 +9353,26 @@ function computeBalanceSheet(tb, adj, is, company, previousYearBS = {}) {
     "provision_impairment_investment",
     "provision_impairment_investments"
   );
-  const investmentListedTrading = round2(Math.max(0, sumDr(rows, "investment_listed_trading") + listedFVAdj));
+  const investmentListedTrading = round22(Math.max(0, sumDr(rows, "investment_listed_trading") + listedFVAdj));
   const investmentUnlisted = sumDr(rows, "investment_unlisted") - unlistedImpair;
   const investmentFD_NC = sumDr(rows, "investment_fixed_deposit_noncurrent");
-  const nca_investments = round2(Math.max(
+  const nca_investments = round22(Math.max(
     0,
     investmentUnlisted + investmentFD_NC - invImpairmentProvision
   ));
-  const nca_receivables = round2(
+  const nca_receivables = round22(
     sumDr(rows, "nca_deposits", "nca_loans_advances")
   );
-  const nca_other = round2(
+  const nca_other = round22(
     sumDr(rows, "biological_assets", "other_noncurrent_assets", "nca_other")
   );
-  const totalNonCurrentAssets = round2(nca_ppe + nca_investments + nca_receivables + nca_other);
+  const totalNonCurrentAssets = round22(nca_ppe + nca_investments + nca_receivables + nca_other);
   const ca_investments = investmentListedTrading;
   const { closingCY } = inventoryFromAdj(adj, rows);
-  const ca_inventories = round2(Math.max(0, closingCY - (adj.totalInventoryImpairment ?? 0)));
+  const ca_inventories = round22(Math.max(0, closingCY - (adj.totalInventoryImpairment ?? 0)));
   const tradeRec = sumDr(rows, "trade_receivables");
   const impairmentOnRec = sumCr(rows, "provision_impairment_debtors");
-  const ca_tradeReceivables = round2(Math.max(
+  const ca_tradeReceivables = round22(Math.max(
     0,
     tradeRec - impairmentOnRec + sumDr(rows, "related_party_receivable") + sumDr(
       rows,
@@ -8346,32 +9385,38 @@ function computeBalanceSheet(tb, adj, is, company, previousYearBS = {}) {
   ));
   const { cash: cashNet, overdrafts: bankOverdrafts } = splitCashAndOverdrafts(rows);
   const ca_cashAndEquivalents = cashNet;
-  const ca_other = round2(sumDr(rows, "lc_bg_margin", "other_current_assets", "nca_held_for_sale"));
-  const totalCurrentAssets = round2(
+  const ca_other = round22(sumDr(rows, "lc_bg_margin", "other_current_assets", "nca_held_for_sale"));
+  const totalCurrentAssets = round22(
     ca_investments + ca_inventories + ca_tradeReceivables + ca_cashAndEquivalents + ca_other
   );
-  const totalAssets = round2(totalNonCurrentAssets + totalCurrentAssets);
-  const shareCapital = round2(sumCr(rows, "share_capital"));
-  const sharePremium = round2(sumCr(rows, "share_premium"));
-  const reserves = round2(sumCr(rows, "capital_reserve", "revaluation_reserve"));
-  const dividendDeclared = adj.dividendPayable ?? sumCr(rows, "dividend_payable") ?? round2((company.dividendDeclaredPercent ?? 0) / 100 * shareCapital);
-  const openingRE = round2(
+  const totalAssets = round22(totalNonCurrentAssets + totalCurrentAssets);
+  const shareCapital = round22(sumCr(rows, "share_capital"));
+  const sharePremium = round22(sumCr(rows, "share_premium"));
+  const reserves = round22(sumCr(rows, "capital_reserve", "revaluation_reserve"));
+  const dividendDeclared = adj.dividendPayable ?? sumCr(rows, "dividend_payable") ?? round22((company.dividendDeclaredPercent ?? 0) / 100 * shareCapital);
+  const openingRE = round22(
     sumOpeningCr(rows, "retained_earnings", "general_reserve") - sumOpeningDr(rows, "retained_earnings", "general_reserve")
   );
-  const eq_retainedEarnings = round2(openingRE + is.netProfit - dividendDeclared);
-  const eq_shareCapital = round2(shareCapital + sharePremium);
-  const eq_reserves = round2(reserves);
-  const totalEquity = round2(eq_shareCapital + eq_reserves + eq_retainedEarnings);
-  const ncl_borrowings = round2(
+  const eq_retainedEarnings = round22(openingRE + is.netProfit - dividendDeclared);
+  const eq_shareCapital = round22(shareCapital + sharePremium);
+  const eq_reserves = round22(reserves);
+  const totalEquity = round22(eq_shareCapital + eq_reserves + eq_retainedEarnings);
+  const ncl_borrowings = round22(
     sumCr(rows, "borrowings_noncurrent_bank", "borrowings_noncurrent_other", "borrowings_noncurrent_related")
   );
-  const ncl_employeeBenefits = round2(sumCr(rows, "employee_benefit_noncurrent", "employee_benefit_gratuity"));
+  const ncl_employeeBenefits = round22(sumCr(rows, "employee_benefit_noncurrent", "employee_benefit_gratuity"));
   const ncl_provisions = 0;
-  const ncl_deferredTax = 0;
-  const totalNonCurrentLiabilities = round2(
+  const bookDepForDeferred = adj.totalDepreciationExpense ?? is.depreciation ?? 0;
+  const taxDepForDeferred = adj.taxDepreciationPools?.reduce((s, p) => s + (p.taxDepreciation ?? 0), 0) ?? 0;
+  const taxRateForDeferred = (company.accountingPolicies?.incomeTaxRatePercent ?? 25) / 100;
+  const timingDifference = bookDepForDeferred - taxDepForDeferred;
+  const computedDeferredTax = round22(Math.max(0, timingDifference) * taxRateForDeferred);
+  const tbDeferredTax = sumCr(rows, "deferred_tax_liability");
+  const ncl_deferredTax = round22(Math.max(tbDeferredTax, computedDeferredTax));
+  const totalNonCurrentLiabilities = round22(
     ncl_borrowings + ncl_employeeBenefits + ncl_provisions + ncl_deferredTax
   );
-  const cl_borrowings = round2(
+  const cl_borrowings = round22(
     sumCr(
       rows,
       "borrowings_current_od",
@@ -8382,7 +9427,7 @@ function computeBalanceSheet(tb, adj, is, company, previousYearBS = {}) {
       "related_party_payable"
     ) + bankOverdrafts
   );
-  const cl_tradePayables = round2(
+  const cl_tradePayables = round22(
     sumCr(
       rows,
       "trade_payables_creditors",
@@ -8394,13 +9439,13 @@ function computeBalanceSheet(tb, adj, is, company, previousYearBS = {}) {
       "vat_payable"
     )
   );
-  const incomeTaxPayable = round2(sumCr(rows, "income_tax_payable"));
-  const advanceTax = round2(sumDr(rows, "advance_tax_paid", "other_receivables_tds"));
-  const cl_incomeTaxPayable = round2(Math.max(
+  const incomeTaxPayable = round22(sumCr(rows, "income_tax_payable"));
+  const advanceTax = round22(sumDr(rows, "advance_tax_paid", "other_receivables_tds"));
+  const cl_incomeTaxPayable = round22(Math.max(
     0,
     incomeTaxPayable - advanceTax - (adj.incomeTaxPaidPY ?? 0) + Math.max(0, (adj.incomeTaxProvision ?? 0) - sumDr(rows, "income_tax_expense"))
   ));
-  const cl_provisions = round2(
+  const cl_provisions = round22(
     sumCr(
       rows,
       "provisions_csr",
@@ -8410,12 +9455,12 @@ function computeBalanceSheet(tb, adj, is, company, previousYearBS = {}) {
       "employee_payables_bonus"
     )
   );
-  const cl_other = round2(sumCr(rows, "advance_from_customers", "dividend_payable"));
-  const totalCurrentLiabilities = round2(
+  const cl_other = round22(sumCr(rows, "advance_from_customers", "dividend_payable"));
+  const totalCurrentLiabilities = round22(
     cl_borrowings + cl_tradePayables + cl_incomeTaxPayable + cl_provisions + cl_other
   );
-  const totalEquityAndLiabilities = round2(totalEquity + totalNonCurrentLiabilities + totalCurrentLiabilities);
-  const checkDifference = round2(totalAssets - totalEquityAndLiabilities);
+  const totalEquityAndLiabilities = round22(totalEquity + totalNonCurrentLiabilities + totalCurrentLiabilities);
+  const checkDifference = round22(totalAssets - totalEquityAndLiabilities);
   return {
     nca_ppe,
     nca_investments,
@@ -8485,28 +9530,28 @@ function computeChangesInEquity(tb, adj, is, company, previousCIE) {
   const openingShareCapital = sumOpeningCr(rows, "share_capital");
   const openingSharePremium = sumOpeningCr(rows, "share_premium");
   const openingOtherReserves = sumOpeningCr(rows, "general_reserve", "capital_reserve", "revaluation_reserve");
-  const openingRetained = round2(
+  const openingRetained = round22(
     sumOpeningCr(rows, "retained_earnings", "general_reserve") - sumOpeningDr(rows, "retained_earnings", "general_reserve")
   );
-  const shareIssued = company.shareIssuedDuringYear ? round2(company.shareIssuedDuringYear * 100) : round2(shareCapital - openingShareCapital);
-  const dividendDeclared = adj.dividendPayable ?? sumCr(rows, "dividend_payable") ?? round2((company.dividendDeclaredPercent ?? 0) / 100 * openingShareCapital);
-  const closingRetained = round2(openingRetained + is.netProfit - dividendDeclared);
+  const shareIssued = company.shareIssuedDuringYear ? round22(company.shareIssuedDuringYear * 100) : round22(shareCapital - openingShareCapital);
+  const dividendDeclared = adj.dividendPayable ?? sumCr(rows, "dividend_payable") ?? round22((company.dividendDeclaredPercent ?? 0) / 100 * openingShareCapital);
+  const closingRetained = round22(openingRetained + is.netProfit - dividendDeclared);
   return {
-    cyOpeningShareCapital: round2(openingShareCapital),
-    cyOpeningSharePremium: round2(openingSharePremium),
-    cyOpeningGeneralReserve: round2(openingOtherReserves),
-    cyOpeningRetainedEarnings: round2(openingRetained),
-    cyOpeningTotal: round2(openingShareCapital + openingSharePremium + openingOtherReserves + openingRetained),
-    cyNetProfit: round2(is.netProfit),
+    cyOpeningShareCapital: round22(openingShareCapital),
+    cyOpeningSharePremium: round22(openingSharePremium),
+    cyOpeningGeneralReserve: round22(openingOtherReserves),
+    cyOpeningRetainedEarnings: round22(openingRetained),
+    cyOpeningTotal: round22(openingShareCapital + openingSharePremium + openingOtherReserves + openingRetained),
+    cyNetProfit: round22(is.netProfit),
     cyShareCapitalIssued: shareIssued,
-    cySharePremiumReceived: round2(sharePremium - openingSharePremium),
+    cySharePremiumReceived: round22(sharePremium - openingSharePremium),
     cyTransferToReserve: 0,
-    cyDividends: round2(dividendDeclared),
-    cyClosingShareCapital: round2(shareCapital),
-    cyClosingSharePremium: round2(sharePremium),
-    cyClosingGeneralReserve: round2(otherReserves),
+    cyDividends: round22(dividendDeclared),
+    cyClosingShareCapital: round22(shareCapital),
+    cyClosingSharePremium: round22(sharePremium),
+    cyClosingGeneralReserve: round22(otherReserves),
     cyClosingRetainedEarnings: closingRetained,
-    cyClosingTotal: round2(shareCapital + sharePremium + otherReserves + closingRetained),
+    cyClosingTotal: round22(shareCapital + sharePremium + otherReserves + closingRetained),
     ...previousCIE
   };
 }
@@ -8524,7 +9569,7 @@ function computeCashFlow(tb, adj, is, bs, previousCF) {
   const fvGain = (adj.investmentAdjustments ?? []).filter((i) => (i.fairValueGainLoss ?? 0) > 0).reduce((s, i) => s + (i.fairValueGainLoss ?? 0), 0);
   const addFVLossOnInvestment = fvLoss;
   const lessFVGainOnInvestment = -fvGain;
-  const prevTradeRec = previousCF?.decreaseIncreaseReceivables !== void 0 ? bs.ca_tradeReceivables + previousCF.decreaseIncreaseReceivables : round2(
+  const prevTradeRec = previousCF?.decreaseIncreaseReceivables !== void 0 ? bs.ca_tradeReceivables + previousCF.decreaseIncreaseReceivables : round22(
     sumOpeningDr(
       rows,
       "trade_receivables",
@@ -8535,12 +9580,12 @@ function computeCashFlow(tb, adj, is, bs, previousCF) {
       "related_party_receivable"
     ) - sumOpeningCr(rows, "provision_impairment_debtors")
   );
-  const decreaseIncreaseReceivables = round2(prevTradeRec - bs.ca_tradeReceivables);
+  const decreaseIncreaseReceivables = round22(prevTradeRec - bs.ca_tradeReceivables);
   const { openingPY, closingCY } = inventoryFromAdj(adj, rows);
   const prevInv = previousCF?.decreaseIncreaseInventory !== void 0 ? bs.ca_inventories + previousCF.decreaseIncreaseInventory : openingPY;
-  const decreaseIncreaseInventory = round2(prevInv - bs.ca_inventories);
+  const decreaseIncreaseInventory = round22(prevInv - bs.ca_inventories);
   const prevOtherCA = sumOpeningDr(rows, "other_current_assets", "nca_held_for_sale");
-  const decreaseIncreaseOtherCurrentAssets = round2(prevOtherCA - bs.ca_other);
+  const decreaseIncreaseOtherCurrentAssets = round22(prevOtherCA - bs.ca_other);
   const prevPayables = sumOpeningCr(
     rows,
     "trade_payables_creditors",
@@ -8549,9 +9594,9 @@ function computeCashFlow(tb, adj, is, bs, previousCF) {
     "audit_fee_payable",
     "trade_payables_advance_customers"
   );
-  const increaseDecreasePayables = round2(bs.cl_tradePayables - prevPayables);
+  const increaseDecreasePayables = round22(bs.cl_tradePayables - prevPayables);
   const prevTaxPayable = sumOpeningCr(rows, "income_tax_payable");
-  const increaseDecreaseIncomeTaxPayable = round2(bs.cl_incomeTaxPayable - prevTaxPayable);
+  const increaseDecreaseIncomeTaxPayable = round22(bs.cl_incomeTaxPayable - prevTaxPayable);
   const prevEmpLiab = sumOpeningCr(
     rows,
     "employee_payables_pf",
@@ -8559,20 +9604,20 @@ function computeCashFlow(tb, adj, is, bs, previousCF) {
     "employee_payables_salary",
     "employee_benefit_noncurrent"
   );
-  const currentEmpLiab = round2(
+  const currentEmpLiab = round22(
     sumCr(rows, "employee_payables_pf", "employee_payables_bonus", "employee_payables_salary") + (adj.staffBonusProvision ?? is.staffBonus)
   );
-  const increaseDecreaseEmployeeLiability = round2(currentEmpLiab - prevEmpLiab);
+  const increaseDecreaseEmployeeLiability = round22(currentEmpLiab - prevEmpLiab);
   const prevProvisions = sumOpeningCr(rows, "provisions_csr", "provisions_current");
-  const increaseDecreaseProvisions = round2(bs.cl_provisions - prevProvisions - (adj.staffBonusProvision ?? 0));
-  const cashGeneratedFromOperations = round2(
+  const increaseDecreaseProvisions = round22(bs.cl_provisions - prevProvisions - (adj.staffBonusProvision ?? 0));
+  const cashGeneratedFromOperations = round22(
     profitBeforeTax + addDepreciation + addImpairment + lessInterestIncome + lessDividendIncome + addInterestExpense + addLossOnDisposal + lessGainOnDisposal + addFVLossOnInvestment + lessFVGainOnInvestment + decreaseIncreaseReceivables + decreaseIncreaseInventory + decreaseIncreaseOtherCurrentAssets + increaseDecreasePayables + increaseDecreaseIncomeTaxPayable + increaseDecreaseEmployeeLiability + increaseDecreaseProvisions
   );
   const interestPaid = -Math.abs(is.financeCharges);
   const incomeTaxPaid = -Math.abs(
     sumDr(rows, "advance_tax_paid") + (adj.incomeTaxPaidPY ?? 0)
   );
-  const netCashFromOperating = round2(cashGeneratedFromOperations + interestPaid + incomeTaxPaid);
+  const netCashFromOperating = round22(cashGeneratedFromOperations + interestPaid + incomeTaxPaid);
   const proceedsFromPPEDisposal = (adj.depreciationResults ?? []).reduce((s, r) => s + (r.disposalProceeds ?? 0), 0);
   const proceedsFromInvestmentDisposal = 0;
   const interestReceived = is.interestIncome;
@@ -8582,28 +9627,33 @@ function computeCashFlow(tb, adj, is, bs, previousCF) {
     0,
     netBalance(rows, "investment_listed_trading", "investment_unlisted", "investment_fixed_deposit_noncurrent") - (sumOpeningDr(rows, "investment_listed_trading", "investment_unlisted", "investment_fixed_deposit_noncurrent") - sumOpeningCr(rows, "investment_listed_trading", "investment_unlisted", "investment_fixed_deposit_noncurrent"))
   );
-  const netCashFromInvesting = round2(
+  const netCashFromInvesting = round22(
     proceedsFromPPEDisposal + proceedsFromInvestmentDisposal + interestReceived + dividendReceived + purchaseOfPPE + purchaseOfInvestments
   );
-  const proceedsFromShareIssue = round2(
+  const proceedsFromShareIssue = round22(
     sumCr(rows, "share_capital") - sumOpeningCr(rows, "share_capital") + (sumCr(rows, "share_premium") - sumOpeningCr(rows, "share_premium"))
   );
   const ncBorrowChange = sumCr(rows, "borrowings_noncurrent_bank", "borrowings_noncurrent_other") - sumOpeningCr(rows, "borrowings_noncurrent_bank", "borrowings_noncurrent_other");
-  const proceedsFromBorrowingsNonCurrent = round2(Math.max(0, ncBorrowChange));
-  const repaymentOfBorrowingsNonCurrent = round2(Math.min(0, ncBorrowChange));
+  const proceedsFromBorrowingsNonCurrent = round22(Math.max(0, ncBorrowChange));
+  const repaymentOfBorrowingsNonCurrent = round22(Math.min(0, ncBorrowChange));
   const cBorrowChange = sumCr(rows, "borrowings_current_od", "borrowings_current_cc", "borrowings_current_wc") - sumOpeningCr(rows, "borrowings_current_od", "borrowings_current_cc", "borrowings_current_wc");
-  const proceedsFromBorrowingsCurrent = round2(Math.max(0, cBorrowChange));
-  const repaymentOfBorrowingsCurrent = round2(Math.min(0, cBorrowChange));
-  const dividendPaid = -round2(adj.incomeTaxPaidPY ? 0 : adj.dividendPayable ?? sumCr(rows, "dividend_payable"));
-  const netCashFromFinancing = round2(
+  const proceedsFromBorrowingsCurrent = round22(Math.max(0, cBorrowChange));
+  const repaymentOfBorrowingsCurrent = round22(Math.min(0, cBorrowChange));
+  const openingDivPayable = sumOpeningCr(rows, "dividend_payable");
+  const closingDivPayable = sumCr(rows, "dividend_payable");
+  const dividendDeclared = adj.dividendPayable ?? 0;
+  const impliedCashPaid = Math.max(0, openingDivPayable - closingDivPayable);
+  const cashDividendsPaid = Math.max(0, openingDivPayable + dividendDeclared - closingDivPayable, impliedCashPaid);
+  const dividendPaid = -round22(cashDividendsPaid);
+  const netCashFromFinancing = round22(
     proceedsFromShareIssue + proceedsFromBorrowingsNonCurrent + repaymentOfBorrowingsNonCurrent + proceedsFromBorrowingsCurrent + repaymentOfBorrowingsCurrent + dividendPaid
   );
-  const netIncreaseDecrease = round2(netCashFromOperating + netCashFromInvesting + netCashFromFinancing);
-  const openingCash = round2(
+  const netIncreaseDecrease = round22(netCashFromOperating + netCashFromInvesting + netCashFromFinancing);
+  const openingCash = round22(
     sumOpeningDr(rows, "cash_in_hand", "bank_current_account", "bank_fixed_deposit_current") - sumOpeningCr(rows, "bank_current_account")
   );
   const closingCash = bs.ca_cashAndEquivalents;
-  const reconciliationDifference = round2(closingCash - (openingCash + netIncreaseDecrease));
+  const reconciliationDifference = round22(closingCash - (openingCash + netIncreaseDecrease));
   return {
     profitBeforeTax,
     addDepreciation,
@@ -8674,7 +9724,7 @@ function computeAllFinancials(tb, adj, company, previousYearData) {
   if (enrichedAdj.staffBonusProvision == null && incomeStatement.profitBeforeStaffBonus > 0) {
     enrichedAdj.staffBonusProvision = computeStaffBonus(incomeStatement.profitBeforeStaffBonus);
     incomeStatement.staffBonus = enrichedAdj.staffBonusProvision;
-    incomeStatement.profitBeforeTax = round2(incomeStatement.profitBeforeStaffBonus - incomeStatement.staffBonus);
+    incomeStatement.profitBeforeTax = round22(incomeStatement.profitBeforeStaffBonus - incomeStatement.staffBonus);
   }
   if (enrichedAdj.incomeTaxProvision == null && incomeStatement.profitBeforeTax > 0) {
     const taxRate = (company.accountingPolicies?.incomeTaxRatePercent ?? 25) / 100;
@@ -8691,8 +9741,16 @@ function computeAllFinancials(tb, adj, company, previousYearData) {
     });
     enrichedAdj.incomeTaxProvision = taxResult.currentTaxExpense;
     enrichedAdj.currentTaxExpense = taxResult.currentTaxExpense;
-    incomeStatement.incomeTaxExpense = taxResult.currentTaxExpense;
-    incomeStatement.netProfit = round2(incomeStatement.profitBeforeTax - incomeStatement.incomeTaxExpense);
+    const bookDep = enrichedAdj.totalDepreciationExpense ?? incomeStatement.depreciation ?? 0;
+    const taxDep = enrichedAdj.taxDepreciationPools?.reduce((s, p) => s + (p.taxDepreciation ?? 0), 0) ?? 0;
+    const timingDiff = bookDep - taxDep;
+    const pyDeferredTax = 0;
+    const computedDTL = round22(Math.max(0, timingDiff) * taxRate);
+    enrichedAdj.deferredTaxExpense = round22(Math.max(0, computedDTL - pyDeferredTax));
+    incomeStatement.incomeTaxExpense = round22(
+      taxResult.currentTaxExpense + (enrichedAdj.deferredTaxExpense ?? 0)
+    );
+    incomeStatement.netProfit = round22(incomeStatement.profitBeforeTax - incomeStatement.incomeTaxExpense);
   }
   const balanceSheet = computeBalanceSheet(tb, enrichedAdj, incomeStatement, company, pyBS);
   const changesInEquity = computeChangesInEquity(tb, enrichedAdj, incomeStatement, company);
@@ -8931,10 +9989,10 @@ function requestLogger(req, res, next) {
 
 // server/server.ts
 var __filename = fileURLToPath(import.meta.url);
-var __dirname = path.dirname(__filename);
+var __dirname = path2.dirname(__filename);
 var PORT = parseInt(process.env.PORT ?? "3000", 10);
 var isDev = process.env.NODE_ENV !== "production";
-var DIST = path.join(__dirname, "..", "dist");
+var DIST = path2.join(__dirname, "..", "dist");
 var app = express();
 app.use(securityHeaders);
 app.use(requestLogger);
@@ -8980,7 +10038,9 @@ app.get("/api/health", (_req, res) => {
       heapUsed: `${(mem.heapUsed / 1024 / 1024).toFixed(1)} MB`,
       heapTotal: `${(mem.heapTotal / 1024 / 1024).toFixed(1)} MB`
     },
-    timestamp: (/* @__PURE__ */ new Date()).toISOString()
+    timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+    persistence: persistenceEnabled() ? "file-backed" : "memory-only",
+    activeSessions: sessionStore.size()
   });
 });
 app.use("/api/company", company_default);
@@ -8995,7 +10055,7 @@ if (!isDev) {
     index: "index.html"
   }));
   app.get("*", (_req, res) => {
-    res.sendFile(path.join(DIST, "index.html"));
+    res.sendFile(path2.join(DIST, "index.html"));
   });
 } else {
   app.get("/", (_req, res) => {

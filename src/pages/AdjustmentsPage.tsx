@@ -3,7 +3,7 @@ import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { useAppStore } from '../store/appStore';
 import { useAdjustments } from '../hooks/useAdjustments';
 import { adjustmentsApi } from '../api/client';
-import type { AssetItem, InventoryAdjustment, InvestmentAdjustment, ProvisionEntry, YearEndAdjustments } from '../types';
+import type { InventoryAdjustment, InvestmentAdjustment, ProvisionEntry, YearEndAdjustments } from '../types';
 import Tabs from '../components/ui/Tabs';
 import Button from '../components/ui/Button';
 import AssetRegisterTable from '../components/adjustments/AssetRegisterTable';
@@ -12,9 +12,12 @@ import ProvisionInputs from '../components/adjustments/ProvisionInputs';
 import InventoryInputPanel from '../components/adjustments/InventoryInputPanel';
 import InvestmentInputPanel from '../components/adjustments/InvestmentInputPanel';
 import AdjustmentJournalView from '../components/adjustments/AdjustmentJournalView';
+import DisallowedExpensesPanel from '../components/adjustments/DisallowedExpensesPanel';
+import NasComplianceAdjustmentsPanel from '../components/adjustments/NasComplianceAdjustmentsPanel';
 import { useToast } from '../components/ui/Toast';
 import { detectAdjustmentRelevance } from '../utils/adjustmentRelevance';
 import { assetItemToRow, assetRowToAssetItem } from '../utils/assetMapping';
+import { isAssetRegisterEmpty, prefillAssetsFromTrialBalance } from '../utils/ppePrefill';
 
 type TabId = 'assets' | 'provisions' | 'journal';
 
@@ -33,8 +36,8 @@ export default function AdjustmentsPage() {
   const journalAutoDone = useRef(false);
 
   const relevance = useMemo(
-    () => detectAdjustmentRelevance(state.trialBalance?.rows ?? []),
-    [state.trialBalance?.rows],
+    () => detectAdjustmentRelevance(state.trialBalance?.rows ?? [], state.company),
+    [state.trialBalance?.rows, state.company],
   );
 
   const roundingLevel = state.company?.accountingPolicies?.roundingLevel ?? 100;
@@ -50,38 +53,10 @@ export default function AdjustmentsPage() {
     ppePrefillDone.current = true;
 
     const assetRegister = state.adjustments?.assets ?? [];
-    const isEmptyOrBlank = assetRegister.length === 0 || assetRegister.every((a) => {
-      const row = a as AssetItem & { name?: string; cost?: number };
-      return !(row.assetName ?? row.name)?.trim() && (row.originalCost ?? row.cost ?? 0) === 0;
-    });
-    if (!isEmptyOrBlank) return;
+    if (!isAssetRegisterEmpty(assetRegister)) return;
 
-    const mappings = state.trialBalance?.rows ?? [];
-    const ppeAccounts = mappings.filter((account) =>
-      account.nfrsCategory === 'property_plant_equipment'
-      || (typeof account.nfrsCategory === 'string' && account.nfrsCategory.startsWith('ppe_')),
-    );
-    if (ppeAccounts.length === 0) return;
-
-    const prefilled: AssetItem[] = ppeAccounts.map((account, i) => {
-      const nfrs = String(account.nfrsCategory ?? '');
-      return {
-        id: `ppe-prefill-${account.rowIndex ?? i}`,
-        assetName: String(account.accountName ?? account.displayLabel ?? account.rawLabel ?? ''),
-        categoryId: nfrs.startsWith('ppe_') ? nfrs.replace('ppe_', '') : 'building',
-        originalCost: Number(account.closingDr ?? 0),
-        additionalCost: 0,
-        purchaseDateBS: '',
-        usefulLifeYears: 10,
-        residualValue: 0,
-        depreciationMethod: 'StraightLine',
-        wdvRate: 20,
-        accumDepreciationOpening: 0,
-        isFullyDepreciated: false,
-        isMortgaged: false,
-        disposed: false,
-      };
-    });
+    const prefilled = prefillAssetsFromTrialBalance(state.trialBalance?.rows ?? []);
+    if (prefilled.length === 0) return;
 
     dispatch({
       type: 'SET_ADJUSTMENTS',
@@ -90,7 +65,7 @@ export default function AdjustmentsPage() {
         assets: prefilled,
       } as YearEndAdjustments,
     });
-  }, [activeTab, relevance.hasPPE, state.adjustments, state.trialBalance, dispatch]);
+  }, [activeTab, relevance.hasPPE, state.adjustments, state.trialBalance?.rows, dispatch]);
 
   useEffect(() => {
     if (activeTab !== 'journal' || journalAutoDone.current) return;
@@ -154,6 +129,9 @@ export default function AdjustmentsPage() {
       } as YearEndAdjustments,
     });
   }, [activeTab, state.adjustments, state.company, dispatch]);
+
+  const handleImportFromTrialBalance = () =>
+    prefillAssetsFromTrialBalance(state.trialBalance?.rows ?? []).map(assetItemToRow);
 
   const handleCalculateDepreciation = async (rows: ReturnType<typeof assetItemToRow>[]) => {
     const assets = rows.map(assetRowToAssetItem);
@@ -289,6 +267,8 @@ export default function AdjustmentsPage() {
       />
 
       <div className="page-enter space-y-5">
+        <NasComplianceAdjustmentsPanel nasFlags={relevance.nasFlags} />
+
         {effectiveTab === 'assets' && relevance.hasPPE && (
           <>
             <div className="card">
@@ -297,6 +277,9 @@ export default function AdjustmentsPage() {
                   fiscalYear={fiscalYear}
                   initialAssets={initialAssets}
                   roundingLevel={roundingLevel}
+                  hasBorrowings={relevance.hasBorrowings}
+                  hasDisposalIndicators={relevance.hasDisposalIndicators}
+                  onImportFromTrialBalance={handleImportFromTrialBalance}
                   onCalculate={handleCalculateDepreciation}
                 />
               </div>
@@ -337,6 +320,7 @@ export default function AdjustmentsPage() {
             )}
             <ProvisionInputs
               onSave={handleSaveProvisions}
+              provisionApplicability={relevance.provisionApplicability}
               initialData={Object.fromEntries(
                 (state.adjustments?.provisions ?? []).map((provision) => [
                   provision.id ?? provision.provisionType,
@@ -344,6 +328,33 @@ export default function AdjustmentsPage() {
                 ]),
               )}
             />
+            <div className="card">
+              <div className="card-header">
+                <h3 className="text-xs font-bold uppercase tracking-wider" style={{ color: 'var(--ink-700)' }}>
+                  Disallowed Expenses (Section 21 ITA)
+                </h3>
+              </div>
+              <div className="card-body">
+                <DisallowedExpensesPanel
+                  items={state.adjustments?.disallowedForTax ?? []}
+                  onChange={(items) => {
+                    dispatch({
+                      type: 'SET_ADJUSTMENTS',
+                      payload: { ...(state.adjustments ?? {}), disallowedForTax: items } as YearEndAdjustments,
+                    });
+                  }}
+                  onSave={async (items) => {
+                    if (!state.company?.id) return;
+                    await adjustmentsApi.saveDisallowedForTax(state.company.id, items);
+                    dispatch({
+                      type: 'SET_ADJUSTMENTS',
+                      payload: { ...(state.adjustments ?? {}), disallowedForTax: items } as YearEndAdjustments,
+                    });
+                    showToast('Disallowed tax items saved', 'success');
+                  }}
+                />
+              </div>
+            </div>
           </div>
         )}
 

@@ -1,7 +1,8 @@
 // src/components/adjustments/ProvisionInputs.tsx
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import Card   from '../ui/Card';
 import Button from '../ui/Button';
+import type { AdjustmentRelevance } from '../../utils/adjustmentRelevance';
 
 interface ProvisionRow {
   id:             string;
@@ -20,6 +21,7 @@ interface ProvisionInputsProps {
   onSave:         (rows: ProvisionRow[]) => Promise<void> | void;
   initialData?:   Partial<Record<string, number>>;
   roundingLevel?: number;
+  provisionApplicability?: AdjustmentRelevance['provisionApplicability'];
 }
 
 // item 84: statutory basis tooltips per provision type
@@ -44,14 +46,20 @@ const DEFAULT_ROWS: Omit<ProvisionRow, 'addition' | 'utilised' | 'reversed'>[] =
   { id: 'doubtful',  type: 'Provision for Doubtful Debts', openingBalance: 0, classification: 'Current',     editable: false, applicable: false },
 ];
 
-function initRows(data?: Partial<Record<string, number>>): ProvisionRow[] {
-  return DEFAULT_ROWS.map(r => ({
-    ...r,
-    addition:  0,
-    utilised:  0,
-    reversed:  0,
-    openingBalance: data?.[r.id] ?? 0,
-  }));
+function initRows(
+  data?: Partial<Record<string, number>>,
+  applicability?: AdjustmentRelevance['provisionApplicability'],
+): ProvisionRow[] {
+  return DEFAULT_ROWS
+    .filter((row) => applicability?.[row.id as keyof AdjustmentRelevance['provisionApplicability']] ?? true)
+    .map((r) => ({
+      ...r,
+      addition: 0,
+      utilised: 0,
+      reversed: 0,
+      openingBalance: data?.[r.id] ?? 0,
+      applicable: applicability?.[r.id as keyof AdjustmentRelevance['provisionApplicability']] ?? r.applicable,
+    }));
 }
 
 let customId = 1;
@@ -90,10 +98,19 @@ export default function ProvisionInputs({
   onSave,
   initialData,
   roundingLevel = 100,
+  provisionApplicability,
 }: ProvisionInputsProps) {
-  const [rows,   setRows]   = useState<ProvisionRow[]>(initRows(initialData));
+  const initialRows = useMemo(
+    () => initRows(initialData, provisionApplicability),
+    [initialData, provisionApplicability],
+  );
+  const [rows, setRows] = useState<ProvisionRow[]>(initialRows);
   const [saving, setSaving] = useState(false);
-  const [err,    setErr]    = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  React.useEffect(() => {
+    setRows(initialRows);
+  }, [initialRows]);
 
   const update = (id: string, key: keyof ProvisionRow, value: any) =>
     setRows(prev => prev.map(r => r.id === id ? { ...r, [key]: value } : r));
@@ -264,7 +281,7 @@ export default function ProvisionInputs({
       </div>
 
       <p className="text-xs mt-3" style={{ color: 'var(--ink-500)' }}>
-        Only "Applicable" provisions are included in the financial statements. Closing balance = Opening + Addition − Utilised − Reversed.
+        Only provisions relevant to your trial balance and company profile are shown. Closing balance = Opening + Addition − Utilised − Reversed.
       </p>
 
       {err && <p className="text-xs text-red-600 mt-1" role="alert">{err}</p>}

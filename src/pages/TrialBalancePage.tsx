@@ -5,38 +5,80 @@ import Tabs from '../components/ui/Tabs';
 import TBUploadZone from '../components/trialBalance/TBUploadZone';
 import TBInputModeSelector from '../components/trialBalance/TBInputModeSelector';
 import TBDataGrid from '../components/trialBalance/TBDataGrid';
+import TBRawPreviewGrid from '../components/trialBalance/TBRawPreviewGrid';
 import TBAccountMapper from '../components/trialBalance/TBAccountMapper';
 import TBValidationPanel from '../components/trialBalance/TBValidationPanel';
 import { tbApi, outputApi } from '../api/client';
 import { validateTrialBalanceTotals } from '../utils/validation';
-import type { NFRSCategory, CompanyProfile } from '../types';
+import type { NFRSCategory, CompanyProfile, NormalizedTrialBalancePreview, RawTBRow } from '../types';
 
-type TabId = 'upload' | 'review' | 'mapping';
+type TabId = 'upload' | 'normalize' | 'review' | 'mapping';
 
 export default function TrialBalancePage() {
   const { state, dispatch } = useAppStore();
   const [activeTab, setActiveTab] = useState<TabId>(
-    state.currentStep === 'trial_balance_mapping' && state.trialBalance ? 'mapping' : 'upload'
+    state.currentStep === 'trial_balance_mapping' && state.trialBalance ? 'mapping' : 'upload',
   );
   const [importMode, setImportMode] = useState<'choice' | 'manual' | 'ai'>(
     state.trialBalance ? 'manual' : 'choice',
   );
   const [downloadingTemplate, setDownloadingTemplate] = useState(false);
+  const [normalizedPreview, setNormalizedPreview] = useState<NormalizedTrialBalancePreview | null>(null);
+  const [previewRows, setPreviewRows] = useState<RawTBRow[]>([]);
+  const [confirming, setConfirming] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   const tb = state.trialBalance;
   const rows = tb?.rows ?? [];
   const validation = tb ? validateTrialBalanceTotals(rows) : null;
 
   const leafRows = rows.filter((r) => !r.isGroupRow);
-  const autoMapped = leafRows.filter(r => (r.confidence ?? 0) >= 80).length;
-  const needsReview = leafRows.filter(r => (r.confidence ?? 0) > 0 && (r.confidence ?? 0) < 80).length;
-  const unmatched = leafRows.filter(r => (r.confidence ?? 0) === 0 || !r.nfrsCategory || r.nfrsCategory === 'unclassified').length;
+  const autoMapped = leafRows.filter((r) => (r.confidence ?? 0) >= 80).length;
+  const needsReview = leafRows.filter((r) => (r.confidence ?? 0) > 0 && (r.confidence ?? 0) < 80).length;
+  const unmatched = leafRows.filter(
+    (r) => (r.confidence ?? 0) === 0 || !r.nfrsCategory || r.nfrsCategory === 'unclassified',
+  ).length;
 
-  const handleUploadComplete = (data: any) => {
-    dispatch({ type: 'SET_TRIAL_BALANCE', payload: data });
-    dispatch({ type: 'COMPLETE_STEP', payload: 'trial_balance_upload' });
-    dispatch({ type: 'SET_STEP', payload: 'trial_balance_mapping' });
-    setActiveTab('review');
+  const handlePreviewComplete = (data: NormalizedTrialBalancePreview) => {
+    setNormalizedPreview(data);
+    setPreviewRows(data.rows ?? []);
+    setActiveTab('normalize');
+  };
+
+  const handleConfirmNormalized = async () => {
+    if (!state.company?.id) return;
+    setConfirming(true);
+    try {
+      const classified = await tbApi.confirmNormalized(
+        state.company.id,
+        previewRows,
+        normalizedPreview?.importMode === 'ai',
+      );
+      dispatch({ type: 'SET_TRIAL_BALANCE', payload: classified });
+      dispatch({ type: 'COMPLETE_STEP', payload: 'trial_balance_upload' });
+      dispatch({ type: 'SET_STEP', payload: 'trial_balance_mapping' });
+      setNormalizedPreview(null);
+      setActiveTab('review');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to confirm trial balance.';
+      dispatch({ type: 'SET_ERROR', payload: message });
+    } finally {
+      setConfirming(false);
+    }
+  };
+
+  const handleExportNormalized = async () => {
+    if (!state.company?.id) return;
+    setExporting(true);
+    try {
+      const blob = await tbApi.exportNormalized(state.company.id, previewRows);
+      outputApi.triggerDownload(blob, 'Normalized_Trial_Balance.xlsx');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Export failed.';
+      dispatch({ type: 'SET_ERROR', payload: message });
+    } finally {
+      setExporting(false);
+    }
   };
 
   const handleCompanyResolved = (company: CompanyProfile) => {
@@ -63,7 +105,7 @@ export default function TrialBalancePage() {
 
   const handleMappingChange = (rowIndex: string, category: NFRSCategory) => {
     if (!tb) return;
-    const updatedRows = tb.rows.map(row => {
+    const updatedRows = tb.rows.map((row) => {
       if (String(row.rowIndex) === rowIndex) {
         return {
           ...row,
@@ -85,7 +127,7 @@ export default function TrialBalancePage() {
   const handleConfirmMappings = async () => {
     if (!tb || !state.company?.id) return;
 
-    const updates = tb.rows.map(row => ({
+    const updates = tb.rows.map((row) => ({
       rowIndex: row.rowIndex,
       nfrsCategory: row.nfrsCategory,
       matchedLabel: row.matchedLabel ?? row.rawLabel,
@@ -117,9 +159,19 @@ export default function TrialBalancePage() {
 
   const tabs = [
     { id: 'upload', label: 'Upload' },
+    {
+      id: 'normalize',
+      label: 'Normalize',
+      count: previewRows.length,
+      disabled: !normalizedPreview,
+    },
     { id: 'review', label: 'Review Data', count: rows.length, disabled: !tb },
     { id: 'mapping', label: 'Map Accounts', count: unmatched, disabled: !tb },
   ];
+
+  const mappingProfileMsg = tb?.mappingProfileAppliedCount && tb.mappingProfileTotalAccounts
+    ? `${tb.mappingProfileAppliedCount} of ${tb.mappingProfileTotalAccounts} accounts pre-mapped from last year`
+    : null;
 
   return (
     <div>
@@ -137,7 +189,7 @@ export default function TrialBalancePage() {
           Upload Trial Balance
         </h2>
         <p className="text-sm max-w-2xl" style={{ color: 'var(--ink-500)', lineHeight: 1.6 }}>
-          Import your trial balance from accounting software, review the data, and map accounts to NFRS categories.
+          Import your trial balance, review the normalized structure, then map accounts to NFRS categories.
         </p>
       </div>
 
@@ -153,67 +205,95 @@ export default function TrialBalancePage() {
         {activeTab === 'upload' && (
           <div className="card">
             <div className="card-body">
-          <>
-            {importMode === 'choice' && (
-              <TBInputModeSelector
-                onSelectManual={() => setImportMode('manual')}
-                onSelectAI={() => setImportMode('ai')}
-                onDownloadTemplate={handleDownloadTemplate}
-                isDownloading={downloadingTemplate}
+              {importMode === 'choice' && (
+                <TBInputModeSelector
+                  onSelectManual={() => setImportMode('manual')}
+                  onSelectAI={() => setImportMode('ai')}
+                  onDownloadTemplate={handleDownloadTemplate}
+                  isDownloading={downloadingTemplate}
+                />
+              )}
+              {importMode === 'manual' && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setImportMode('choice')}
+                    className="text-xs text-blue-600 hover:text-blue-800 underline mb-3 transition-colors"
+                  >
+                    ← Change import method
+                  </button>
+                  <TBUploadZone
+                    companyId={state.company?.id ?? ''}
+                    company={state.company}
+                    onCompanyResolved={handleCompanyResolved}
+                    onUploadComplete={handlePreviewComplete}
+                    onError={handleUploadError}
+                    hideAIOption
+                    existingTB={tb}
+                    uploadingMessage="Parsing trial balance…"
+                    onUpload={(id, file, onProgress, companySnapshot) =>
+                      tbApi.parsePreviewUpload(id, file, 'manual', onProgress, companySnapshot)
+                    }
+                  />
+                </>
+              )}
+              {importMode === 'ai' && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setImportMode('choice')}
+                    className="text-xs text-blue-600 hover:text-blue-800 underline mb-3 transition-colors"
+                  >
+                    ← Change import method
+                  </button>
+                  <TBUploadZone
+                    companyId={state.company?.id ?? ''}
+                    company={state.company}
+                    onCompanyResolved={handleCompanyResolved}
+                    onUploadComplete={handlePreviewComplete}
+                    onError={handleUploadError}
+                    hideAIOption
+                    uploadingMessage="AI is reading and restructuring your trial balance — large files may take up to a minute…"
+                    onUpload={(id, file, onProgress, companySnapshot) =>
+                      tbApi.parsePreviewUpload(id, file, 'ai', onProgress, companySnapshot)
+                    }
+                    existingTB={tb}
+                  />
+                </>
+              )}
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'normalize' && normalizedPreview && (
+          <div className="card">
+            <div className="card-body">
+              <TBRawPreviewGrid
+                rows={previewRows}
+                onRowsChange={setPreviewRows}
+                mappingProfileAppliedCount={normalizedPreview.mappingProfileAppliedCount}
+                mappingProfileTotalAccounts={normalizedPreview.mappingProfileTotalAccounts}
+                detectedFormat={normalizedPreview.detectedFormat}
+                warnings={normalizedPreview.warnings}
+                onConfirm={handleConfirmNormalized}
+                onExport={handleExportNormalized}
+                confirming={confirming}
+                exporting={exporting}
               />
-            )}
-            {importMode === 'manual' && (
-              <>
-                <button
-                  type="button"
-                  onClick={() => setImportMode('choice')}
-                  className="text-xs text-blue-600 hover:text-blue-800 underline mb-3 transition-colors"
-                >
-                  ← Change import method
-                </button>
-                <TBUploadZone
-                  companyId={state.company?.id ?? ''}
-                  company={state.company}
-                  onCompanyResolved={handleCompanyResolved}
-                  onUploadComplete={handleUploadComplete}
-                  onError={handleUploadError}
-                  useAI={false}
-                  hideAIOption
-                  existingTB={tb}
-                />
-              </>
-            )}
-            {importMode === 'ai' && (
-              <>
-                <button
-                  type="button"
-                  onClick={() => setImportMode('choice')}
-                  className="text-xs text-blue-600 hover:text-blue-800 underline mb-3 transition-colors"
-                >
-                  ← Change import method
-                </button>
-                <TBUploadZone
-                  companyId={state.company?.id ?? ''}
-                  company={state.company}
-                  onCompanyResolved={handleCompanyResolved}
-                  onUploadComplete={handleUploadComplete}
-                  onError={handleUploadError}
-                  hideAIOption
-                  uploadingMessage="AI is reading and restructuring your trial balance — large files may take up to a minute…"
-                  onUpload={(id, file, onProgress, companySnapshot) =>
-                    tbApi.aiConvertUpload(id, file, onProgress, companySnapshot)
-                  }
-                  existingTB={tb}
-                />
-              </>
-            )}
-          </>
             </div>
           </div>
         )}
 
         {activeTab === 'review' && tb && validation && (
           <div className="space-y-4">
+            {mappingProfileMsg && (
+              <div
+                className="rounded-lg px-4 py-2 text-xs"
+                style={{ background: 'var(--success-50)', color: 'var(--success-800)', border: '1px solid var(--success-200)' }}
+              >
+                Returning client recognized — {mappingProfileMsg}.
+              </div>
+            )}
             <div className="card">
               <div className="card-body">
                 <TBValidationPanel
