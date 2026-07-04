@@ -12,7 +12,7 @@
 
 import ExcelJS from 'exceljs';
 import type { RawTBRow, RawTBParseResult } from '../../src/types/trialBalance.js';
-import { assignParentGroups, finalizeRawTBRows } from './tbHierarchy.js';
+import { assignParentGroups, extractTallyTotalAnchor, finalizeRawTBRows } from './tbHierarchy.js';
 
 export type { RawTBRow, RawTBParseResult };
 
@@ -137,14 +137,17 @@ function detectRowLevel(
   label: string,
   amounts: number[],
   isBold = false,
+  tallyGrouped = false,
 ): { rowLevel: number; isGroupRow: boolean; rawIndentSpaces: number } {
   const rawIndentSpaces = countLeadingSpaces(label);
   const trimmed = label.trim();
   const hasAnyAmount = amounts.some((a) => a !== 0);
 
+  // Tally grouped exports carry hierarchy via indentation — avoid marking P&L lines
+  // like "Administrative Expenses (Indirect )" as groups from keyword heuristics alone.
   const isGroupRow =
   (rawIndentSpaces === 0 && !hasAnyAmount) ||
-  KNOWN_GROUP_NAMES.test(trimmed) ||
+  (!tallyGrouped && KNOWN_GROUP_NAMES.test(trimmed)) ||
   (isBold && !hasAnyAmount);
 
   const rowLevel = isGroupRow ? 0 : rawIndentSpaces > 0 ? 1 : 2;
@@ -319,8 +322,14 @@ function detectTallyGroupedExport(
 }
 
 /** Apply Tally grouped hierarchy detection and recompute totals after raw extraction. */
-function applyTallyGroupedFinalization(result: RawTBParseResult): RawTBParseResult {
-  const finalized = finalizeRawTBRows(result.rows, { tallyGrouped: true });
+function applyTallyGroupedFinalization(
+  result: RawTBParseResult,
+  matrix: unknown[][],
+): RawTBParseResult {
+  const finalized = finalizeRawTBRows(result.rows, {
+    tallyGrouped: true,
+    tallyTotalAnchor: extractTallyTotalAnchor(matrix),
+  });
   return {
     ...result,
     rows: finalized.rows,
@@ -539,7 +548,12 @@ function extractRow(
 
   // ── Detect row level from indentation and amount presence ────────────────
   const amounts = [openingDr, openingCr, duringDr, duringCr, adjustmentDr, adjustmentCr, closingDr, closingCr];
-  const { rowLevel, isGroupRow } = detectRowLevel(rawLabelCell, amounts);
+  const { rowLevel, isGroupRow } = detectRowLevel(
+    rawLabelCell,
+    amounts,
+    false,
+    format === 'tally_grouped',
+  );
 
   return {
     rowIndex,
@@ -1016,7 +1030,7 @@ export function parseMatrix(matrix: unknown[][]): RawTBParseResult {
 
   const parsed = parseMatrixWithColMap(matrix, colMap, headerRowIndex, mode, warnings);
   if (mode === 'tally_grouped') {
-    return applyTallyGroupedFinalization(parsed);
+    return applyTallyGroupedFinalization(parsed, matrix);
   }
   return parsed;
 }

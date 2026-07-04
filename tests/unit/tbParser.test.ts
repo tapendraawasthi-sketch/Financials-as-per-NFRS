@@ -125,9 +125,11 @@ describe('tbParser', () => {
     assert.equal(pettyCash!.closingDr, 51447.57);
 
     const imbalance = Math.abs(result.totalClosingDr - result.totalClosingCr);
+    assert.ok(result.isBalanced, `Expected balanced trial balance, got difference ${imbalance}`);
+    assert.ok(imbalance < 1, `Expected zero imbalance, got ${imbalance}`);
     assert.ok(
-      imbalance < 10_000_000,
-      `Expected improved leaf totals (imbalance ${imbalance}), not double-counted group aggregates`,
+      Math.abs(result.totalDuringDr - result.totalDuringCr) < 1,
+      'During-period movement should balance for Tally grouped export',
     );
     assert.ok(
       result.warnings.filter((w) => w.startsWith('Zero-amount leaf row')).length <= 1,

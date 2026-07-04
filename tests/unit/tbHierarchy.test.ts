@@ -4,8 +4,10 @@ import {
   deriveClosingBalances,
   assignParentGroups,
   finalizeRawTBRows,
+  isTallyDescendant,
   isTallyNamingDescendant,
   postProcessTallyGroupedHierarchy,
+  tallySubtreeEnd,
 } from '../../server/services/tbHierarchy.js';
 import type { RawTBRow } from '../../src/types/trialBalance.js';
 
@@ -93,6 +95,30 @@ describe('tbHierarchy', () => {
     assert.equal(totals.totalClosingDr, 1000);
     assert.equal(totals.totalClosingCr, 0);
     assert.equal(totals.isBalanced, false);
+  });
+
+  it('ends Tally subtree on outdent after a deep block (indent 10 then 6)', () => {
+    const rows: RawTBRow[] = [
+      { ...leaf({ rawLabel: 'TDS House & Land Lease' }), rowIndex: 0, rawIndentSpaces: 4 },
+      { ...leaf({ rawLabel: 'TDS on Land Lease A' }), rowIndex: 1, rawIndentSpaces: 10 },
+      { ...leaf({ rawLabel: 'Advance Income Tax' }), rowIndex: 2, rawIndentSpaces: 6, closingDr: 100 },
+      { ...leaf({ rawLabel: 'Securities & Deposits (Asset)' }), rowIndex: 3, rawIndentSpaces: 4, closingDr: 50 },
+    ];
+    assert.equal(tallySubtreeEnd(rows, 0), 2);
+    assert.equal(isTallyDescendant(rows, 0, 1), true);
+    assert.equal(isTallyDescendant(rows, 0, 2), false);
+  });
+
+  it('keeps same-indent Tally sub-groups inside the parent subtree', () => {
+    const rows: RawTBRow[] = [
+      { ...leaf({ rawLabel: 'Purchase' }), rowIndex: 0, rawIndentSpaces: 4, closingDr: 1000 },
+      { ...leaf({ rawLabel: 'Purchase: IMPORT' }), rowIndex: 1, rawIndentSpaces: 4, closingDr: 600 },
+      { ...leaf({ rawLabel: 'Purchase IMPORT: Raw Materials' }), rowIndex: 2, rawIndentSpaces: 8, closingDr: 600 },
+      { ...leaf({ rawLabel: 'Purchase: LOCAL' }), rowIndex: 3, rawIndentSpaces: 4, closingDr: 400 },
+    ];
+    assert.equal(tallySubtreeEnd(rows, 0), 3);
+    assert.equal(isTallyDescendant(rows, 0, 1), true);
+    assert.equal(isTallyDescendant(rows, 0, 3), false);
   });
 });
 

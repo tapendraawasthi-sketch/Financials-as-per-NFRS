@@ -514,18 +514,48 @@ function closingMatchesAggregate(row, childDr, childCr, tolerance = AGGREGATE_TO
   if (row.closingCr > 0 && Math.abs(row.closingCr - childCr) < tolerance) return true;
   return Math.abs(row.closingDr - row.closingCr - (childDr - childCr)) < tolerance;
 }
+function tallySubtreeEnd(rows, index) {
+  const baseIndent = rows[index].rawIndentSpaces;
+  let maxIndent = baseIndent;
+  let seenDeeper = false;
+  for (let j = index + 1; j < rows.length; j++) {
+    const ind = rows[j].rawIndentSpaces;
+    if (ind < baseIndent) return j;
+    if (ind === baseIndent) {
+      if (seenDeeper && maxIndent > baseIndent) return j;
+      continue;
+    }
+    if (ind > maxIndent) maxIndent = ind;
+    seenDeeper = true;
+    if (ind < maxIndent) return j;
+  }
+  return rows.length;
+}
+function hasImmediateDeeperChild(rows, index) {
+  const baseIndent = rows[index].rawIndentSpaces;
+  const end = tallySubtreeEnd(rows, index);
+  for (let j = index + 1; j < end; j++) {
+    if (rows[j].rawIndentSpaces > baseIndent) return true;
+  }
+  return false;
+}
+function isTallyDescendant(rows, parentIdx, childIdx) {
+  if (childIdx <= parentIdx) return false;
+  return childIdx < tallySubtreeEnd(rows, parentIdx);
+}
+function hasDeeperIndentInRange(rows, start, end, baseIndent) {
+  for (let i = start; i <= end; i++) {
+    if (rows[i].rawIndentSpaces > baseIndent) return true;
+  }
+  return false;
+}
 function markGroupRowsByIndentation(rows) {
   return rows.map((row, i) => {
-    let hasDeeperDescendant = false;
-    for (let j = i + 1; j < rows.length; j++) {
-      if (rows[j].rawIndentSpaces <= row.rawIndentSpaces) break;
-      hasDeeperDescendant = true;
-      break;
-    }
+    const hasDeeperDescendant2 = hasImmediateDeeperChild(rows, i);
     return {
       ...row,
-      isGroupRow: row.isGroupRow || hasDeeperDescendant,
-      rowLevel: hasDeeperDescendant ? 0 : row.rawIndentSpaces > 4 ? 2 : row.rowLevel ?? 1
+      isGroupRow: row.isGroupRow || hasDeeperDescendant2,
+      rowLevel: hasDeeperDescendant2 ? 0 : row.rawIndentSpaces > 4 ? 2 : row.rowLevel ?? 1
     };
   });
 }
@@ -548,28 +578,61 @@ function markTallyShorthandAggregates(rows) {
 function markTallyNamingHierarchy(rows) {
   return rows.map((row, i) => {
     if (row.isGroupRow) return row;
-    for (let j = i + 1; j < rows.length; j++) {
-      const other = rows[j];
-      if (other.rawIndentSpaces < row.rawIndentSpaces) break;
-      if (isTallyNamingDescendant(row.rawLabel, other.rawLabel)) {
+    const end = tallySubtreeEnd(rows, i);
+    for (let j = i + 1; j < end; j++) {
+      if (isTallyNamingDescendant(row.rawLabel, rows[j].rawLabel)) {
         return { ...row, isGroupRow: true, rowLevel: 0 };
-      }
-      if (other.rawIndentSpaces <= row.rawIndentSpaces && !isTallyNamingDescendant(row.rawLabel, other.rawLabel)) {
-        break;
       }
     }
     return row;
   });
 }
+function hasDeeperDescendant(rows, index) {
+  return hasImmediateDeeperChild(rows, index);
+}
+function demoteCoincidentalSameIndentGroups(rows) {
+  return rows.map((row, i) => {
+    if (!row.isGroupRow) return row;
+    if (hasDeeperDescendant(rows, i)) return row;
+    const next = rows[i + 1];
+    if (!next || next.rawIndentSpaces !== row.rawIndentSpaces || next.isGroupRow) return row;
+    const rowNet = row.closingDr - row.closingCr;
+    const nextNet = next.closingDr - next.closingCr;
+    if (Math.abs(rowNet) < AGGREGATE_TOLERANCE) return row;
+    if (Math.abs(rowNet - nextNet) >= AGGREGATE_TOLERANCE) return row;
+    return { ...row, isGroupRow: false, rowLevel: row.rawIndentSpaces > 4 ? 2 : 1 };
+  });
+}
+function extractTallyTotalAnchor(matrix) {
+  for (let r = matrix.length - 1; r >= Math.max(0, matrix.length - 5); r--) {
+    const label = String(matrix[r]?.[0] ?? "").trim().toLowerCase();
+    if (label !== "total" && !label.startsWith("grand total")) continue;
+    const duringDr = parseFloat(String(matrix[r]?.[2] ?? 0)) || 0;
+    const duringCr = parseFloat(String(matrix[r]?.[3] ?? 0)) || 0;
+    const closing = parseTallyBalanceCell(matrix[r]?.[4]);
+    return { duringDr, duringCr, closingDr: closing.dr, closingCr: closing.cr };
+  }
+  return null;
+}
+function parseTallyBalanceCell(val) {
+  if (val === null || val === void 0 || val === "") return { dr: 0, cr: 0 };
+  const str = String(val).trim();
+  if (!str) return { dr: 0, cr: 0 };
+  const num = parseFloat(str.replace(/,/g, "").replace(/\s*(Dr|Cr)\.?$/i, ""));
+  if (isNaN(num)) return { dr: 0, cr: 0 };
+  if (/cr/i.test(str)) return { dr: 0, cr: Math.abs(num) };
+  return { dr: Math.abs(num), cr: 0 };
+}
 function markTallyAggregateGroups(rows) {
   return rows.map((row, i) => {
     if (row.isGroupRow) return row;
     if (row.closingDr === 0 && row.closingCr === 0) return row;
+    const end = tallySubtreeEnd(rows, i);
     let childDr = 0;
     let childCr = 0;
     let childCount = 0;
-    for (let j = i + 1; j < rows.length; j++) {
-      if (rows[j].rawIndentSpaces <= row.rawIndentSpaces) break;
+    for (let j = i + 1; j < end; j++) {
+      if (rows[j].rawIndentSpaces <= row.rawIndentSpaces) continue;
       childDr += rows[j].closingDr;
       childCr += rows[j].closingCr;
       childCount++;
@@ -597,16 +660,25 @@ function sumLeafClosingsInRange(rows, start, end) {
   }
   return { dr, cr };
 }
+function demoteOrphanTallyGroups(rows) {
+  return rows.map((row, i) => {
+    if (!row.isGroupRow) return row;
+    if (row.rawIndentSpaces === 0) return row;
+    if (hasImmediateDeeperChild(rows, i)) return row;
+    return { ...row, isGroupRow: false, rowLevel: row.rawIndentSpaces > 4 ? 2 : 1 };
+  });
+}
 function markTallySameIndentSubGroups(rows) {
   return rows.map((row, i) => {
     if (row.isGroupRow) return row;
     if (row.closingDr === 0 && row.closingCr === 0) return row;
     if (i + 1 >= rows.length) return row;
     if (rows[i + 1].rawIndentSpaces !== row.rawIndentSpaces) return row;
-    for (let end = i + 1; end < rows.length; end++) {
+    const subtreeEnd = Math.min(tallySubtreeEnd(rows, i), rows.length);
+    for (let end = i + 1; end < subtreeEnd; end++) {
       if (rows[end].rawIndentSpaces < row.rawIndentSpaces) break;
       const { dr, cr } = sumLeafClosingsInRange(rows, i + 1, end);
-      if (closingMatchesAggregate(row, dr, cr)) {
+      if (closingMatchesAggregate(row, dr, cr) && hasDeeperIndentInRange(rows, i + 1, end, row.rawIndentSpaces)) {
         return { ...row, isGroupRow: true, rowLevel: 0 };
       }
       if (rows[end].rawIndentSpaces === row.rawIndentSpaces && !isTallyNamingDescendant(row.rawLabel, rows[end].rawLabel) && (dr > row.closingDr + AGGREGATE_TOLERANCE || cr > row.closingCr + AGGREGATE_TOLERANCE)) {
@@ -635,15 +707,21 @@ function markTallyDuplicateBalanceParents(rows) {
 }
 function assignParentGroups(rows) {
   const groupStack = [];
-  return rows.map((row) => {
-    if (row.isGroupRow) {
-      while (groupStack.length > 0 && groupStack[groupStack.length - 1].indentSpaces >= row.rawIndentSpaces) {
+  return rows.map((row, i) => {
+    while (groupStack.length > 0) {
+      const top = groupStack[groupStack.length - 1];
+      if (top.indentSpaces >= row.rawIndentSpaces || !isTallyDescendant(rows, top.index, i)) {
         groupStack.pop();
+        continue;
       }
+      break;
+    }
+    if (row.isGroupRow) {
       groupStack.push({
         label: row.rawLabel,
         indentSpaces: row.rawIndentSpaces,
-        level: row.rowLevel
+        level: row.rowLevel,
+        index: i
       });
       return {
         ...row,
@@ -664,6 +742,8 @@ function postProcessTallyGroupedHierarchy(rows) {
   processed = markTallyAggregateGroups(processed);
   processed = markTallySameIndentSubGroups(processed);
   processed = markTallyDuplicateBalanceParents(processed);
+  processed = demoteCoincidentalSameIndentGroups(processed);
+  processed = demoteOrphanTallyGroups(processed);
   return assignParentGroups(processed);
 }
 function computeRawTBTotals(rows) {
@@ -715,6 +795,15 @@ function finalizeRawTBRows(rows, options = {}) {
     warnings.push(
       `Trial Balance not balanced. Difference: ${Math.abs(totals.difference).toLocaleString("en-IN")}.`
     );
+  }
+  if (options.tallyTotalAnchor && options.tallyGrouped) {
+    const anchor = options.tallyTotalAnchor;
+    const duringDiff = Math.abs(round2(totals.totalDuringDr) - round2(anchor.duringDr)) + Math.abs(round2(totals.totalDuringCr) - round2(anchor.duringCr));
+    if (duringDiff > AGGREGATE_TOLERANCE && totals.isBalanced) {
+      warnings.push(
+        `Closing totals balance, but during movement differs from Tally Total row by ${duringDiff.toLocaleString("en-IN")}.`
+      );
+    }
   }
   const derivedCount = rows.filter(
     (r, i) => !r.isGroupRow && r.closingDr === 0 && r.closingCr === 0 && processed[i] && (processed[i].closingDr > 0 || processed[i].closingCr > 0)
@@ -889,11 +978,11 @@ function countLeadingSpaces(label) {
   if (!match) return 0;
   return match[1].replace(/\t/g, "    ").length;
 }
-function detectRowLevel(label, amounts, isBold = false) {
+function detectRowLevel(label, amounts, isBold = false, tallyGrouped = false) {
   const rawIndentSpaces = countLeadingSpaces(label);
   const trimmed = label.trim();
   const hasAnyAmount = amounts.some((a) => a !== 0);
-  const isGroupRow = rawIndentSpaces === 0 && !hasAnyAmount || KNOWN_GROUP_NAMES.test(trimmed) || isBold && !hasAnyAmount;
+  const isGroupRow = rawIndentSpaces === 0 && !hasAnyAmount || !tallyGrouped && KNOWN_GROUP_NAMES.test(trimmed) || isBold && !hasAnyAmount;
   const rowLevel = isGroupRow ? 0 : rawIndentSpaces > 0 ? 1 : 2;
   return { rowLevel, isGroupRow, rawIndentSpaces };
 }
@@ -1014,8 +1103,11 @@ function detectTallyGroupedExport(matrix) {
   }
   return { isGrouped: false, headerRowIndex: -1, colMap: {} };
 }
-function applyTallyGroupedFinalization(result) {
-  const finalized = finalizeRawTBRows(result.rows, { tallyGrouped: true });
+function applyTallyGroupedFinalization(result, matrix) {
+  const finalized = finalizeRawTBRows(result.rows, {
+    tallyGrouped: true,
+    tallyTotalAnchor: extractTallyTotalAnchor(matrix)
+  });
   return {
     ...result,
     rows: finalized.rows,
@@ -1189,7 +1281,12 @@ function extractRow(matRow, rowIndex, colMap, format) {
     }
   }
   const amounts = [openingDr, openingCr, duringDr, duringCr, adjustmentDr, adjustmentCr, closingDr, closingCr];
-  const { rowLevel, isGroupRow } = detectRowLevel(rawLabelCell, amounts);
+  const { rowLevel, isGroupRow } = detectRowLevel(
+    rawLabelCell,
+    amounts,
+    false,
+    format === "tally_grouped"
+  );
   return {
     rowIndex,
     rawLabel,
@@ -1564,7 +1661,7 @@ function parseMatrix(matrix) {
   }
   const parsed = parseMatrixWithColMap(matrix, colMap, headerRowIndex, mode, warnings);
   if (mode === "tally_grouped") {
-    return applyTallyGroupedFinalization(parsed);
+    return applyTallyGroupedFinalization(parsed, matrix);
   }
   return parsed;
 }
