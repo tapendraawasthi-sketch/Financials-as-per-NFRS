@@ -77,7 +77,6 @@ export function validateCompanyProfile(data: Partial<CompanyProfile>): Validatio
   const warnings: string[] = [];
 
   if (!data.companyName?.trim()) errors.push('Company name is required.');
-  if (!data.fiscalYear) errors.push('Fiscal year must be selected.');
 
   return {
     isValid: errors.length === 0,

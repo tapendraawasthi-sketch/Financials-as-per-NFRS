@@ -1,5 +1,6 @@
 import type { CompanyProfile } from '../../src/types/company.js';
 import type { YearEndAdjustments } from '../../src/types/adjustments.js';
+import { fillNumericPlaceholder, fillPlaceholder } from '../../src/utils/fillPlaceholder.js';
 
 /** MEs reference labels — column B in Enter Details (parser reads cols 2–3). */
 export interface MesEnterDetailsField {
@@ -27,22 +28,22 @@ export function buildMesEnterDetailsFields(
 
   const fields: MesEnterDetailsField[] = [
     { label: 'name of entity', value: company.companyName ?? company.name ?? '' },
-    { label: 'address', value: company.fullAddress ?? company.address ?? '' },
-    { label: 'this year', value: company.fiscalYear?.bsFY ?? company.fiscalYearCurrent ?? '' },
-    { label: 'last year', value: company.previousFiscalYear?.bsFY ?? company.fiscalYearPrevious ?? '' },
-    { label: 'reporting date (bs)', value: company.fiscalYear?.endDateBS ?? company.reportingDateBS ?? '' },
-    { label: 'reporting date (ad)', value: company.fiscalYear?.endDateAD ?? company.reportingDateAD ?? '' },
-    { label: 'entity type', value: company.entityType ?? company.typeOfEntity ?? company.companyType ?? '' },
+    { label: 'address', value: fillPlaceholder('Address', company.fullAddress ?? company.address) },
+    { label: 'this year', value: fillPlaceholder('Fiscal Year', company.fiscalYear?.bsFY ?? company.fiscalYearCurrent) },
+    { label: 'last year', value: fillPlaceholder('Previous Fiscal Year', company.previousFiscalYear?.bsFY ?? company.fiscalYearPrevious) },
+    { label: 'reporting date (bs)', value: fillPlaceholder('Reporting Date (BS)', company.fiscalYear?.endDateBS ?? company.reportingDateBS) },
+    { label: 'reporting date (ad)', value: fillPlaceholder('Reporting Date (AD)', company.fiscalYear?.endDateAD ?? company.reportingDateAD) },
+    { label: 'entity type', value: fillPlaceholder('Entity Type', company.entityType ?? company.typeOfEntity ?? company.companyType) },
     { label: 'applicable standard', value: company.applicableStandard ?? 'NAS for MEs' },
-    { label: 'pan / vat number', value: company.panVatNumber ?? company.panNo ?? '' },
-    { label: 'registration no.', value: company.registrationNumber ?? company.registrationNo ?? '' },
-    { label: 'chairperson', value: company.chairperson ?? '' },
-    { label: 'director', value: company.director ?? '' },
-    { label: 'accounts head', value: company.accountsHead ?? '' },
-    { label: 'auditor', value: company.auditorInfo?.auditorName ?? company.auditor ?? '' },
-    { label: 'name of audit firm', value: company.auditorInfo?.auditorFirmName ?? company.auditFirmName ?? '' },
-    { label: 'ican registration no.', value: company.auditorInfo?.icanRegNumber ?? '' },
-    { label: 'number of employees', value: employees, isNumeric: true },
+    { label: 'pan / vat number', value: fillPlaceholder('PAN', company.panVatNumber ?? company.panNo) },
+    { label: 'registration no.', value: fillPlaceholder('Registration No.', company.registrationNumber ?? company.registrationNo) },
+    { label: 'chairperson', value: fillPlaceholder('Chairperson', company.chairperson) },
+    { label: 'director', value: fillPlaceholder('Director', company.director) },
+    { label: 'accounts head', value: fillPlaceholder('Accounts Head', company.accountsHead) },
+    { label: 'auditor', value: fillPlaceholder('Auditor', company.auditorInfo?.auditorName ?? company.auditor) },
+    { label: 'name of audit firm', value: fillPlaceholder('Audit Firm Name', company.auditorInfo?.auditorFirmName ?? company.auditFirmName) },
+    { label: 'ican registration no.', value: fillPlaceholder('ICAN Registration No.', company.auditorInfo?.icanRegNumber) },
+    { label: 'number of employees', value: fillNumericPlaceholder('Number of Employees', employees), isNumeric: true },
     { label: 'income tax rate (%)', value: taxRate, isNumeric: true },
     { label: 'bonus rate (%)', value: typeof bonusRate === 'number' && bonusRate <= 1 ? bonusRate * 100 : bonusRate, isNumeric: true },
     { label: 'rounding level (npr)', value: policies?.roundingLevel ?? 100, isNumeric: true },
