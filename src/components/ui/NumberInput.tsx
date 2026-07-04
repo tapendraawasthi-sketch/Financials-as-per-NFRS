@@ -1,6 +1,7 @@
 // src/components/ui/NumberInput.tsx
-import React, { useState, useId, useCallback } from 'react';
-import { ChevronUp, ChevronDown } from 'lucide-react';
+import React, { useState, useId, useCallback, useMemo } from 'react';
+import { ChevronUp, ChevronDown, AlertCircle } from 'lucide-react';
+import { formatNPR } from '../../utils/numberFormat';
 
 interface NumberInputProps {
   label:        string;
@@ -18,28 +19,12 @@ interface NumberInputProps {
   id?:          string;
   showSteppers?: boolean;
   step?:         number;
+  validator?:   (value: number) => boolean | string;
 }
 
-function formatIndian(n: number): string {
+function formatDisplay(n: number): string {
   if (n === 0) return '';
-  const isNeg    = n < 0;
-  const abs      = Math.abs(n);
-  const [intRaw, decPart] = abs.toString().split('.');
-  let formatted = '';
-  const len     = intRaw.length;
-  if (len <= 3) {
-    formatted = intRaw;
-  } else {
-    formatted = intRaw.slice(-3);
-    let rest  = intRaw.slice(0, -3);
-    while (rest.length > 0) {
-      formatted = rest.slice(-2) + ',' + formatted;
-      rest      = rest.slice(0, -2);
-    }
-    if (formatted.startsWith(',')) formatted = formatted.slice(1);
-  }
-  if (decPart) formatted += '.' + decPart;
-  return isNeg ? '-' + formatted : formatted;
+  return formatNPR(n);
 }
 
 export default function NumberInput({
@@ -58,16 +43,33 @@ export default function NumberInput({
   id,
   showSteppers = false,
   step         = 1,
+  validator,
 }: NumberInputProps) {
   const [focused, setFocused] = useState(false);
+  const [hovered, setHovered] = useState(false);
   const generatedId           = useId();
   const inputId               = id ?? generatedId;
   const errorId               = `${inputId}-error`;
   const helpId                = `${inputId}-help`;
 
+  const validationError = useMemo(() => {
+    if (value === '' || typeof value !== 'number') return undefined;
+    if (min !== undefined && value < min) return `Must be at least ${formatNPR(min)}`;
+    if (max !== undefined && value > max) return `Must be at most ${formatNPR(max)}`;
+    if (validator) {
+      const result = validator(value);
+      if (typeof result === 'string') return result;
+      if (result === false) return 'Invalid value';
+    }
+    return undefined;
+  }, [value, min, max, validator]);
+
+  const displayError = error ?? validationError;
+  const showStepperControls = (showSteppers || step !== undefined) && !disabled;
+
   const displayValue = focused
     ? value === '' ? '' : String(value)
-    : value === '' ? '' : formatIndian(value as number);
+    : value === '' ? '' : formatDisplay(value as number);
 
   const handleBlur = () => {
     setFocused(false);
@@ -100,9 +102,21 @@ export default function NumberInput({
     onChange(next);
   }, [value, step, min, onChange]);
 
+  const affixPadLeft  = prefix ? 'var(--space-8)' : 'var(--space-3)';
+  const affixPadRight = suffix
+    ? 'var(--space-8)'
+    : showStepperControls
+    ? 'var(--space-8)'
+    : 'var(--space-3)';
+
   return (
     <>
       <style>{`
+        .premium-number-field::-webkit-inner-spin-button,
+        .premium-number-field::-webkit-outer-spin-button {
+          -webkit-appearance: none;
+          margin: 0;
+        }
         .premium-number-field:focus {
           border-color: var(--brand-500) !important;
           box-shadow: var(--glow-brand) !important;
@@ -113,22 +127,47 @@ export default function NumberInput({
           opacity: 0.7;
           cursor: not-allowed;
         }
+        .premium-number-stepper {
+          opacity: 0;
+          transition: opacity var(--dur-fast) var(--ease-premium);
+        }
+        .premium-number-wrap:hover .premium-number-stepper,
+        .premium-number-wrap:focus-within .premium-number-stepper {
+          opacity: 1;
+        }
       `}</style>
-      <div className="flex flex-col" style={{ gap: '6px' }}>
+      <div className="flex flex-col" style={{ gap: 'var(--space-2)' }}>
         <label
           htmlFor={inputId}
           className="leading-none"
-          style={{ fontSize: '12.5px', fontWeight: 600, color: 'var(--ink-600)', marginBottom: '6px' }}
+          style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--ink-600)' }}
         >
           {label}
           {required && <span className="text-red-500 ml-0.5" aria-hidden="true">*</span>}
         </label>
 
-        <div className="relative flex items-center">
+        <div
+          className="premium-number-wrap relative flex items-center"
+          onMouseEnter={() => setHovered(true)}
+          onMouseLeave={() => setHovered(false)}
+          style={{
+            borderRadius: 'var(--radius-sm)',
+            border: displayError ? '1px solid var(--danger-600)' : '1px solid var(--border-strong)',
+            background: 'var(--surface)',
+            height: '38px',
+            transition: 'border-color var(--dur-fast) var(--ease-premium), box-shadow var(--dur-fast) var(--ease-premium)',
+          }}
+        >
           {prefix && (
             <span
-              className="absolute left-2.5 pointer-events-none select-none leading-none"
-              style={{ fontSize: '12px', color: 'var(--ink-400)' }}
+              className="absolute left-0 flex items-center justify-center pointer-events-none select-none"
+              style={{
+                width: 'var(--space-8)',
+                height: '100%',
+                fontSize: 'var(--text-sm)',
+                color: 'var(--ink-400)',
+                borderRight: '1px solid var(--border-hairline)',
+              }}
               aria-hidden="true"
             >
               {prefix}
@@ -143,41 +182,65 @@ export default function NumberInput({
             disabled={disabled}
             min={min}
             max={max}
+            step={step}
             placeholder={placeholder}
             onFocus={() => setFocused(true)}
             onBlur={handleBlur}
             onChange={handleChange}
-            className={[
-              'premium-number-field w-full border outline-none transition-all ease-premium text-right',
-              'font-mono tabular-nums text-slate-800',
-              prefix ? 'pl-8' : 'pl-2.5',
-              suffix ? 'pr-8' : showSteppers ? 'pr-16' : 'pr-2.5',
-            ].filter(Boolean).join(' ')}
+            className="premium-number-field num w-full border-0 outline-none bg-transparent ease-premium"
             style={{
-              fontSize: '13px',
-              height: '38px',
-              borderRadius: 'var(--radius-sm)',
-              background: 'var(--surface)',
-              border: error ? '1px solid var(--danger-600)' : '1px solid var(--border-strong)',
+              fontSize: 'var(--text-base)',
+              height: '100%',
+              paddingLeft: affixPadLeft,
+              paddingRight: affixPadRight,
+              color: 'var(--ink-800)',
               MozAppearance: 'textfield' as React.CSSProperties['MozAppearance'],
               WebkitAppearance: 'none',
             }}
-            aria-invalid={error ? 'true' : undefined}
-            aria-describedby={error ? errorId : helperText ? helpId : undefined}
+            aria-invalid={displayError ? 'true' : undefined}
+            aria-describedby={displayError ? errorId : helperText ? helpId : undefined}
             aria-required={required}
           />
 
-          {showSteppers && !disabled && (
+          {suffix && (
+            <span
+              className="absolute right-0 flex items-center justify-center pointer-events-none select-none"
+              style={{
+                width: showStepperControls && hovered ? 'calc(var(--space-8) + var(--space-6))' : 'var(--space-8)',
+                height: '100%',
+                fontSize: 'var(--text-sm)',
+                color: 'var(--ink-400)',
+                borderLeft: '1px solid var(--border-hairline)',
+                paddingRight: showStepperControls && hovered ? 'var(--space-6)' : 0,
+              }}
+              aria-hidden="true"
+            >
+              {suffix}
+            </span>
+          )}
+
+          {showStepperControls && (
             <div
-              className="absolute right-0 flex flex-col"
-              style={{ height: '38px', borderLeft: '1px solid var(--border-strong)' }}
+              className="premium-number-stepper absolute right-0 flex flex-col"
+              style={{
+                width: 'var(--space-6)',
+                height: '100%',
+                borderLeft: '1px solid var(--border-hairline)',
+              }}
             >
               <button
                 type="button"
                 onClick={increment}
-                disabled={disabled || (max !== undefined && (typeof value === 'number' ? value : 0) >= max)}
-                className="flex-1 w-8 flex items-center justify-center hover:bg-slate-50 disabled:opacity-30 transition-colors"
-                style={{ borderBottom: '1px solid var(--border-strong)', borderRadius: '0 var(--radius-sm) 0 0' }}
+                disabled={max !== undefined && (typeof value === 'number' ? value : 0) >= max}
+                className="flex-1 flex items-center justify-center transition-colors"
+                style={{
+                  color: 'var(--ink-500)',
+                  borderBottom: '1px solid var(--border-hairline)',
+                  borderRadius: '0 var(--radius-sm) 0 0',
+                  background: 'transparent',
+                }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'var(--surface-hover)'; }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
                 aria-label="Increase value"
                 tabIndex={-1}
               >
@@ -186,9 +249,15 @@ export default function NumberInput({
               <button
                 type="button"
                 onClick={decrement}
-                disabled={disabled || (min !== undefined && (typeof value === 'number' ? value : 0) <= min)}
-                className="flex-1 w-8 flex items-center justify-center hover:bg-slate-50 disabled:opacity-30 transition-colors"
-                style={{ borderRadius: '0 0 var(--radius-sm) 0' }}
+                disabled={min !== undefined && (typeof value === 'number' ? value : 0) <= min}
+                className="flex-1 flex items-center justify-center transition-colors"
+                style={{
+                  color: 'var(--ink-500)',
+                  borderRadius: '0 0 var(--radius-sm) 0',
+                  background: 'transparent',
+                }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'var(--surface-hover)'; }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
                 aria-label="Decrease value"
                 tabIndex={-1}
               >
@@ -196,30 +265,21 @@ export default function NumberInput({
               </button>
             </div>
           )}
-
-          {suffix && !showSteppers && (
-            <span
-              className="absolute right-2.5 pointer-events-none select-none leading-none"
-              style={{ fontSize: '12px', color: 'var(--ink-400)' }}
-              aria-hidden="true"
-            >
-              {suffix}
-            </span>
-          )}
         </div>
 
-        {error && (
+        {displayError && (
           <p
             id={errorId}
-            className="leading-tight"
+            className="flex items-center gap-1 font-medium leading-tight"
             style={{ fontSize: '11.5px', color: 'var(--danger-600)' }}
             role="alert"
           >
-            {error}
+            <AlertCircle size={12} className="flex-shrink-0" />
+            {displayError}
           </p>
         )}
-        {!error && helperText && (
-          <p id={helpId} className="leading-snug" style={{ fontSize: '11px', color: 'var(--ink-400)' }}>
+        {!displayError && helperText && (
+          <p id={helpId} className="leading-snug" style={{ fontSize: 'var(--text-xs)', color: 'var(--ink-400)' }}>
             {helperText}
           </p>
         )}

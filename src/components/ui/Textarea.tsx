@@ -1,5 +1,6 @@
 // src/components/ui/Textarea.tsx
 import React, { useId } from 'react';
+import { AlertCircle } from 'lucide-react';
 
 interface TextareaProps extends React.TextareaHTMLAttributes<HTMLTextAreaElement> {
   label:       string;
@@ -38,11 +39,11 @@ export default function Textarea({
           cursor: not-allowed;
         }
       `}</style>
-      <div className="flex flex-col" style={{ gap: '6px' }}>
+      <div className="flex flex-col" style={{ gap: 'var(--space-2)' }}>
         <label
           htmlFor={areaId}
           className="leading-none"
-          style={{ fontSize: '12.5px', fontWeight: 600, color: 'var(--ink-600)', marginBottom: '6px' }}
+          style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--ink-600)' }}
         >
           {label}
           {required && <span className="text-indigo-400 ml-0.5" aria-hidden="true">*</span>}
@@ -57,7 +58,7 @@ export default function Textarea({
             className,
           ].filter(Boolean).join(' ')}
           style={{
-            fontSize: '13px',
+            fontSize: 'var(--text-base)',
             borderRadius: 'var(--radius-sm)',
             background: 'var(--surface)',
             border: error ? '1px solid var(--danger-600)' : '1px solid var(--border-strong)',
@@ -72,15 +73,16 @@ export default function Textarea({
         {error && (
           <p
             id={errorId}
-            className="leading-tight font-medium"
+            className="flex items-center gap-1 font-medium leading-tight"
             style={{ fontSize: '11.5px', color: 'var(--danger-600)' }}
             role="alert"
           >
+            <AlertCircle size={12} className="flex-shrink-0" />
             {error}
           </p>
         )}
         {!error && helperText && (
-          <p id={helpId} className="leading-snug" style={{ fontSize: '11px', color: 'var(--ink-400)' }}>
+          <p id={helpId} className="leading-snug" style={{ fontSize: 'var(--text-xs)', color: 'var(--ink-400)' }}>
             {helperText}
           </p>
         )}

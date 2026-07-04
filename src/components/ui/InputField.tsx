@@ -10,7 +10,7 @@ interface InputFieldProps extends React.InputHTMLAttributes<HTMLInputElement> {
 }
 
 const fieldBaseStyle: React.CSSProperties = {
-  fontSize: '13px',
+  fontSize: 'var(--text-base)',
   borderRadius: 'var(--radius-sm)',
   height: '38px',
   background: 'var(--surface)',
@@ -45,15 +45,14 @@ export default function InputField({
           cursor: not-allowed;
         }
       `}</style>
-      <div className="flex flex-col" style={{ gap: '6px' }}>
+      <div className="flex flex-col" style={{ gap: 'var(--space-2)' }}>
         <label
           htmlFor={inputId}
           className="leading-none"
           style={{
-            fontSize: '12.5px',
+            fontSize: 'var(--text-sm)',
             fontWeight: 600,
             color: 'var(--ink-600)',
-            marginBottom: '6px',
           }}
         >
           {label}
@@ -92,7 +91,7 @@ export default function InputField({
           </p>
         )}
         {!error && helperText && (
-          <p id={helpId} className="leading-snug" style={{ fontSize: '11px', color: 'var(--ink-400)' }}>
+          <p id={helpId} className="leading-snug" style={{ fontSize: 'var(--text-xs)', color: 'var(--ink-400)' }}>
             {helperText}
           </p>
         )}
