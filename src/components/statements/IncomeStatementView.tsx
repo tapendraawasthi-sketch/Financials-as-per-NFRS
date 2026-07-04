@@ -31,8 +31,8 @@ function DataRow({ label, note, cy, py, rl, indent = true }: {
       <td className="text-center">
         {note && <span className="text-indigo-600 font-medium text-xs">{note}</span>}
       </td>
-      <td className={`amount ${isZero ? 'amount-zero' : ''}`}>{fmt(cy, rl)}</td>
-      <td className={`amount ${!py || py === 0 ? 'amount-zero' : ''}`}>{fmt(py, rl)}</td>
+      <td className={`amount num ${isZero ? 'amount-zero' : ''}`} style={{ color: 'var(--ink-900)' }}>{fmt(cy, rl)}</td>
+      <td className={`amount num ${!py || py === 0 ? 'amount-zero' : ''}`} style={{ color: 'var(--ink-500)' }}>{fmt(py, rl)}</td>
     </tr>
   );
 }
@@ -45,8 +45,8 @@ function TotalRow({ label, cy, py, rl, grand = false, isLoss = false }: {
     <tr className={grand ? 'row-grand-total' : 'row-total'}>
       <td>{label}</td>
       <td />
-      <td className={`amount ${isLoss && cy && cy < 0 ? 'amount-loss-subtle' : ''}`}>{fmt(cy, rl)}</td>
-      <td className={`amount ${isLoss && py && py < 0 ? 'amount-loss-subtle' : ''}`}>{fmt(py, rl)}</td>
+      <td className={`amount num ${isLoss && cy && cy < 0 ? 'amount-loss-subtle' : ''}`} style={{ color: 'var(--ink-900)' }}>{fmt(cy, rl)}</td>
+      <td className={`amount num ${isLoss && py && py < 0 ? 'amount-loss-subtle' : ''}`} style={{ color: 'var(--ink-500)' }}>{fmt(py, rl)}</td>
     </tr>
   );
 }

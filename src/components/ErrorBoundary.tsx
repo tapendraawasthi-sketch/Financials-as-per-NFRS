@@ -1,12 +1,13 @@
 // src/components/ErrorBoundary.tsx
 import React, { Component, ReactNode } from 'react';
 import { AlertCircle } from 'lucide-react';
+import Button from './ui/Button';
 
 interface Props { children: ReactNode; fallback?: ReactNode; }
-interface State { hasError: boolean; error?: Error; showDetails: boolean; }
+interface State { hasError: boolean; error?: Error; }
 
 class ErrorBoundary extends Component<Props, State> {
-  state: State = { hasError: false, error: undefined, showDetails: false };
+  state: State = { hasError: false, error: undefined };
 
   static getDerivedStateFromError(error: Error): Partial<State> {
     return { hasError: true, error };
@@ -17,86 +18,34 @@ class ErrorBoundary extends Component<Props, State> {
     console.error('[ErrorBoundary] Component stack:', info.componentStack);
   }
 
-  handleReload   = () => window.location.reload();
-  handleFresh    = () => {
-    try { localStorage.clear(); sessionStorage.clear(); } catch {}
-    window.location.reload();
-  };
-  toggleDetails  = () => this.setState(prev => ({ showDetails: !prev.showDetails }));
+  handleReload = () => window.location.reload();
 
   render() {
     if (this.state.hasError) {
       if (this.props.fallback) return <>{this.props.fallback}</>;
-      const { error, showDetails } = this.state;
       return (
-        <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
-          <div
-            className="bg-white w-full overflow-hidden"
-            style={{ maxWidth: '480px', borderRadius: '20px', boxShadow: 'var(--shadow-xl)' }}
-          >
-            <div style={{ height: '4px', background: 'linear-gradient(90deg, #dc2626, #ef4444)' }} />
-            <div className="p-8 text-center">
-              <div
-                className="inline-flex items-center justify-center w-16 h-16 rounded-2xl mb-5"
-                style={{ background: 'var(--danger-100)' }}
-              >
-                <AlertCircle size={32} className="text-red-400" />
-              </div>
-              <h1 className="text-xl font-bold text-slate-800 mb-2">Something went wrong</h1>
-              <p className="text-sm text-slate-500 mb-6 leading-relaxed">
-                An unexpected error occurred in the NFRS Reporter. Your session data has not been
-                lost — try reloading the page.
-              </p>
-              <div className="flex flex-col sm:flex-row gap-3 justify-center mb-6">
-                <button
-                  onClick={this.handleReload}
-                  className="font-semibold px-6 py-2.5 rounded-xl text-white transition-all"
-                  style={{
-                    background: 'linear-gradient(135deg, var(--brand-600), var(--brand-400))',
-                    boxShadow: 'var(--shadow-md)',
-                    fontSize: '13px',
-                  }}
-                >
-                  🔄 Try Again
-                </button>
-                <button
-                  onClick={this.handleFresh}
-                  className="font-semibold px-6 py-2.5 rounded-xl transition-colors text-slate-700 bg-white hover:bg-slate-50"
-                  style={{ border: '1px solid var(--border-strong)', fontSize: '13px' }}
-                >
-                  🗑️ Start Fresh
-                </button>
-              </div>
-              <div
-                className="rounded-xl overflow-hidden text-left"
-                style={{ border: '1px solid var(--border-strong)' }}
-              >
-                <button
-                  onClick={this.toggleDetails}
-                  className="w-full flex items-center justify-between px-4 py-3 bg-slate-50 hover:bg-slate-100 transition-colors"
-                  aria-expanded={showDetails}
-                >
-                  <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">Technical Details</span>
-                  <span className={`text-slate-400 transition-transform duration-200 ${showDetails ? 'rotate-180' : ''}`}>▾</span>
-                </button>
-                {showDetails && (
-                  <div className="px-4 py-3 bg-slate-900 font-mono text-xs overflow-x-auto">
-                    <p className="text-slate-400 mb-1"># Error:</p>
-                    <p className="text-red-400 font-semibold">{error?.name}: {error?.message}</p>
-                    {error?.stack && (
-                      <>
-                        <p className="text-slate-400 mt-2 mb-1"># Stack trace:</p>
-                        <pre className="whitespace-pre-wrap text-green-300 text-xs leading-relaxed">{error.stack}</pre>
-                      </>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-            <div className="px-8 py-4 bg-slate-50 border-t border-slate-100 text-center">
-              <p className="text-xs text-slate-400">
-                NFRS Financial Reporter — If this persists, contact your system administrator.
-              </p>
+        <div
+          className="min-h-screen flex items-center justify-center"
+          style={{ background: 'var(--canvas)', padding: 'var(--space-6)' }}
+        >
+          <div className="text-center" style={{ maxWidth: '420px' }}>
+            <AlertCircle size={40} style={{ color: 'var(--danger-600)', margin: '0 auto var(--space-4)' }} />
+            <h1
+              className="font-display"
+              style={{ fontSize: 'var(--text-lg)', fontWeight: 600, color: 'var(--ink-950)', marginBottom: 'var(--space-2)' }}
+            >
+              Something went wrong
+            </h1>
+            <p style={{ fontSize: 'var(--text-sm)', color: 'var(--ink-500)', marginBottom: 'var(--space-6)', lineHeight: 1.6 }}>
+              An unexpected error occurred. Your saved session data should still be intact — try reloading the page.
+            </p>
+            <div className="flex flex-col sm:flex-row gap-3 justify-center">
+              <Button variant="primary" size="md" onClick={this.handleReload}>
+                Reload
+              </Button>
+              <Button variant="secondary" size="md" onClick={() => { window.location.href = '/'; }}>
+                Back to Dashboard
+              </Button>
             </div>
           </div>
         </div>

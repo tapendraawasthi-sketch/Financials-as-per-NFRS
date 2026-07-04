@@ -1,5 +1,6 @@
 // src/components/output/DownloadPanel.tsx
 import React, { useState } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import { FileSpreadsheet, CheckCircle2, Eye, Download } from 'lucide-react';
 import { useAppStore } from '../../store/appStore';
 import { outputApi } from '../../api/client';
@@ -111,6 +112,13 @@ export default function DownloadPanel() {
     }
   };
 
+  const statementCount = [
+    financials.balanceSheet,
+    financials.incomeStatement,
+    financials.cashFlow,
+    financials.changesInEquity,
+  ].filter(Boolean).length;
+
   const headingText = isGenerating
     ? 'Generating Your Report…'
     : downloadComplete
@@ -119,25 +127,45 @@ export default function DownloadPanel() {
 
   return (
     <div className="mx-auto text-center" style={{ maxWidth: '640px' }}>
-      <div
-        className="mx-auto flex items-center justify-center mb-6"
-        style={{
-          width: '72px',
-          height: '72px',
-          borderRadius: '9999px',
-          background: 'linear-gradient(135deg, var(--brand-400), var(--brand-700) 60%, var(--gold-500))',
-          boxShadow: 'var(--shadow-lg)',
-        }}
-      >
-        <FileSpreadsheet size={32} color="white" />
-      </div>
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={downloadComplete ? 'done' : 'pending'}
+          initial={{ opacity: 0, scale: 0.92 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.24, ease: [0.16, 1, 0.3, 1] }}
+          className="mx-auto flex items-center justify-center mb-6"
+          style={{
+            width: '72px',
+            height: '72px',
+            borderRadius: 'var(--radius-full)',
+            background: downloadComplete
+              ? 'var(--success-100)'
+              : 'linear-gradient(135deg, var(--brand-400), var(--brand-700) 60%, var(--gold-500))',
+            boxShadow: 'var(--shadow-lg)',
+          }}
+        >
+          {downloadComplete ? (
+            <CheckCircle2 size={36} style={{ color: 'var(--success-600)' }} />
+          ) : (
+            <FileSpreadsheet size={32} color="white" />
+          )}
+        </motion.div>
+      </AnimatePresence>
 
       <h1
-        className="font-display mb-6"
-        style={{ fontSize: '26px', fontWeight: 600, color: 'var(--ink-950)' }}
+        className="font-display mb-3"
+        style={{ fontSize: 'var(--text-2xl)', fontWeight: 600, color: 'var(--ink-950)' }}
       >
         {headingText}
       </h1>
+
+      {company && (
+        <p className="mb-6" style={{ fontSize: 'var(--text-sm)', color: 'var(--ink-500)' }}>
+          {company.companyName}
+          {fiscalYear?.bsFY ? ` · FY ${fiscalYear.bsFY}` : ''}
+          {statementCount > 0 ? ` · ${statementCount} statements` : ''}
+        </p>
+      )}
 
       <div className="card text-left mb-6">
         <div className="card-body space-y-3">
@@ -255,6 +283,16 @@ export default function DownloadPanel() {
           </div>
         )}
       </div>
+
+      <p
+        className="mt-8 text-center"
+        style={{ fontSize: 'var(--text-xs)', color: 'var(--ink-400)' }}
+      >
+        Prepared per NAS for MEs / NFRS
+        {company?.auditorInfo?.auditorFirmName
+          ? ` · ${company.auditorInfo.auditorFirmName}`
+          : ''}
+      </p>
 
       {showPreview && excelBuffer && (
         <ExcelPreviewModal

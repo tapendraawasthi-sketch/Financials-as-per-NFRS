@@ -32,8 +32,8 @@ function DataRow({ label, note, cy, py, rl, indent = false }: {
       <td className="text-center w-[7%] px-2">
         {note && <span className="text-indigo-600 font-medium text-xs">{note}</span>}
       </td>
-      <td className={`amount ${isZero ? 'amount-zero' : ''}`}>{fmt(cy, rl)}</td>
-      <td className={`amount ${!py || py === 0 ? 'amount-zero' : ''}`}>{fmt(py, rl)}</td>
+      <td className={`amount num ${isZero ? 'amount-zero' : ''}`} style={{ color: 'var(--ink-900)' }}>{fmt(cy, rl)}</td>
+      <td className={`amount num ${!py || py === 0 ? 'amount-zero' : ''}`} style={{ color: 'var(--ink-500)' }}>{fmt(py, rl)}</td>
     </tr>
   );
 }
@@ -45,8 +45,8 @@ function TotalRow({ label, cy, py, rl, grand = false }: {
     <tr className={grand ? 'row-grand-total' : 'row-total'}>
       <td>{label}</td>
       <td />
-      <td className="amount">{fmt(cy, rl)}</td>
-      <td className="amount">{fmt(py, rl)}</td>
+      <td className="amount num" style={{ color: 'var(--ink-900)' }}>{fmt(cy, rl)}</td>
+      <td className="amount num" style={{ color: 'var(--ink-500)' }}>{fmt(py, rl)}</td>
     </tr>
   );
 }
@@ -61,7 +61,7 @@ function BalanceSheetView({ data, company, previousYear }: BalanceSheetViewProps
   const diff = data.checkDifference ?? (data.totalAssets - data.totalEquityAndLiabilities);
 
   return (
-    <div className="statement-page max-w-4xl mx-auto">
+    <div className="statement-page max-w-4xl mx-auto print:block">
       <div className="statement-header">
         <p className="statement-company-name">{company.companyName}</p>
         <p className="statement-title">Statement of Financial Position</p>

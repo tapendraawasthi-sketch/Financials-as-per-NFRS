@@ -12,8 +12,10 @@ import {
   Link2,
 } from 'lucide-react';
 import Button from '../components/ui/Button';
+import Card from '../components/ui/Card';
 import Modal from '../components/ui/Modal';
 import { useAppStore } from '../store/appStore';
+import { listStoredSessions } from '../hooks/useSessionPersistence';
 import { outputApi } from '../api/client';
 import type { AppStep } from '../types';
 
@@ -92,6 +94,10 @@ export default function DashboardPage({ onStart, onContinue, hasSession }: Dashb
   const { state } = useAppStore();
   const [showResetModal, setShowResetModal] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
+  const storedSessions = listStoredSessions();
+  const pendingReviews = storedSessions.filter(
+    (s) => s.currentStep && s.currentStep !== 'generate_output',
+  ).length;
 
   const handleStartClick = () => {
     if (!isSessionInProgress(state.currentStep, hasSession)) {
@@ -231,6 +237,51 @@ export default function DashboardPage({ onStart, onContinue, hasSession }: Dashb
           )}
         </div>
       </section>
+
+      {hasSession && storedSessions.length > 0 && (
+        <section style={{ maxWidth: '1080px', margin: '0 auto 40px', padding: '0 24px' }}>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+            <Card accent="brand" padding="dense">
+              <p style={{ fontSize: 'var(--text-xs)', color: 'var(--ink-500)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Active clients</p>
+              <p className="kpi-number mt-1" style={{ fontSize: 'var(--text-xl)', color: 'var(--ink-950)' }}>{storedSessions.length}</p>
+            </Card>
+            <Card accent="success" padding="dense">
+              <p style={{ fontSize: 'var(--text-xs)', color: 'var(--ink-500)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Completed exports</p>
+              <p className="kpi-number mt-1" style={{ fontSize: 'var(--text-xl)', color: 'var(--success-700)' }}>
+                {storedSessions.filter((s) => s.currentStep === 'generate_output').length}
+              </p>
+            </Card>
+            <Card accent="gold" padding="dense">
+              <p style={{ fontSize: 'var(--text-xs)', color: 'var(--ink-500)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Pending reviews</p>
+              <p className="kpi-number mt-1" style={{ fontSize: 'var(--text-xl)', color: 'var(--warning-700)' }}>{pendingReviews}</p>
+            </Card>
+            <Card padding="dense">
+              <p style={{ fontSize: 'var(--text-xs)', color: 'var(--ink-500)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Current step</p>
+              <p className="mt-1 truncate" style={{ fontSize: 'var(--text-sm)', color: 'var(--ink-700)', fontWeight: 600 }}>
+                {state.currentStep.replace(/_/g, ' ')}
+              </p>
+            </Card>
+          </div>
+        </section>
+      )}
+
+      {!hasSession && (
+        <section
+          className="text-center"
+          style={{ maxWidth: '480px', margin: '0 auto 48px', padding: '0 24px' }}
+        >
+          <FileText size={40} style={{ color: 'var(--ink-300)', margin: '0 auto 16px' }} />
+          <h2 className="font-display" style={{ fontSize: 'var(--text-lg)', color: 'var(--ink-950)', marginBottom: '8px' }}>
+            No engagements yet
+          </h2>
+          <p style={{ fontSize: 'var(--text-sm)', color: 'var(--ink-500)', marginBottom: '20px' }}>
+            Start a new company setup to generate your first NFRS-compliant statements.
+          </p>
+          <Button variant="primary" size="md" onClick={onStart}>
+            Start Company Setup
+          </Button>
+        </section>
+      )}
 
       {/* Trust badges */}
       <div
