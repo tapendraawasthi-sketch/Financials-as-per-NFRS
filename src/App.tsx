@@ -425,7 +425,7 @@ const AppInner: React.FC = () => {
       onNavigate={handleNavigate}
       companyId={state.company?.id}
       companyName={state.company?.companyName}
-      fiscalYear={state.company?.fiscalYear.bsFY}
+      fiscalYear={state.company?.fiscalYear?.bsFY}
       onSwitchClient={handleSwitchClient}
       lastSavedAt={lastSavedAt}
       headerTitle={stepInfo.title}

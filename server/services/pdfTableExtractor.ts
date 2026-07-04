@@ -86,6 +86,7 @@ export async function extractTableMatrixFromPdf(buffer: Buffer): Promise<PdfExtr
     useWorkerFetch: false,
     isEvalSupported: false,
     useSystemFonts: true,
+    disableFontFace: true,
   });
 
   const pdf = await loadingTask.promise;
