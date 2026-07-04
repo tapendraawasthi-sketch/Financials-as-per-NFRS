@@ -3,7 +3,9 @@
   "version": "2.0.0",
   "description": "Nepal NAS for MEs / NFRS financial reporting automation",
   "type": "module",
-  "engines": { "node": ">=20.0.0" },
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "scripts": {
     "dev": "concurrently \"vite\" \"tsx watch server/server.ts\"",
     "build": "vite build && esbuild server/server.ts --bundle --platform=node --format=esm --outfile=dist/server.js --packages=external --sourcemap",
@@ -23,6 +25,7 @@
     "lucide-react": "^0.546.0",
     "motion": "^12.0.0",
     "multer": "^2.0.0",
+    "pdfjs-dist": "^4.10.38",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
     "tailwindcss": "^4.1.14",

@@ -3,6 +3,7 @@ import React, { useRef, useState, useCallback } from 'react';
 import Card        from '../ui/Card';
 import ProgressBar from '../ui/ProgressBar';
 import Button      from '../ui/Button';
+import TBStandardFormatDiagnostics, { type TbStandardValidationResult } from './TBStandardFormatDiagnostics';
 import { SAMPLE_TRIAL_BALANCE_CSV } from '../../data/sampleData';
 import { tbApi } from '../../api/client';
 import { ensureServerSession } from '../../utils/ensureServerSession';
@@ -29,6 +30,8 @@ interface TBUploadZoneProps {
   existingTB?:  any;
   hideAIOption?: boolean;
   uploadingMessage?: string;
+  onDownloadTemplate?: () => void;
+  isDownloadingTemplate?: boolean;
   onUpload?: (
     companyId: string,
     file: File,
@@ -73,6 +76,8 @@ export default function TBUploadZone({
   existingTB,
   hideAIOption = false,
   uploadingMessage,
+  onDownloadTemplate,
+  isDownloadingTemplate = false,
   onUpload,
 }: TBUploadZoneProps) {
   const fileRef = useRef<HTMLInputElement>(null);
@@ -84,6 +89,7 @@ export default function TBUploadZone({
   const [processingPhase, setProcessingPhase] = useState('');
   const [isDragging,  setIsDragging]  = useState(false);
   const [aiOn,        setAiOn]        = useState(useAI);
+  const [formatDiagnostics, setFormatDiagnostics] = useState<TbStandardValidationResult | null>(null);
 
   const handleFile = useCallback(async (file: File) => {
     const spreadsheetExts = ['xlsx', 'xls', 'csv'];
@@ -104,6 +110,7 @@ export default function TBUploadZone({
     setUploadState('uploading');
     setProgress(0);
     setProcessingPhase('Syncing company session…');
+    setFormatDiagnostics(null);
 
     try {
       const serverCompany = await ensureServerSession(company);
@@ -116,7 +123,7 @@ export default function TBUploadZone({
 
       setProcessingPhase(
         isDocument
-          ? 'Extracting trial balance from document via AI OCR…'
+          ? 'Extracting and structuring trial balance…'
           : (uploadingMessage ?? 'Uploading and parsing trial balance…'),
       );
       const uploadFn = onUpload ?? ((id, f, prog, snap) => {
@@ -159,6 +166,12 @@ export default function TBUploadZone({
     } catch (err: unknown) {
       setUploadState('error');
       setProcessingPhase('');
+      const error = err as Error & { code?: string; diagnostics?: TbStandardValidationResult };
+      if (error.code === 'NOT_STANDARD_FORMAT' && error.diagnostics) {
+        setFormatDiagnostics(error.diagnostics);
+        onError(error.message);
+        return;
+      }
       const message = err instanceof Error ? err.message : 'Upload failed.';
       onError(message);
     }
@@ -195,6 +208,7 @@ export default function TBUploadZone({
     setUploadState('idle');
     setResult(null);
     setProgress(0);
+    setFormatDiagnostics(null);
     fileRef.current?.click();
   };
 
@@ -247,7 +261,7 @@ export default function TBUploadZone({
                 Drop file here or click to browse
               </p>
               <p className="text-xs mt-1" style={{ color: 'var(--ink-400)' }}>
-                Accepts .xlsx, .xls, .csv, plus PDF/image scans (AI OCR)
+                Accepts .xlsx, .xls, .csv, plus PDF with text layer (images need server OCR)
               </p>
               <div className="mt-4 flex justify-center" onClick={(e) => e.stopPropagation()}>
                 <Button type="button" variant="secondary" size="sm" onClick={loadDummyData}>
@@ -312,21 +326,32 @@ export default function TBUploadZone({
 
           {/* Error state */}
           {uploadState === 'error' && (
-            <div className="flex items-center gap-2.5 py-2">
-              <span
-                className="h-2 w-2 rounded-full flex-shrink-0"
-                style={{ background: 'var(--danger-600)' }}
-                aria-hidden="true"
-              />
-              <span className="text-xs flex-1" style={{ color: 'var(--danger-600)' }}>Upload failed.</span>
-              <button
-                type="button"
-                onClick={handleReupload}
-                className="text-xs underline flex-shrink-0"
-                style={{ color: 'var(--brand-600)' }}
-              >
-                Try again
-              </button>
+            <div className="py-2 space-y-3">
+              {!formatDiagnostics && (
+                <div className="flex items-center gap-2.5">
+                  <span
+                    className="h-2 w-2 rounded-full flex-shrink-0"
+                    style={{ background: 'var(--danger-600)' }}
+                    aria-hidden="true"
+                  />
+                  <span className="text-xs flex-1" style={{ color: 'var(--danger-600)' }}>Upload failed.</span>
+                  <button
+                    type="button"
+                    onClick={handleReupload}
+                    className="text-xs underline flex-shrink-0"
+                    style={{ color: 'var(--brand-600)' }}
+                  >
+                    Try again
+                  </button>
+                </div>
+              )}
+              {formatDiagnostics && onDownloadTemplate && (
+                <TBStandardFormatDiagnostics
+                  diagnostics={formatDiagnostics}
+                  onDownloadTemplate={onDownloadTemplate}
+                  isDownloading={isDownloadingTemplate}
+                />
+              )}
             </div>
           )}
 

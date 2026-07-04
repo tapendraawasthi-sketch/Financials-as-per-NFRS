@@ -27,6 +27,7 @@ export default function TrialBalancePage() {
   const [previewRows, setPreviewRows] = useState<RawTBRow[]>([]);
   const [confirming, setConfirming] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [dismissedStandardWarnings, setDismissedStandardWarnings] = useState(false);
 
   const tb = state.trialBalance;
   const rows = tb?.rows ?? [];
@@ -231,6 +232,8 @@ export default function TrialBalancePage() {
                     hideAIOption
                     existingTB={tb}
                     uploadingMessage="Parsing trial balance…"
+                    onDownloadTemplate={handleDownloadTemplate}
+                    isDownloadingTemplate={downloadingTemplate}
                     onUpload={(id, file, onProgress, companySnapshot) =>
                       tbApi.parsePreviewUpload(id, file, 'manual', onProgress, companySnapshot)
                     }
@@ -253,7 +256,7 @@ export default function TrialBalancePage() {
                     onUploadComplete={handlePreviewComplete}
                     onError={handleUploadError}
                     hideAIOption
-                    uploadingMessage="AI is reading and restructuring your trial balance — large files may take up to a minute…"
+                    uploadingMessage="Reading and structuring your trial balance…"
                     onUpload={(id, file, onProgress, companySnapshot) =>
                       tbApi.parsePreviewUpload(id, file, 'ai', onProgress, companySnapshot)
                     }
@@ -286,6 +289,28 @@ export default function TrialBalancePage() {
 
         {activeTab === 'review' && tb && validation && (
           <div className="space-y-4">
+            {tb.standardFormatWarnings && tb.standardFormatWarnings.length > 0 && !dismissedStandardWarnings && (
+              <div
+                className="rounded-lg px-4 py-3 text-xs space-y-2"
+                style={{ background: 'var(--warning-50)', color: 'var(--warning-800)', border: '1px solid var(--warning-200)' }}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <p className="font-medium">Standard template warnings (non-blocking)</p>
+                  <button
+                    type="button"
+                    onClick={() => setDismissedStandardWarnings(true)}
+                    className="underline flex-shrink-0"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+                <ul className="list-disc list-inside space-y-1">
+                  {tb.standardFormatWarnings.map((issue, idx) => (
+                    <li key={idx}>{issue.message}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
             {mappingProfileMsg && (
               <div
                 className="rounded-lg px-4 py-2 text-xs"

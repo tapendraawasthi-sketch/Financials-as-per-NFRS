@@ -27,7 +27,7 @@ export interface RawTBParseResult {
   warnings: string[];
   detectedColumns: Record<string, number>;
   headerRowIndex: number;
-  detectedFormat: 'full' | '3col' | '2col' | '1col' | 'tally_prime' | 'tally_grouped' | 'ai_converted';
+  detectedFormat: 'full' | '3col' | '2col' | '1col' | 'tally_prime' | 'tally_grouped' | 'ai_converted' | 'local_intelligent';
   previousYearData?: RawTBRow[] | null;
 }
 
@@ -79,4 +79,13 @@ export interface ParsedTrialBalance {
   mappingProfileAppliedCount?: number;
   mappingProfileTotalAccounts?: number;
   importMode?: 'manual' | 'ai';
+  standardFormatWarnings?: Array<{
+    severity: 'error' | 'warning';
+    category: string;
+    message: string;
+    sheetName?: string;
+    rowNumber?: number;
+    columnLetter?: string;
+    suggestedFix?: string;
+  }>;
 }

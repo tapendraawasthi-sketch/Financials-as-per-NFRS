@@ -120,11 +120,21 @@ export const tbApi = {
             success?: boolean;
             data?: ParsedTrialBalance;
             error?: string;
+            code?: string;
+            diagnostics?: unknown;
           };
           if (xhr.status >= 200 && xhr.status < 300) {
             resolve(data.data ?? (data as unknown as ParsedTrialBalance));
           } else if (xhr.status === 422) {
-            if (data.data) {
+            if (data.code === 'NOT_STANDARD_FORMAT') {
+              const err = new Error(data.error || 'This file does not match the standard trial balance template.') as Error & {
+                code?: string;
+                diagnostics?: unknown;
+              };
+              err.code = data.code;
+              err.diagnostics = data.diagnostics;
+              reject(err);
+            } else if (data.data) {
               resolve(data.data);
             } else {
               reject(new Error(data.error || `Upload failed with status ${xhr.status}`));
@@ -233,9 +243,19 @@ export const tbApi = {
             success?: boolean;
             data?: NormalizedTrialBalancePreview;
             error?: string;
+            code?: string;
+            diagnostics?: unknown;
           };
           if (xhr.status >= 200 && xhr.status < 300) {
             resolve(data.data ?? (data as unknown as NormalizedTrialBalancePreview));
+          } else if (xhr.status === 422 && data.code === 'NOT_STANDARD_FORMAT') {
+            const err = new Error(data.error || 'This file does not match the standard trial balance template.') as Error & {
+              code?: string;
+              diagnostics?: unknown;
+            };
+            err.code = data.code;
+            err.diagnostics = data.diagnostics;
+            reject(err);
           } else {
             reject(new Error(data.error || `Parse preview failed with status ${xhr.status}`));
           }

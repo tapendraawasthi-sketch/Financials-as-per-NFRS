@@ -70,7 +70,7 @@ const SUBTOTAL_PATTERNS = /^(total|grand total|sum|sub.?total|net total|account 
 // ---------------------------------------------------------------------------
 // Utility: toNumber
 // ---------------------------------------------------------------------------
-function toNumber(val: unknown): number {
+export function toNumber(val: unknown): number {
   if (val === null || val === undefined || val === '') return 0;
   if (typeof val === 'number') return isNaN(val) ? 0 : val;
   const str = String(val).trim();
@@ -1073,13 +1073,19 @@ export function parseDualYearMatrix(matrix: unknown[][]): {
     'full',
     warnings,
   );
-  const previousYear = parseMatrixWithColMap(
-    matrix,
-    dual.pyColMap,
-    dual.headerRowIndex,
-    'full',
-    [],
-  ).rows;
+  let previousYear: RawTBRow[] = [];
+  try {
+    previousYear = parseMatrixWithColMap(
+      matrix,
+      dual.pyColMap,
+      dual.headerRowIndex,
+      'full',
+      [],
+    ).rows;
+  } catch (err: unknown) {
+    const code = (err as { code?: string }).code;
+    if (code !== 'NO_DATA_ROWS') throw err;
+  }
 
   return { currentYear, previousYear };
 }

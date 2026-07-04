@@ -1,5 +1,6 @@
 // ===== server/routes/trialBalance.ts =====
 import { Router, Request, Response } from 'express';
+import ExcelJS from 'exceljs';
 import { tbUploadMiddleware } from '../middleware/upload';
 import { asyncHandler } from '../middleware/errorHandler';
 import { sessionStore } from '../store/sessionStore';
@@ -12,6 +13,8 @@ import type { CompanyProfile, ParsedTrialBalance, NFRSCategory } from '../../src
 import { getFiscalYear } from '../../src/data/fiscalYears';
 import { generateTrialBalanceTemplate } from '../services/tbTemplateWriter.js';
 import { convertRoughTrialBalance } from '../services/aiTbConverter.js';
+import { convertTrialBalanceLocally, heuristicFallbackClassify } from '../services/localTbConverter.js';
+import { validateStandardTemplate } from '../services/tbStandardValidator.js';
 import { writeNormalizedTrialBalance } from '../services/normalizedTbWriter.js';
 import { finalizeRawTBRows } from '../services/tbHierarchy.js';
 import { mappingProfileKey } from '../services/mappingProfile.js';
@@ -61,6 +64,9 @@ async function classifyAndBuildTB(
   const profileHitCount = countMappingProfileHits(parsed.rows, session.mappingProfile);
 
   let rows = classifyAll(parsed.rows);
+  if (parsed.detectedFormat === 'local_intelligent') {
+    rows = heuristicFallbackClassify(rows);
+  }
   rows = applyMappingProfile(rows, session.mappingProfile);
 
   if (options.useAI && options.apiKey) {
@@ -171,15 +177,40 @@ router.post('/:companyId/upload', tbUploadMiddleware, async (req: Request, res: 
     }
 
     let parsed;
+    let standardFormatWarnings: import('../services/tbStandardValidator.js').TbDiagnosticIssue[] | undefined;
+
     if (isDocument) {
-      const apiKey = process.env.ANTHROPIC_API_KEY;
-      if (!apiKey) {
-        return res.status(503).json({
+      const imageExts = new Set(['png', 'jpg', 'jpeg', 'webp']);
+      if (ext === 'pdf') {
+        parsed = await convertTrialBalanceLocally(req.file.buffer, req.file.originalname);
+      } else if (imageExts.has(ext ?? '')) {
+        const apiKey = process.env.ANTHROPIC_API_KEY;
+        if (!apiKey) {
+          return res.status(503).json({
+            success: false,
+            error: 'Image-based scans require AI OCR (not configured on this server). Please upload a PDF with a text layer instead, or export to Excel/CSV — both are supported without any API key.',
+          });
+        }
+        parsed = await convertRoughTrialBalance(req.file.buffer, req.file.originalname, apiKey);
+      } else {
+        parsed = await convertTrialBalanceLocally(req.file.buffer, req.file.originalname);
+      }
+    } else if (ext === 'xlsx' || ext === 'xls') {
+      const validationWorkbook = new ExcelJS.Workbook();
+      await validationWorkbook.xlsx.load(req.file.buffer);
+      const validationResult = validateStandardTemplate(validationWorkbook);
+      if (!validationResult.isStandardFormat) {
+        return res.status(422).json({
           success: false,
-          error: 'PDF/image OCR import requires AI configuration. Export to Excel/CSV or enable ANTHROPIC_API_KEY.',
+          code: 'NOT_STANDARD_FORMAT',
+          error: 'This file does not match the standard trial balance template.',
+          diagnostics: validationResult,
         });
       }
-      parsed = await convertRoughTrialBalance(req.file.buffer, req.file.originalname, apiKey);
+      if (validationResult.issues.some((i) => i.severity === 'warning')) {
+        standardFormatWarnings = validationResult.issues.filter((i) => i.severity === 'warning');
+      }
+      parsed = await parseTrialBalance(req.file.buffer, req.file.originalname);
     } else {
       parsed = await parseTrialBalance(req.file.buffer, req.file.originalname);
     }
@@ -217,11 +248,15 @@ router.post('/:companyId/upload', tbUploadMiddleware, async (req: Request, res: 
     }
 
     const tb = await classifyAndBuildTB(req.params.companyId, parsed, {
-      useAI: isDocument || req.query.useAI === 'true',
+      useAI: (isDocument && ext !== 'pdf') || req.query.useAI === 'true',
       uploadedFileName: req.file.originalname,
       importMode: isDocument ? 'ai' : 'manual',
       apiKey: process.env.ANTHROPIC_API_KEY,
     });
+
+    if (standardFormatWarnings?.length) {
+      (tb as Record<string, unknown>).standardFormatWarnings = standardFormatWarnings;
+    }
 
     const validation = tb.validation as ReturnType<typeof validateTrialBalanceTotals>;
 
@@ -247,10 +282,6 @@ router.post('/:companyId/ai-convert', tbUploadMiddleware, async (req, res, next)
     if (!req.file) {
       return res.status(400).json({ success: false, error: 'No file uploaded. Please select a file and try again.' });
     }
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) {
-      return res.status(503).json({ success: false, error: 'AI import is not configured on this server. Please use Manual Upload (Standard Format) instead.' });
-    }
 
     let session = sessionStore.get(req.params.companyId);
     if (!session) {
@@ -271,13 +302,34 @@ router.post('/:companyId/ai-convert', tbUploadMiddleware, async (req, res, next)
       });
     }
 
-    const parsed = await convertRoughTrialBalance(req.file.buffer, req.file.originalname, apiKey);
+    const ext = (req.file.originalname ?? '').split('.').pop()?.toLowerCase() ?? '';
+    const imageExts = new Set(['png', 'jpg', 'jpeg', 'webp']);
+    const localExts = new Set(['xlsx', 'xls', 'csv', 'pdf']);
+    let parsed: RawTBParseResult;
+
+    if (localExts.has(ext)) {
+      parsed = await convertTrialBalanceLocally(req.file.buffer, req.file.originalname);
+    } else if (imageExts.has(ext)) {
+      const apiKey = process.env.ANTHROPIC_API_KEY;
+      if (!apiKey) {
+        return res.status(415).json({
+          success: false,
+          error: 'Image-based scans require AI OCR (not configured on this server). Supported formats: .xlsx, .xls, .csv, .pdf.',
+        });
+      }
+      parsed = await convertRoughTrialBalance(req.file.buffer, req.file.originalname, apiKey);
+    } else {
+      return res.status(415).json({
+        success: false,
+        error: 'Unsupported format. Supported formats: .xlsx, .xls, .csv, .pdf (and images when AI OCR is configured).',
+      });
+    }
 
     const tb = await classifyAndBuildTB(req.params.companyId, parsed, {
-      useAI: true,
+      useAI: imageExts.has(ext),
       uploadedFileName: req.file.originalname,
       importMode: 'ai',
-      apiKey,
+      apiKey: process.env.ANTHROPIC_API_KEY,
     });
 
     sessionStore.set(req.params.companyId, { trialBalance: tb as any });
@@ -307,15 +359,35 @@ router.post('/:companyId/parse-preview', tbUploadMiddleware, async (req, res, ne
     let parsed: RawTBParseResult;
 
     if (mode === 'ai') {
-      const apiKey = process.env.ANTHROPIC_API_KEY;
-      if (!apiKey) {
-        return res.status(503).json({
-          success: false,
-          error: 'AI import is not configured. Use manual upload instead.',
-        });
+      const ext = (req.file.originalname ?? '').split('.').pop()?.toLowerCase() ?? '';
+      const imageExts = new Set(['png', 'jpg', 'jpeg', 'webp']);
+      if (imageExts.has(ext)) {
+        const apiKey = process.env.ANTHROPIC_API_KEY;
+        if (!apiKey) {
+          return res.status(415).json({
+            success: false,
+            error: 'Image-based scans require AI OCR (not configured on this server). Please upload a PDF with a text layer instead, or export to Excel/CSV.',
+          });
+        }
+        parsed = await convertRoughTrialBalance(req.file.buffer, req.file.originalname, apiKey);
+      } else {
+        parsed = await convertTrialBalanceLocally(req.file.buffer, req.file.originalname);
       }
-      parsed = await convertRoughTrialBalance(req.file.buffer, req.file.originalname, apiKey);
     } else {
+      const ext = (req.file.originalname ?? '').split('.').pop()?.toLowerCase() ?? '';
+      if (ext === 'xlsx' || ext === 'xls') {
+        const validationWorkbook = new ExcelJS.Workbook();
+        await validationWorkbook.xlsx.load(req.file.buffer);
+        const validationResult = validateStandardTemplate(validationWorkbook);
+        if (!validationResult.isStandardFormat) {
+          return res.status(422).json({
+            success: false,
+            code: 'NOT_STANDARD_FORMAT',
+            error: 'This file does not match the standard trial balance template.',
+            diagnostics: validationResult,
+          });
+        }
+      }
       parsed = await parseTrialBalance(req.file.buffer, req.file.originalname);
       if (!parsed.rows?.length) {
         return res.status(422).json({ success: false, error: 'No data rows found in the uploaded file.' });

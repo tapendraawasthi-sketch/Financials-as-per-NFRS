@@ -1,8 +1,13 @@
 // MEs-format dual-year Trial Balance sheet (19 columns, CY + PY blocks).
 import ExcelJS from 'exceljs';
-import { CHART_OF_ACCOUNTS } from '../../src/data/chartOfAccounts.js';
 import type { CompanyProfile, ParsedTrialBalance } from '../../src/types/index.js';
 import type { MappedTBRow, RawTBRow } from '../../src/types/trialBalance.js';
+import {
+  buildSectionAccounts,
+  CY_AMOUNT_COLS,
+  PY_AMOUNT_COLS,
+  TOTAL_COLS,
+} from './tbStandardSchema.js';
 
 const NUMBER_FORMAT = '#,##0.00';
 const SUBHEADER_BG = 'E2EFDA';
@@ -28,41 +33,9 @@ function applyInputStyle(cell: ExcelJS.Cell): void {
   cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8F5E9' } };
 }
 
-export const MES_TB_TOTAL_COLS = 19;
-export const MES_TB_CY_COLS = [2, 3, 4, 5, 6, 7, 8, 9];
-export const MES_TB_PY_COLS = [12, 13, 14, 15, 16, 17, 18, 19];
-
-const SECTION_MAP: { prefixes: string[]; header: string }[] = [
-  { prefixes: ['BS Equity'], header: 'CAPITAL ACCOUNT & RESERVES' },
-  { prefixes: ['BS NCL Borrowings'], header: 'NON-CURRENT LIABILITIES - LOANS & BORROWINGS' },
-  { prefixes: ['BS NCL Employee Benefits'], header: 'NON-CURRENT LIABILITIES - EMPLOYEE BENEFITS' },
-  { prefixes: ['BS NCL Provisions'], header: 'NON-CURRENT LIABILITIES - PROVISIONS' },
-  { prefixes: ['BS NCL'], header: 'NON-CURRENT LIABILITIES - OTHER' },
-  { prefixes: ['BS CL Trade Payables'], header: 'CURRENT LIABILITIES - TRADE PAYABLES' },
-  { prefixes: ['BS CL Borrowings'], header: 'CURRENT LIABILITIES - LOANS & BORROWINGS' },
-  { prefixes: ['BS CL Tax'], header: 'CURRENT LIABILITIES - TAX PAYABLE' },
-  { prefixes: ['BS CL Employee'], header: 'CURRENT LIABILITIES - EMPLOYEE PAYABLES' },
-  { prefixes: ['BS CL Provisions'], header: 'CURRENT LIABILITIES - PROVISIONS' },
-  { prefixes: ['BS CL Other'], header: 'CURRENT LIABILITIES - OTHER' },
-  { prefixes: ['BS CA Tax'], header: 'CURRENT ASSETS - ADVANCE TAX' },
-  { prefixes: ['BS NCA PPE'], header: 'PROPERTY, PLANT & EQUIPMENT' },
-  { prefixes: ['BS NCA/CA Investments', 'BS NCA Investments'], header: 'INVESTMENTS' },
-  { prefixes: ['BS NCA'], header: 'OTHER NON-CURRENT ASSETS' },
-  { prefixes: ['BS CA Inventory'], header: 'CURRENT ASSETS - INVENTORY' },
-  { prefixes: ['BS CA Receivables'], header: 'CURRENT ASSETS - TRADE RECEIVABLES' },
-  { prefixes: ['BS CA Other Receivables'], header: 'CURRENT ASSETS - OTHER RECEIVABLES' },
-  { prefixes: ['BS CA Cash'], header: 'CURRENT ASSETS - CASH & BANK' },
-  { prefixes: ['BS CA'], header: 'CURRENT ASSETS - OTHER' },
-  { prefixes: ['IS Revenue'], header: 'DIRECT INCOME' },
-  { prefixes: ['IS Other Income'], header: 'INDIRECT INCOME' },
-  { prefixes: ['IS COGS'], header: 'DIRECT EXPENSES' },
-  { prefixes: ['IS Employee Benefits'], header: 'EMPLOYEE BENEFIT EXPENSES' },
-  { prefixes: ['IS Finance Costs'], header: 'FINANCE COSTS' },
-  { prefixes: ['IS Depreciation'], header: 'DEPRECIATION' },
-  { prefixes: ['IS Impairment'], header: 'IMPAIRMENT EXPENSES' },
-  { prefixes: ['IS Admin'], header: 'ADMINISTRATIVE EXPENSES' },
-  { prefixes: ['IS Tax'], header: 'INCOME TAX EXPENSE' },
-];
+export const MES_TB_TOTAL_COLS = TOTAL_COLS;
+export const MES_TB_CY_COLS = CY_AMOUNT_COLS;
+export const MES_TB_PY_COLS = PY_AMOUNT_COLS;
 
 function colLetter(col: number): string {
   let letter = '';
@@ -77,29 +50,6 @@ function colLetter(col: number): string {
 
 function normLabel(s: string): string {
   return s.toLowerCase().trim().replace(/\s+/g, ' ');
-}
-
-function buildSectionAccounts(): { header: string; accounts: { displayLabel: string; category: string }[] }[] {
-  const sectionAccounts = new Map<string, { displayLabel: string; category: string }[]>();
-
-  for (const entry of CHART_OF_ACCOUNTS) {
-    if (entry.isGroup || entry.statementLine === 'N/A') continue;
-    let header: string | null = null;
-    for (const { prefixes, header: h } of SECTION_MAP) {
-      if (prefixes.some((p) => entry.statementLine.startsWith(p))) {
-        header = h;
-        break;
-      }
-    }
-    if (!header) continue;
-    if (!sectionAccounts.has(header)) sectionAccounts.set(header, []);
-    sectionAccounts.get(header)!.push({ displayLabel: entry.displayLabel, category: entry.category });
-  }
-
-  return SECTION_MAP
-    .map(({ header }) => header)
-    .filter((header) => sectionAccounts.has(header))
-    .map((header) => ({ header, accounts: sectionAccounts.get(header)! }));
 }
 
 function indexRows(rows: MappedTBRow[]): Map<string, MappedTBRow> {

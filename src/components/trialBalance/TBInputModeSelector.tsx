@@ -81,7 +81,7 @@ export default function TBInputModeSelector({
           </div>
           <div className="flex items-center gap-2 mb-2">
             <h2 className="text-base font-semibold" style={{ color: 'var(--ink-950)' }}>
-              AI-Powered Smart Import
+              Smart Import — Any Format
             </h2>
             <span
               className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium"
@@ -91,13 +91,13 @@ export default function TBInputModeSelector({
                 border: '1px solid var(--brand-100)',
               }}
             >
-              Powered by Claude AI
+              Offline
             </span>
           </div>
           <p className="text-sm mb-5 flex-1" style={{ color: 'var(--ink-600)' }}>
-            Upload your trial balance directly from Tally, Swastik, Busy, or any accounting
-            software — in whatever format it already comes in. Our AI reads, restructures, and
-            classifies every account automatically.
+            Works fully offline — no configuration required. Upload any Excel, CSV, or text-based PDF
+            trial balance and we&apos;ll structure and classify it automatically. Image scans still
+            require server OCR when available.
           </p>
           <Button
             type="button"
@@ -105,7 +105,7 @@ export default function TBInputModeSelector({
             iconRight={<ArrowRight className="h-4 w-4" />}
             onClick={onSelectAI}
           >
-            Continue with AI Import
+            Continue with Smart Import
           </Button>
         </div>
       </Card>
