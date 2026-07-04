@@ -188,7 +188,6 @@ export default function CompanySetupPage() {
     }
   };
 
-  const activeTabLabel = TABS.find((t) => t.id === activeTab)?.label ?? '';
 
   return (
     <div className="max-w-4xl">
@@ -218,16 +217,13 @@ export default function CompanySetupPage() {
         className="mb-6"
       />
 
-      <div className="card">
-        <div className="card-header">
-          <h3
-            className="font-bold leading-none"
-            style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--ink-700)' }}
-          >
-            {activeTabLabel}
-          </h3>
-        </div>
-        <div className="card-body page-enter">
+      <p className="mb-4" style={{ fontSize: 'var(--text-sm)', color: 'var(--ink-500)' }}>
+        {activeTab === 'info' && 'Identity and registration details appear on statement letterheads and Excel exports.'}
+        {activeTab === 'policies' && 'Depreciation, tax, and rounding policies drive year-end adjustments and statement presentation.'}
+        {activeTab === 'previous' && 'Prior-year comparatives populate the second column on financial statements.'}
+      </p>
+
+      <div className="page-enter">
         {activeTab === 'info' && (
           <CompanyInfoForm
             initialData={state.company ? {
@@ -283,7 +279,6 @@ export default function CompanySetupPage() {
             onSave={handleSavePreviousYear}
           />
         )}
-        </div>
       </div>
     </div>
   );

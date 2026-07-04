@@ -322,9 +322,9 @@ export default function CompanyInfoForm({
     >
       {/* ── Section 1: Company Registration Details ──── */}
       {/* item 47: each section in a Card component */}
-      <Card title="Company Registration Details" padding="md">
+      <Card title="Company Identity" padding="md">
+        <p className="section-label">Company Identity</p>
         <RequiredNote />
-        {/* item 50: gap-4 via inline style — form-grid uses gap-4 in updated CSS */}
         <div className="grid grid-cols-2 gap-4">
           <div className="col-span-2" id="field-companyName">
             <InputField
@@ -334,6 +334,7 @@ export default function CompanyInfoForm({
               error={errors.companyName}
               required
               placeholder="e.g. Himalayan Trading Pvt. Ltd."
+              helperText="Used on the statement letterhead and Excel export"
             />
           </div>
 
@@ -344,7 +345,7 @@ export default function CompanyInfoForm({
               onChange={e => set('panVatNumber', e.target.value.replace(/\D/g, '').slice(0, 9))}
               error={errors.panVatNumber}
               placeholder="123456789"
-              helperText="9-digit PAN registered with IRD"
+              helperText="9-digit PAN registered with IRD — shown in audit notes"
               inputMode="numeric"
               maxLength={9}
             />
@@ -357,6 +358,7 @@ export default function CompanyInfoForm({
               onChange={e => set('registrationNumber', e.target.value)}
               error={errors.registrationNumber}
               placeholder="e.g. 12345/074/075"
+              helperText="Company registration as filed with OCR"
             />
           </div>
 
@@ -429,6 +431,7 @@ export default function CompanyInfoForm({
 
       {/* ── Section 2: Registered Address ─────────────── */}
       <Card title="Registered Address" padding="md">
+        <p className="section-label">Registered Address</p>
         <RequiredNote />
         <div className="grid grid-cols-3 gap-4">
           <SelectDropdown
@@ -473,6 +476,7 @@ export default function CompanyInfoForm({
               value={values.fullAddress}
               onChange={e => set('fullAddress', e.target.value)}
               placeholder="Enter the complete registered address as it appears on official documents"
+              helperText="Printed on the cover page and notes to the financial statements"
               rows={2}
             />
           </div>
