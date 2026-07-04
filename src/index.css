@@ -11,6 +11,29 @@
   --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
   --font-display: 'Fraunces', Georgia, serif;
   --font-mono: ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, monospace;
+  --font-tabular: 'tnum' 1, 'lnum' 1;
+
+  /* Type scale — locked sizes; do not deviate */
+  --text-xs: 11px;
+  --text-sm: 12.5px;
+  --text-base: 13px;
+  --text-md: 14.5px;
+  --text-lg: 17px;
+  --text-xl: 22px;
+  --text-2xl: 28px;
+  --text-display: 34px;
+
+  /* Spacing scale — 4px base grid */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
 
   /* Sidebar/header dark chrome — permanently dark regardless of theme toggle */
   --chrome-950: #080B14;
@@ -448,6 +471,11 @@ input[type='number'] { -moz-appearance: textfield; }
 }
 
 /* ── Premium utility classes ─────────────────────────────── */
+.num {
+  font-feature-settings: var(--font-tabular);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
 .font-display { font-family: var(--font-display) !important; font-variant-numeric: tabular-nums; }
 .glass-panel { background: rgba(255,255,255,0.65); backdrop-filter: blur(20px) saturate(180%); -webkit-backdrop-filter: blur(20px) saturate(180%); border: 1px solid rgba(255,255,255,0.3); }
 .chrome-panel { background: linear-gradient(180deg, var(--chrome-900) 0%, var(--chrome-950) 100%); border-right: 1px solid var(--chrome-border); }
