@@ -12,6 +12,7 @@
 
 import ExcelJS from 'exceljs';
 import type { RawTBRow, RawTBParseResult } from '../../src/types/trialBalance.js';
+import { assignParentGroups, finalizeRawTBRows } from './tbHierarchy.js';
 
 export type { RawTBRow, RawTBParseResult };
 
@@ -317,49 +318,15 @@ function detectTallyGroupedExport(
   return { isGrouped: false, headerRowIndex: -1, colMap: {} };
 }
 
-/** Rows with a deeper-indented descendant are group headers — exclude from TB totals. */
-function markGroupRowsByIndentation(rows: RawTBRow[]): RawTBRow[] {
-  return rows.map((row, i) => {
-    let hasDeeperDescendant = false;
-    for (let j = i + 1; j < rows.length; j++) {
-      if (rows[j].rawIndentSpaces <= row.rawIndentSpaces) break;
-      hasDeeperDescendant = true;
-      break;
-    }
-    return {
-      ...row,
-      isGroupRow: hasDeeperDescendant,
-      rowLevel: hasDeeperDescendant ? 0 : (row.rawIndentSpaces > 4 ? 2 : 1),
-    };
-  });
-}
-
-/**
- * Tally exports often place aggregate labels ("Purchase", "Sale") as siblings of
- * detailed accounts ("Purchase: IMPORT") at the same indent — exclude the shorthand.
- */
-function markTallyShorthandAggregates(rows: RawTBRow[]): RawTBRow[] {
-  return rows.map((row, i) => {
-    if (row.isGroupRow) return row;
-    const peers: string[] = [];
-    for (let j = i + 1; j < rows.length; j++) {
-      if (rows[j].rawIndentSpaces < row.rawIndentSpaces) break;
-      if (rows[j].rawIndentSpaces === row.rawIndentSpaces) {
-        peers.push(rows[j].rawLabel.trim());
-      }
-    }
-    const isShorthandAggregate = peers.some(
-      (peer) =>
-        (peer.startsWith(`${row.rawLabel.trim()}:`)
-          || peer.startsWith(`${row.rawLabel.trim()} `))
-        && peer.length > row.rawLabel.trim().length,
-    );
-    return { ...row, isGroupRow: isShorthandAggregate };
-  });
-}
-
-function postProcessTallyGroupedRows(rows: RawTBRow[]): RawTBRow[] {
-  return markTallyShorthandAggregates(markGroupRowsByIndentation(rows));
+/** Apply Tally grouped hierarchy detection and recompute totals after raw extraction. */
+function applyTallyGroupedFinalization(result: RawTBParseResult): RawTBParseResult {
+  const finalized = finalizeRawTBRows(result.rows, { tallyGrouped: true });
+  return {
+    ...result,
+    rows: finalized.rows,
+    ...finalized.totals,
+    warnings: [...result.warnings, ...finalized.warnings],
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -621,43 +588,6 @@ export function parseCSVText(text: string): unknown[][] {
 // ---------------------------------------------------------------------------
 // Parent group tracking — assigns parentGroup to each leaf row
 // ---------------------------------------------------------------------------
-/**
- * After extracting all rows, do a second pass to assign parentGroup.
- * Logic:
- *   - Maintain a stack of group rows with their indent levels
- *   - For each leaf row, the parentGroup is the nearest group row above it
- *     with a smaller or equal indent level
- */
-function assignParentGroups(rows: RawTBRow[]): RawTBRow[] {
-  const groupStack: Array<{ label: string; indentSpaces: number; level: number }> = [];
-
-  return rows.map((row) => {
-    if (row.isGroupRow) {
-      // Pop any groups with deeper or equal indentation (we've moved back up in hierarchy)
-      while (
-        groupStack.length > 0 &&
-        groupStack[groupStack.length - 1].indentSpaces >= row.rawIndentSpaces
-      ) {
-        groupStack.pop();
-      }
-      // Push this group onto the stack
-      groupStack.push({
-        label: row.rawLabel,
-        indentSpaces: row.rawIndentSpaces,
-        level: row.rowLevel,
-      });
-      return { ...row, parentGroup: groupStack.length > 1 ? groupStack[groupStack.length - 2].label : '' };
-    } else {
-      // For leaf rows, find the nearest parent group
-      // The parent is the group at the top of the stack (if any)
-      const parentGroup = groupStack.length > 0
-        ? groupStack[groupStack.length - 1].label
-        : '';
-      return { ...row, parentGroup };
-    }
-  });
-}
-
 export function worksheetToMatrix(ws: ExcelJS.Worksheet): unknown[][] {
   const matrix: unknown[][] = [];
   ws.eachRow({ includeEmpty: true }, (row) => {
@@ -938,6 +868,7 @@ function parseMatrixWithColMap(
   const warnings = [...warningsPrefix];
   const rows: RawTBRow[] = [];
   const skippedSubtotals: string[] = [];
+  const zeroAmountLeaves: string[] = [];
 
   for (let r = headerRowIndex + 1; r < matrix.length; r++) {
     const matRow = matrix[r] ?? [];
@@ -957,22 +888,53 @@ function parseMatrixWithColMap(
       row.openingDr === 0 &&
       row.openingCr === 0
     ) {
-      warnings.push(`Zero-amount leaf row skipped or flagged: "${row.rawLabel}"`);
+      zeroAmountLeaves.push(row.rawLabel);
     }
     rows.push(row);
+  }
+
+  if (zeroAmountLeaves.length > 0) {
+    if (zeroAmountLeaves.length <= 5) {
+      for (const label of zeroAmountLeaves) {
+        warnings.push(`Zero-amount leaf row skipped or flagged: "${label}"`);
+      }
+    } else {
+      warnings.push(
+        `${zeroAmountLeaves.length} zero-amount leaf row(s) flagged (e.g. "${zeroAmountLeaves[0]}", "${zeroAmountLeaves[1]}").`,
+      );
+    }
   }
 
   if (skippedSubtotals.length > 0) {
     warnings.push(`${skippedSubtotals.length} subtotal row(s) skipped.`);
   }
 
-  const rowsWithParents = assignParentGroups(
-    mode === 'tally_grouped' ? postProcessTallyGroupedRows(rows) : rows,
-  );
+  const deferTallyHierarchy = mode === 'tally_grouped';
+  const rowsWithParents = deferTallyHierarchy
+    ? rows
+    : assignParentGroups(rows);
   const leafRows = rowsWithParents.filter((r) => !r.isGroupRow);
 
   if (leafRows.length === 0) {
     throw Object.assign(new Error('No data rows found.'), { status: 400, code: 'NO_DATA_ROWS' });
+  }
+
+  if (deferTallyHierarchy) {
+    return {
+      rows: rowsWithParents,
+      totalOpeningDr: 0,
+      totalOpeningCr: 0,
+      totalDuringDr: 0,
+      totalDuringCr: 0,
+      totalClosingDr: 0,
+      totalClosingCr: 0,
+      isBalanced: false,
+      difference: 0,
+      warnings,
+      detectedColumns: colMap,
+      headerRowIndex,
+      detectedFormat: mode,
+    };
   }
 
   let totalOpeningDr = 0,
@@ -1052,7 +1014,11 @@ export function parseMatrix(matrix: unknown[][]): RawTBParseResult {
     );
   }
 
-  return parseMatrixWithColMap(matrix, colMap, headerRowIndex, mode, warnings);
+  const parsed = parseMatrixWithColMap(matrix, colMap, headerRowIndex, mode, warnings);
+  if (mode === 'tally_grouped') {
+    return applyTallyGroupedFinalization(parsed);
+  }
+  return parsed;
 }
 
 /** Parse CY+PY side-by-side layout from a single worksheet matrix. */

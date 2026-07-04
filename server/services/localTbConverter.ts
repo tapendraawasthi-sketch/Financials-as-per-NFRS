@@ -94,8 +94,10 @@ export async function convertTrialBalanceLocally(
     parsed = parseMatrix(matrix);
   }
 
-  const finalized = finalizeRawTBRows(parsed.rows);
-  const classified = heuristicFallbackClassify(classifyAll(finalized.rows));
+  const hierarchyResult = parsed.detectedFormat === 'tally_grouped'
+    ? { rows: parsed.rows, totals: parsed, warnings: [] as string[] }
+    : finalizeRawTBRows(parsed.rows);
+  const classified = heuristicFallbackClassify(classifyAll(hierarchyResult.rows));
 
   const leafRows = classified.filter((r) => !r.isGroupRow);
   const highConfidence = leafRows.filter((r) => (r.confidence ?? 0) >= 80).length;
@@ -103,7 +105,7 @@ export async function convertTrialBalanceLocally(
 
   const warnings = [
     ...parsed.warnings,
-    ...finalized.warnings,
+    ...hierarchyResult.warnings,
     `${highConfidence} of ${leafRows.length} accounts auto-classified with high confidence (≥80%).`,
     `${needsReview} account(s) flagged for review.`,
   ];
@@ -113,9 +115,20 @@ export async function convertTrialBalanceLocally(
     warnings.push(...pdfMeta.warnings);
   }
 
+  const totals = parsed.detectedFormat === 'tally_grouped'
+    ? parsed
+    : hierarchyResult.totals;
+
   return {
-    rows: finalized.rows,
-    ...finalized.totals,
+    rows: hierarchyResult.rows,
+    totalOpeningDr: totals.totalOpeningDr,
+    totalOpeningCr: totals.totalOpeningCr,
+    totalDuringDr: totals.totalDuringDr,
+    totalDuringCr: totals.totalDuringCr,
+    totalClosingDr: totals.totalClosingDr,
+    totalClosingCr: totals.totalClosingCr,
+    isBalanced: totals.isBalanced,
+    difference: totals.difference,
     warnings,
     detectedColumns: parsed.detectedColumns,
     headerRowIndex: parsed.headerRowIndex,

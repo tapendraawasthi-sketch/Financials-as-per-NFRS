@@ -4,6 +4,8 @@ import {
   deriveClosingBalances,
   assignParentGroups,
   finalizeRawTBRows,
+  isTallyNamingDescendant,
+  postProcessTallyGroupedHierarchy,
 } from '../../server/services/tbHierarchy.js';
 import type { RawTBRow } from '../../src/types/trialBalance.js';
 
@@ -57,6 +59,40 @@ describe('tbHierarchy', () => {
     assert.equal(result.totals.totalClosingDr, 100);
     assert.equal(result.totals.totalClosingCr, 100);
     assert.equal(result.totals.isBalanced, true);
+  });
+
+  it('detects Tally naming hierarchy for Purchase: IMPORT style labels', () => {
+    assert.equal(
+      isTallyNamingDescendant('Purchase: IMPORT', 'Purchase IMPORT: Raw Materials'),
+      true,
+    );
+    assert.equal(
+      isTallyNamingDescendant('Purchase: IMPORT', 'Purchase: LOCAL'),
+      false,
+    );
+  });
+
+  it('postProcessTallyGroupedHierarchy excludes sub-group aggregates from leaf totals', () => {
+    const rows: RawTBRow[] = [
+      { ...leaf({ rawLabel: 'Purchase' }), isGroupRow: false, rowIndex: 0, rawIndentSpaces: 4, closingDr: 1000 },
+      { ...leaf({ rawLabel: 'Purchase: IMPORT' }), isGroupRow: false, rowIndex: 1, rawIndentSpaces: 4, closingDr: 600 },
+      { ...leaf({ rawLabel: 'Purchase IMPORT: Raw Materials' }), isGroupRow: false, rowIndex: 2, rawIndentSpaces: 8, closingDr: 600 },
+      { ...leaf({ rawLabel: 'Purchase: LOCAL' }), isGroupRow: false, rowIndex: 3, rawIndentSpaces: 4, closingDr: 400 },
+      { ...leaf({ rawLabel: 'Purchase LOCAL: Raw Materials' }), isGroupRow: false, rowIndex: 4, rawIndentSpaces: 8, closingDr: 400 },
+    ];
+    const processed = postProcessTallyGroupedHierarchy(rows);
+    const purchase = processed.find((r) => r.rawLabel === 'Purchase');
+    const purchaseImport = processed.find((r) => r.rawLabel === 'Purchase: IMPORT');
+    const importRaw = processed.find((r) => r.rawLabel === 'Purchase IMPORT: Raw Materials');
+    const localRaw = processed.find((r) => r.rawLabel === 'Purchase LOCAL: Raw Materials');
+    assert.ok(purchase?.isGroupRow);
+    assert.ok(purchaseImport?.isGroupRow);
+    assert.equal(importRaw?.isGroupRow, false);
+    assert.equal(localRaw?.isGroupRow, false);
+    const totals = finalizeRawTBRows(processed, { tallyGrouped: true }).totals;
+    assert.equal(totals.totalClosingDr, 1000);
+    assert.equal(totals.totalClosingCr, 0);
+    assert.equal(totals.isBalanced, false);
   });
 });
 

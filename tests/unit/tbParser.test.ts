@@ -91,10 +91,14 @@ describe('tbParser', () => {
 
   it('parses Tally/Busy grouped Dummy Trial export with Dr/Cr balance strings', async () => {
     const fs = await import('fs');
-    const path = '/home/ubuntu/.cursor/projects/workspace/uploads/Dummy_Trial_34f5.xlsx';
-    if (!fs.existsSync(path)) return;
+    const path =
+      '/home/ubuntu/.cursor/projects/workspace/uploads/Dummy_Trial_3960.xlsx';
+    const fallback =
+      '/home/ubuntu/.cursor/projects/workspace/uploads/Dummy_Trial_34f5.xlsx';
+    const filePath = fs.existsSync(path) ? path : fallback;
+    if (!fs.existsSync(filePath)) return;
 
-    const result = await parseTrialBalance(fs.readFileSync(path), 'Dummy Trial.xlsx');
+    const result = await parseTrialBalance(fs.readFileSync(filePath), 'Dummy Trial.xlsx');
     assert.equal(result.detectedFormat, 'tally_grouped');
     assert.ok(result.workbookMetadata?.companyName?.includes('Satyam Techno Packs'));
     assert.equal(result.workbookMetadata?.fiscalYear, '2081/82');
@@ -110,8 +114,24 @@ describe('tbParser', () => {
     const purchase = result.rows.find((r) => r.rawLabel === 'Purchase');
     assert.ok(purchase?.isGroupRow, 'Aggregate "Purchase" row should be excluded from leaf totals');
 
+    const purchaseImport = result.rows.find((r) => r.rawLabel === 'Purchase: IMPORT');
+    assert.ok(purchaseImport?.isGroupRow, 'Sub-group "Purchase: IMPORT" should be excluded from leaf totals');
+
+    const interestCharges = result.rows.find((r) => r.rawLabel === 'Interest & Bank Charges');
+    assert.ok(interestCharges?.isGroupRow, 'P&L group "Interest & Bank Charges" should be excluded from leaf totals');
+
     const pettyCash = leafRows.find((r) => r.rawLabel === 'Petty Cash');
     assert.ok(pettyCash);
     assert.equal(pettyCash!.closingDr, 51447.57);
+
+    const imbalance = Math.abs(result.totalClosingDr - result.totalClosingCr);
+    assert.ok(
+      imbalance < 10_000_000,
+      `Expected improved leaf totals (imbalance ${imbalance}), not double-counted group aggregates`,
+    );
+    assert.ok(
+      result.warnings.filter((w) => w.startsWith('Zero-amount leaf row')).length <= 1,
+      'Zero-amount rows should be summarized, not listed individually',
+    );
   });
 });

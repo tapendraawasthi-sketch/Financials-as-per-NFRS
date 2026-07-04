@@ -2,6 +2,7 @@
 import type { RawTBRow } from '../../src/types/trialBalance.js';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
+const AGGREGATE_TOLERANCE = 1;
 
 export interface RawTBTotals {
   totalOpeningDr: number;
@@ -34,6 +35,37 @@ export function deriveClosingBalances(row: RawTBRow): RawTBRow {
   }
 
   return { ...row, closingDr, closingCr };
+}
+
+/** Build Tally-style child label prefixes, e.g. "Purchase: IMPORT" -> "Purchase IMPORT:". */
+export function tallyChildPrefixes(label: string): string[] {
+  const trimmed = label.trim();
+  const prefixes = [`${trimmed}:`, `${trimmed} `];
+  const colonMatch = trimmed.match(/^(.+?):\s*(.+)$/);
+  if (colonMatch) {
+    prefixes.push(`${colonMatch[1].trim()} ${colonMatch[2].trim()}:`);
+  }
+  return prefixes;
+}
+
+/** True when childLabel is a Tally naming descendant of parentLabel. */
+export function isTallyNamingDescendant(parentLabel: string, childLabel: string): boolean {
+  const parent = parentLabel.trim();
+  const child = childLabel.trim();
+  return tallyChildPrefixes(parent).some(
+    (prefix) => child.startsWith(prefix) && child.length > parent.length,
+  );
+}
+
+function closingMatchesAggregate(
+  row: RawTBRow,
+  childDr: number,
+  childCr: number,
+  tolerance = AGGREGATE_TOLERANCE,
+): boolean {
+  if (row.closingDr > 0 && Math.abs(row.closingDr - childDr) < tolerance) return true;
+  if (row.closingCr > 0 && Math.abs(row.closingCr - childCr) < tolerance) return true;
+  return Math.abs((row.closingDr - row.closingCr) - (childDr - childCr)) < tolerance;
 }
 
 /** Rows with a deeper-indented descendant are group headers — exclude from TB totals. */
@@ -74,6 +106,140 @@ export function markTallyShorthandAggregates(rows: RawTBRow[]): RawTBRow[] {
   });
 }
 
+/**
+ * Mark rows whose descendants follow Tally colon naming conventions
+ * (e.g. "Purchase: IMPORT" -> "Purchase IMPORT: Raw Materials").
+ */
+export function markTallyNamingHierarchy(rows: RawTBRow[]): RawTBRow[] {
+  return rows.map((row, i) => {
+    if (row.isGroupRow) return row;
+
+    for (let j = i + 1; j < rows.length; j++) {
+      const other = rows[j];
+      if (other.rawIndentSpaces < row.rawIndentSpaces) break;
+      if (isTallyNamingDescendant(row.rawLabel, other.rawLabel)) {
+        return { ...row, isGroupRow: true, rowLevel: 0 };
+      }
+      if (
+        other.rawIndentSpaces <= row.rawIndentSpaces
+        && !isTallyNamingDescendant(row.rawLabel, other.rawLabel)
+      ) {
+        break;
+      }
+    }
+
+    return row;
+  });
+}
+
+/** Mark rows whose closing equals the sum of deeper-indented descendants. */
+export function markTallyAggregateGroups(rows: RawTBRow[]): RawTBRow[] {
+  return rows.map((row, i) => {
+    if (row.isGroupRow) return row;
+    if (row.closingDr === 0 && row.closingCr === 0) return row;
+
+    let childDr = 0;
+    let childCr = 0;
+    let childCount = 0;
+
+    for (let j = i + 1; j < rows.length; j++) {
+      if (rows[j].rawIndentSpaces <= row.rawIndentSpaces) break;
+      childDr += rows[j].closingDr;
+      childCr += rows[j].closingCr;
+      childCount++;
+    }
+
+    if (childCount > 0 && closingMatchesAggregate(row, childDr, childCr)) {
+      return { ...row, isGroupRow: true, rowLevel: 0 };
+    }
+
+    return row;
+  });
+}
+
+function isLeafWithinRange(rows: RawTBRow[], idx: number, start: number, end: number): boolean {
+  for (let j = idx + 1; j <= end; j++) {
+    if (rows[j].rawIndentSpaces > rows[idx].rawIndentSpaces) return false;
+  }
+  return true;
+}
+
+function sumLeafClosingsInRange(
+  rows: RawTBRow[],
+  start: number,
+  end: number,
+): { dr: number; cr: number } {
+  let dr = 0;
+  let cr = 0;
+  for (let i = start; i <= end; i++) {
+    if (isLeafWithinRange(rows, i, start, end)) {
+      dr += rows[i].closingDr;
+      cr += rows[i].closingCr;
+    }
+  }
+  return { dr, cr };
+}
+
+/**
+ * Handle Tally P&L rows where same-indent sub-groups follow a header
+ * (e.g. "Interest & Bank Charges" followed by "Bank Interest (Fixed Assits)").
+ */
+export function markTallySameIndentSubGroups(rows: RawTBRow[]): RawTBRow[] {
+  return rows.map((row, i) => {
+    if (row.isGroupRow) return row;
+    if (row.closingDr === 0 && row.closingCr === 0) return row;
+    if (i + 1 >= rows.length) return row;
+    if (rows[i + 1].rawIndentSpaces !== row.rawIndentSpaces) return row;
+
+    for (let end = i + 1; end < rows.length; end++) {
+      if (rows[end].rawIndentSpaces < row.rawIndentSpaces) break;
+
+      const { dr, cr } = sumLeafClosingsInRange(rows, i + 1, end);
+      if (closingMatchesAggregate(row, dr, cr)) {
+        return { ...row, isGroupRow: true, rowLevel: 0 };
+      }
+
+      if (
+        rows[end].rawIndentSpaces === row.rawIndentSpaces
+        && !isTallyNamingDescendant(row.rawLabel, rows[end].rawLabel)
+        && (dr > row.closingDr + AGGREGATE_TOLERANCE || cr > row.closingCr + AGGREGATE_TOLERANCE)
+      ) {
+        break;
+      }
+    }
+
+    return row;
+  });
+}
+
+/**
+ * When a same-indent sibling is already a group with an identical balance,
+ * treat the preceding row as a parent group (e.g. Sundry Creditors / Business Payable).
+ */
+export function markTallyDuplicateBalanceParents(rows: RawTBRow[]): RawTBRow[] {
+  return rows.map((row, i) => {
+    if (row.isGroupRow) return row;
+    if (row.closingDr === 0 && row.closingCr === 0) return row;
+
+    for (let j = i + 1; j < rows.length; j++) {
+      const other = rows[j];
+      if (other.rawIndentSpaces < row.rawIndentSpaces) break;
+      if (other.rawIndentSpaces !== row.rawIndentSpaces) continue;
+
+      const sameBalance =
+        (row.closingDr > 0 && Math.abs(row.closingDr - other.closingDr) < AGGREGATE_TOLERANCE)
+        || (row.closingCr > 0 && Math.abs(row.closingCr - other.closingCr) < AGGREGATE_TOLERANCE);
+
+      if (sameBalance && other.isGroupRow) {
+        return { ...row, isGroupRow: true, rowLevel: 0 };
+      }
+      break;
+    }
+
+    return row;
+  });
+}
+
 /** Assign parentGroup to each leaf row using a stack of group headers. */
 export function assignParentGroups(rows: RawTBRow[]): RawTBRow[] {
   const groupStack: Array<{ label: string; indentSpaces: number; level: number }> = [];
@@ -104,6 +270,17 @@ export function assignParentGroups(rows: RawTBRow[]): RawTBRow[] {
 
 export function postProcessHierarchy(rows: RawTBRow[]): RawTBRow[] {
   return assignParentGroups(markTallyShorthandAggregates(markGroupRowsByIndentation(rows)));
+}
+
+/** Enhanced hierarchy detection for Tally/Busy grouped trial balance exports. */
+export function postProcessTallyGroupedHierarchy(rows: RawTBRow[]): RawTBRow[] {
+  let processed = markGroupRowsByIndentation(rows);
+  processed = markTallyShorthandAggregates(processed);
+  processed = markTallyNamingHierarchy(processed);
+  processed = markTallyAggregateGroups(processed);
+  processed = markTallySameIndentSubGroups(processed);
+  processed = markTallyDuplicateBalanceParents(processed);
+  return assignParentGroups(processed);
 }
 
 export function computeRawTBTotals(rows: RawTBRow[]): RawTBTotals {
@@ -143,6 +320,7 @@ export function computeRawTBTotals(rows: RawTBRow[]): RawTBTotals {
 export interface FinalizeOptions {
   deriveClosing?: boolean;
   postProcessHierarchy?: boolean;
+  tallyGrouped?: boolean;
 }
 
 /** Normalize raw rows: derive closing balances, assign hierarchy, compute totals. */
@@ -160,7 +338,9 @@ export function finalizeRawTBRows(
   }
 
   if (runHierarchy) {
-    processed = postProcessHierarchy(processed);
+    processed = options.tallyGrouped
+      ? postProcessTallyGroupedHierarchy(processed)
+      : postProcessHierarchy(processed);
   } else {
     processed = assignParentGroups(processed);
   }
