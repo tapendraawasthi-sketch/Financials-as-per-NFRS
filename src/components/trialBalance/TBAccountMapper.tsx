@@ -1,6 +1,6 @@
 // src/components/trialBalance/TBAccountMapper.tsx
 import React, { useState, useMemo, useCallback } from 'react';
-import { Loader2 } from 'lucide-react';
+import { Loader2, AlertTriangle } from 'lucide-react';
 import Button      from '../ui/Button';
 import ProgressBar from '../ui/ProgressBar';
 import { MappedTBRow, NFRSCategory } from '../../types/trialBalance';
@@ -486,20 +486,29 @@ export default function TBAccountMapper({
                         (row.confidence ?? 0) > 0 && (row.confidence ?? 0) < 80;
 
                       const rowStyle: React.CSSProperties | undefined = isUnmatched
-                        ? { background: 'var(--danger-100)' }
+                        ? { borderLeft: '3px solid var(--warning-600)' }
                         : needsReview
-                        ? { background: 'var(--warning-100)' }
+                        ? { borderLeft: '3px solid var(--warning-600)' }
                         : undefined;
 
                       return (
                         <tr
                           key={row.rowIndex ?? `${groupName}-${i}`}
                           className="transition-colors"
-                          style={rowStyle}
+                          style={{
+                            ...rowStyle,
+                            background: 'transparent',
+                          }}
+                          onMouseEnter={e => { e.currentTarget.style.background = 'var(--surface-hover)'; }}
+                          onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
                           aria-rowindex={rowCounter + 1}
                         >
                           <td className="px-2.5 py-1.5 text-center text-[10px] text-slate-400">
-                            {rowCounter}
+                            {(isUnmatched || needsReview) ? (
+                              <AlertTriangle size={12} style={{ color: 'var(--warning-600)', margin: '0 auto' }} aria-hidden="true" />
+                            ) : (
+                              rowCounter
+                            )}
                           </td>
 
                           <td

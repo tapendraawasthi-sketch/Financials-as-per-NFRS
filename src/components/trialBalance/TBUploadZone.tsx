@@ -1,7 +1,9 @@
 // src/components/trialBalance/TBUploadZone.tsx
 import React, { useRef, useState, useCallback } from 'react';
+import { UploadCloud, X, FileSpreadsheet } from 'lucide-react';
 import Card        from '../ui/Card';
 import ProgressBar from '../ui/ProgressBar';
+import LoadingSpinner from '../ui/LoadingSpinner';
 import Button      from '../ui/Button';
 import TBStandardFormatDiagnostics, { type TbStandardValidationResult } from './TBStandardFormatDiagnostics';
 import { SAMPLE_TRIAL_BALANCE_CSV } from '../../data/sampleData';
@@ -87,6 +89,7 @@ export default function TBUploadZone({
   const [uploadState, setUploadState] = useState<UploadState>('idle');
   const [progress,    setProgress]    = useState(0);
   const [filename,    setFilename]    = useState('');
+  const [fileSize,    setFileSize]    = useState(0);
   const [result,      setResult]      = useState<UploadResult | null>(null);
   const [processingPhase, setProcessingPhase] = useState('');
   const [isDragging,  setIsDragging]  = useState(false);
@@ -118,6 +121,7 @@ export default function TBUploadZone({
     }
 
     setFilename(file.name);
+    setFileSize(file.size);
     setUploadState('uploading');
     setProgress(0);
     setProcessingPhase('Syncing company session…');
@@ -219,9 +223,55 @@ export default function TBUploadZone({
     setUploadState('idle');
     setResult(null);
     setProgress(0);
+    setFilename('');
+    setFileSize(0);
     setFormatDiagnostics(null);
     fileRef.current?.click();
   };
+
+  const clearFile = () => {
+    setUploadState('idle');
+    setResult(null);
+    setProgress(0);
+    setFilename('');
+    setFileSize(0);
+    setFormatDiagnostics(null);
+  };
+
+  const formatFileSize = (bytes: number) => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  const FileChip = ({ onRemove }: { onRemove: () => void }) => (
+    <div
+      className="inline-flex items-center gap-2 mb-3"
+      style={{
+        background: 'var(--surface-sunken)',
+        border: '1px solid var(--border-hairline)',
+        borderRadius: 'var(--radius-full)',
+        padding: 'var(--space-1) var(--space-2) var(--space-1) var(--space-3)',
+      }}
+    >
+      <FileSpreadsheet size={14} style={{ color: 'var(--brand-500)', flexShrink: 0 }} />
+      <span className="truncate max-w-[200px]" style={{ fontSize: 'var(--text-sm)', color: 'var(--ink-700)' }} title={filename}>
+        {filename}
+      </span>
+      {fileSize > 0 && (
+        <span style={{ fontSize: 'var(--text-xs)', color: 'var(--ink-400)' }}>{formatFileSize(fileSize)}</span>
+      )}
+      <button
+        type="button"
+        onClick={onRemove}
+        aria-label="Remove file"
+        className="flex items-center justify-center rounded-full transition-colors"
+        style={{ width: '20px', height: '20px', color: 'var(--ink-400)' }}
+      >
+        <X size={12} />
+      </button>
+    </div>
+  );
 
   const loadDummyData = () => {
     const file = new File([SAMPLE_TRIAL_BALANCE_CSV], "dummy_trial_balance.csv", { type: "text/csv" });
@@ -238,41 +288,33 @@ export default function TBUploadZone({
             <div
               role="button"
               tabIndex={0}
-              aria-label="Upload trial balance file — click or drop file here"
+              aria-label="Upload trial balance file — drag and drop or click to browse"
               onClick={() => fileRef.current?.click()}
               onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') fileRef.current?.click(); }}
               onDrop={handleDrop}
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
-              className={[
-                'border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-all ease-premium',
-                isDragging
-                  ? 'brand-ring'
-                  : 'hover:border-slate-300',
-              ].join(' ')}
+              className="cursor-pointer transition-all ease-premium"
               style={{
                 borderRadius: 'var(--radius-lg)',
-                borderColor: isDragging ? 'var(--brand-500)' : 'var(--border-strong)',
-                background: isDragging ? 'var(--brand-50)' : 'var(--surface-sunken)',
+                border: `2px dashed ${isDragging ? 'var(--brand-500)' : 'var(--border-strong)'}`,
+                background: isDragging ? 'var(--brand-50)' : 'transparent',
+                padding: 'var(--space-10) var(--space-6)',
+                textAlign: 'center',
               }}
             >
-              <svg
-                className="h-8 w-8 mx-auto mb-2"
-                style={{ color: isDragging ? 'var(--brand-500)' : 'var(--ink-300)' }}
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
+              <UploadCloud
+                size={40}
                 strokeWidth={1.5}
+                className="mx-auto mb-3"
+                style={{ color: isDragging ? 'var(--brand-500)' : 'var(--ink-300)' }}
                 aria-hidden="true"
-              >
-                <path strokeLinecap="round" strokeLinejoin="round"
-                  d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
-              </svg>
-              <p className="text-sm font-medium" style={{ color: 'var(--ink-600)' }}>
-                Drop file here or click to browse
+              />
+              <p className="font-medium" style={{ fontSize: 'var(--text-md)', color: 'var(--ink-700)' }}>
+                Drag & drop your trial balance, or click to browse
               </p>
-              <p className="text-xs mt-1" style={{ color: 'var(--ink-400)' }}>
-                Accepts .xlsx, .xls, .csv, plus PDF with text layer (images need server OCR)
+              <p className="mt-1" style={{ fontSize: 'var(--text-sm)', color: 'var(--ink-400)' }}>
+                Accepts .xlsx, .xls, .csv, plus PDF with text layer
               </p>
               <div className="mt-4 flex justify-center" onClick={(e) => e.stopPropagation()}>
                 <Button type="button" variant="secondary" size="sm" onClick={loadDummyData}>
@@ -284,17 +326,22 @@ export default function TBUploadZone({
 
           {/* Uploading state */}
           {uploadState === 'uploading' && (
-            <div className="py-4 space-y-3">
-              <p className="text-xs truncate" style={{ color: 'var(--ink-600)' }}>
-                {processingPhase || `Processing ${filename}…`}
-              </p>
+            <div className="py-2 space-y-3">
+              <FileChip onRemove={clearFile} />
+              <div className="flex items-center gap-2">
+                <LoadingSpinner size="sm" />
+                <p className="truncate" style={{ fontSize: 'var(--text-sm)', color: 'var(--ink-600)' }}>
+                  {processingPhase || `Parsing ${filename}…`}
+                </p>
+              </div>
               <ProgressBar value={progress} showValue size="md" color="blue" />
             </div>
           )}
 
           {/* Success state */}
           {uploadState === 'success' && result && (
-            <div className="py-2 space-y-2">
+            <div className="py-2 space-y-3">
+              <FileChip onRemove={clearFile} />
               <div className="flex items-center gap-2.5">
                 <span
                   className="h-2 w-2 rounded-full flex-shrink-0"

@@ -2,6 +2,7 @@
 import React, { useState } from 'react';
 import { useAppStore } from '../store/appStore';
 import Tabs from '../components/ui/Tabs';
+import Card from '../components/ui/Card';
 import TBUploadZone from '../components/trialBalance/TBUploadZone';
 import TBInputModeSelector from '../components/trialBalance/TBInputModeSelector';
 import TBDataGrid from '../components/trialBalance/TBDataGrid';
@@ -201,6 +202,35 @@ export default function TrialBalancePage() {
         variant="line"
         className="mb-5"
       />
+
+      {tb && (activeTab === 'review' || activeTab === 'mapping') && (
+        <div className="grid grid-cols-3 gap-3 mb-5">
+          <Card accent="brand" padding="dense">
+            <p style={{ fontSize: 'var(--text-xs)', color: 'var(--ink-500)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+              Accounts detected
+            </p>
+            <p className="kpi-number mt-1" style={{ fontSize: 'var(--text-xl)', color: 'var(--ink-950)' }}>
+              {leafRows.length}
+            </p>
+          </Card>
+          <Card accent="success" padding="dense">
+            <p style={{ fontSize: 'var(--text-xs)', color: 'var(--ink-500)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+              Auto-mapped
+            </p>
+            <p className="kpi-number mt-1" style={{ fontSize: 'var(--text-xl)', color: 'var(--success-700)' }}>
+              {autoMapped}
+            </p>
+          </Card>
+          <Card accent="gold" padding="dense">
+            <p style={{ fontSize: 'var(--text-xs)', color: 'var(--ink-500)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+              Need review
+            </p>
+            <p className="kpi-number mt-1" style={{ fontSize: 'var(--text-xl)', color: 'var(--warning-700)' }}>
+              {needsReview + unmatched}
+            </p>
+          </Card>
+        </div>
+      )}
 
       <div className="page-enter">
         {activeTab === 'upload' && (
