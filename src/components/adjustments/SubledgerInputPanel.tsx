@@ -832,28 +832,30 @@ export default function SubledgerInputPanel({
   return (
     <div className="space-y-4">
       <div>
-        <h3 className="text-sm font-semibold text-slate-800">Subledger Details</h3>
-        <p className="text-xs text-slate-500 mt-0.5">
+        <h3 className="text-sm font-semibold" style={{ color: 'var(--ink-900)' }}>Subledger Details</h3>
+        <p className="text-xs mt-0.5" style={{ color: 'var(--ink-500)' }}>
           Enter party-wise balances for Notes 3.3, 3.13, 3.8, and 3.24. These are required for
           ICAN-compliant financial statements.
         </p>
       </div>
 
       {/* Tab bar */}
-      <div className="border-b border-slate-200">
-        <nav className="-mb-px flex gap-0" role="tablist">
+      <div style={{ borderBottom: '1px solid var(--border-hairline)' }}>
+        <nav className="flex gap-0 -mb-px" role="tablist">
           {TABS.map((tab) => (
             <button
               key={tab.id}
               role="tab"
               aria-selected={activeTab === tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={[
-                'h-9 px-4 text-xs font-medium border-b-2 transition-colors whitespace-nowrap',
-                activeTab === tab.id
-                  ? 'border-blue-600 text-blue-700'
-                  : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300',
-              ].join(' ')}
+              className="h-10 px-4 font-medium whitespace-nowrap transition-colors ease-premium"
+              style={{
+                fontSize: '13px',
+                color: activeTab === tab.id ? 'var(--brand-600)' : 'var(--ink-500)',
+                fontWeight: activeTab === tab.id ? 600 : 500,
+                borderBottom: activeTab === tab.id ? '2px solid var(--brand-500)' : '2px solid transparent',
+                marginBottom: '-1px',
+              }}
             >
               {tab.label}
             </button>

@@ -67,14 +67,16 @@ function InfoTooltip({ text }: { text: string }) {
         onMouseLeave={() => setVisible(false)}
         onFocus={() => setVisible(true)}
         onBlur={() => setVisible(false)}
-        className="h-4 w-4 rounded-full bg-slate-200 text-slate-500 hover:bg-blue-100 hover:text-blue-600 flex items-center justify-center text-[10px] font-bold transition-colors ml-1"
+        className="h-4 w-4 rounded-full flex items-center justify-center text-[10px] font-bold transition-colors ml-1"
+        style={{ background: 'var(--ink-200)', color: 'var(--ink-500)' }}
         aria-label="More information"
       >
         ?
       </button>
       {visible && (
         <span
-          className="absolute left-5 top-0 z-50 w-64 bg-slate-800 text-white text-[11px] leading-relaxed rounded-lg px-3 py-2 shadow-xl pointer-events-none"
+          className="absolute left-5 top-0 z-50 w-64 text-[11px] leading-relaxed rounded-lg px-3 py-2 shadow-xl pointer-events-none"
+          style={{ background: 'var(--ink-900)', color: 'var(--surface)' }}
           role="tooltip"
         >
           {text}
@@ -124,13 +126,15 @@ export default function ProvisionInputs({
     }
   };
 
+  const inCls = 'w-full h-7 text-xs font-mono text-right px-1.5 border border-[var(--border-strong)] rounded bg-[var(--surface)] outline-none focus:border-[var(--brand-500)] transition-colors disabled:bg-[var(--surface-sunken)] disabled:text-[var(--ink-300)]';
+
   const numIn = (id: string, key: 'addition' | 'utilised' | 'reversed', value: number) => (
     <input
       type="number"
       value={value || ''}
       min={0}
       onChange={e => update(id, key, parseFloat(e.target.value) || 0)}
-      className="w-full h-7 text-xs font-mono text-right px-1.5 border border-slate-200 rounded bg-white outline-none focus:border-blue-500 transition-colors disabled:bg-slate-50 disabled:text-slate-300"
+      className={inCls}
       aria-label={key}
     />
   );
@@ -183,8 +187,8 @@ export default function ProvisionInputs({
                         onClick={() => update(row.id, 'applicable', !row.applicable)}
                         className={[
                           'relative w-8 h-4 rounded-full cursor-pointer transition-colors duration-200',
-                          row.applicable ? 'bg-blue-600' : 'bg-slate-300',
                         ].join(' ')}
+                        style={{ background: row.applicable ? 'var(--brand-600)' : 'var(--ink-300)' }}
                       >
                         <span className={[
                           'absolute top-0.5 h-3 w-3 rounded-full bg-white shadow-sm transition-transform duration-200',
@@ -192,9 +196,9 @@ export default function ProvisionInputs({
                         ].join(' ')} />
                       </button>
                       {/* item 85: adjacent state label */}
-                      <span className={`text-[9px] font-medium leading-none ${
-                        row.applicable ? 'text-blue-600' : 'text-slate-400'
-                      }`}>
+                      <span className="text-[9px] font-medium leading-none" style={{
+                        color: row.applicable ? 'var(--brand-600)' : 'var(--ink-400)',
+                      }}>
                         {row.applicable ? 'Applicable' : 'Not applicable'}
                       </span>
                     </div>
@@ -208,11 +212,11 @@ export default function ProvisionInputs({
                           type="text"
                           value={row.type}
                           onChange={e => update(row.id, 'type', e.target.value)}
-                          className="flex-1 h-6 text-xs px-1 border-0 border-b border-slate-200 bg-transparent outline-none focus:border-blue-400"
+                          className="flex-1 h-6 text-xs px-1 border-0 border-b border-[var(--border-hairline)] bg-transparent outline-none focus:border-[var(--brand-500)]"
                           aria-label="Provision type name"
                         />
                       ) : (
-                        <span className="text-xs text-slate-700">{row.type}</span>
+                        <span className="text-xs" style={{ color: 'var(--ink-700)' }}>{row.type}</span>
                       )}
                       {tooltip && !row.editable && (
                         <InfoTooltip text={tooltip} />
@@ -221,21 +225,21 @@ export default function ProvisionInputs({
                   </td>
 
                   {/* Opening — readonly */}
-                  <td className="px-2.5 text-right font-mono text-xs text-slate-500">
+                  <td className="px-2.5 text-right font-mono text-xs" style={{ color: 'var(--ink-500)' }}>
                     {fmtN(row.openingBalance)}
                   </td>
 
                   {/* Addition */}
-                  <td className="px-1">{row.applicable ? numIn(row.id, 'addition', row.addition) : <span className="text-slate-300 text-xs px-1">—</span>}</td>
+                  <td className="px-1">{row.applicable ? numIn(row.id, 'addition', row.addition) : <span className="text-xs px-1" style={{ color: 'var(--ink-300)' }}>—</span>}</td>
 
                   {/* Utilised */}
-                  <td className="px-1">{row.applicable ? numIn(row.id, 'utilised', row.utilised) : <span className="text-slate-300 text-xs px-1">—</span>}</td>
+                  <td className="px-1">{row.applicable ? numIn(row.id, 'utilised', row.utilised) : <span className="text-xs px-1" style={{ color: 'var(--ink-300)' }}>—</span>}</td>
 
                   {/* Reversed */}
-                  <td className="px-1">{row.applicable ? numIn(row.id, 'reversed', row.reversed) : <span className="text-slate-300 text-xs px-1">—</span>}</td>
+                  <td className="px-1">{row.applicable ? numIn(row.id, 'reversed', row.reversed) : <span className="text-xs px-1" style={{ color: 'var(--ink-300)' }}>—</span>}</td>
 
                   {/* Closing */}
-                  <td className={`px-2.5 text-right font-mono text-xs font-bold ${cl < 0 ? 'text-red-600' : 'text-slate-800'}`}>
+                  <td className={`px-2.5 text-right font-mono text-xs font-bold`} style={{ color: cl < 0 ? 'var(--danger-600)' : 'var(--ink-900)' }}>
                     {row.applicable ? fmtN(cl) : '—'}
                   </td>
 
@@ -245,7 +249,7 @@ export default function ProvisionInputs({
                       value={row.classification}
                       onChange={e => update(row.id, 'classification', e.target.value as 'Current' | 'Non-current')}
                       disabled={!row.applicable}
-                      className="h-6 w-full text-xs px-1 border border-slate-200 rounded bg-white outline-none focus:border-blue-400 disabled:opacity-40"
+                      className="h-6 w-full text-xs px-1 border border-[var(--border-strong)] rounded bg-[var(--surface)] outline-none focus:border-[var(--brand-500)] disabled:opacity-40"
                       aria-label="Classification"
                     >
                       <option value="Current">Current</option>
@@ -259,7 +263,7 @@ export default function ProvisionInputs({
         </table>
       </div>
 
-      <p className="text-xs text-slate-500 mt-3">
+      <p className="text-xs mt-3" style={{ color: 'var(--ink-500)' }}>
         Only "Applicable" provisions are included in the financial statements. Closing balance = Opening + Addition − Utilised − Reversed.
       </p>
 
@@ -267,7 +271,8 @@ export default function ProvisionInputs({
 
       <div className="flex items-center justify-between mt-4">
         <button type="button" onClick={addCustom}
-          className="text-xs text-blue-600 hover:text-blue-800 underline transition-colors">
+          className="text-xs underline transition-colors"
+          style={{ color: 'var(--brand-600)' }}>
           + Add Custom Provision
         </button>
         <Button variant="primary" size="sm" loading={saving} onClick={handleSave}>

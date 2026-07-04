@@ -78,7 +78,7 @@ export default function InventoryInputPanel({
 
   return (
     <Card title="Inventory NRV / Impairment" padding="md">
-      <p className="text-xs text-slate-500 mb-3">
+      <p className="text-xs mb-3" style={{ color: 'var(--ink-500)' }}>
         Enter net realisable value where inventory cost exceeds recoverable amount. Impairment is calculated automatically.
       </p>
       <div className="overflow-x-auto">
@@ -93,19 +93,19 @@ export default function InventoryInputPanel({
           </thead>
           <tbody>
             {rows.map((row) => (
-              <tr key={row.category} className="border-b border-slate-100">
-                <td className="px-2 py-2 text-sm text-slate-700">{row.label}</td>
-                <td className="px-2 py-2 text-right font-mono text-sm">{row.costAmount.toLocaleString('en-IN')}</td>
+              <tr key={row.category}>
+                <td className="px-2 py-2 text-sm" style={{ color: 'var(--ink-700)' }}>{row.label}</td>
+                <td className="px-2 py-2 amount text-sm">{row.costAmount.toLocaleString('en-IN')}</td>
                 <td className="px-2 py-2">
                   <input
                     type="number"
                     min={0}
                     value={row.nrvAmount || ''}
                     onChange={(e) => updateRow(row.category, 'nrvAmount', parseFloat(e.target.value) || 0)}
-                    className="w-full h-8 text-xs font-mono text-right px-2 border border-slate-200 rounded"
+                    className="w-full h-8 text-xs font-mono text-right px-2 border border-[var(--border-strong)] rounded bg-[var(--surface)] outline-none focus:border-[var(--brand-500)]"
                   />
                 </td>
-                <td className="px-2 py-2 text-right font-mono text-sm text-amber-700">
+                <td className="px-2 py-2 amount text-sm" style={{ color: 'var(--warning-700)' }}>
                   {row.impairmentAmount > 0 ? row.impairmentAmount.toLocaleString('en-IN') : '—'}
                 </td>
               </tr>

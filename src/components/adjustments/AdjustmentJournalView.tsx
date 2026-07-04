@@ -94,8 +94,7 @@ export default function AdjustmentJournalView({
     setModalOpen(false);
   };
 
-  const thCls = 'px-2.5 py-1.5 text-[11px] font-semibold text-slate-500 uppercase tracking-wide text-left bg-slate-50 border-b border-slate-200 whitespace-nowrap';
-  const tdCls = 'px-2.5 py-1.5 text-xs text-slate-700';
+  const tdCls = 'text-xs';
 
   return (
     <>
@@ -104,52 +103,49 @@ export default function AdjustmentJournalView({
           <table className="fin-table w-full" style={{ minWidth: 760 }}>
             <thead>
               <tr>
-                <th className={`${thCls} w-8 text-center`}>#</th>
-                <th className={`${thCls}`} style={{ width: 200 }}>Description</th>
-                <th className={`${thCls}`} style={{ width: 160 }}>Dr Account</th>
-                <th className={`${thCls} text-right`} style={{ width: 100 }}>Amount (Dr)</th>
-                <th className={`${thCls}`} style={{ width: 160 }}>Cr Account</th>
-                <th className={`${thCls} text-right`} style={{ width: 100 }}>Amount (Cr)</th>
-                <th className={`${thCls} w-20`}>Type</th>
-                <th className={`${thCls} w-16`}>Source</th>
+                <th className="w-8 text-center">#</th>
+                <th style={{ width: 200 }}>Description</th>
+                <th style={{ width: 160 }}>Dr Account</th>
+                <th className="text-right" style={{ width: 100 }}>Amount (Dr)</th>
+                <th style={{ width: 160 }}>Cr Account</th>
+                <th className="text-right" style={{ width: 100 }}>Amount (Cr)</th>
+                <th className="w-20">Type</th>
+                <th className="w-16">Source</th>
               </tr>
             </thead>
 
             <tbody>
               {entries.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="text-center py-8 text-slate-400 text-xs">
+                  <td colSpan={8} className="text-center py-8 text-xs" style={{ color: 'var(--ink-400)' }}>
                     No adjustment entries yet. Click "Calculate Depreciation" or add manually.
                   </td>
                 </tr>
               ) : (
                 entries.map((e, i) => (
-                  <tr
-                    key={e.id}
-                    className={`border-b border-slate-100 last:border-0 ${i % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'} hover:bg-slate-100/50 transition-colors`}
-                  >
-                    <td className="px-2.5 py-1.5 text-center text-[10px] text-slate-400">
+                  <tr key={e.id}>
+                    <td className="text-center text-[10px]" style={{ color: 'var(--ink-400)' }}>
                       {i + 1}
                     </td>
                     <td className={tdCls} title={e.description}>
                       <span className="block truncate max-w-[180px]">{e.description}</span>
                     </td>
-                    <td className={`${tdCls} text-slate-600`} title={e.drAccount}>
+                    <td className={tdCls} style={{ color: 'var(--ink-600)' }} title={e.drAccount}>
                       <span className="block truncate max-w-[140px]">{e.drAccount}</span>
                     </td>
-                    <td className="px-2.5 py-1.5 text-right font-mono text-xs font-semibold text-slate-800">
+                    <td className="amount text-xs font-semibold" style={{ color: 'var(--ink-900)' }}>
                       {fmtAmt(e.amount)}
                     </td>
-                    <td className={`${tdCls} text-slate-600`} title={e.crAccount}>
+                    <td className={tdCls} style={{ color: 'var(--ink-600)' }} title={e.crAccount}>
                       <span className="block truncate max-w-[140px]">{e.crAccount}</span>
                     </td>
-                    <td className="px-2.5 py-1.5 text-right font-mono text-xs font-semibold text-slate-800">
+                    <td className="amount text-xs font-semibold" style={{ color: 'var(--ink-900)' }}>
                       {fmtAmt(e.amount)}
                     </td>
-                    <td className="px-2.5 py-1.5 text-[10px] uppercase text-slate-400">
+                    <td className="text-[10px] uppercase" style={{ color: 'var(--ink-400)' }}>
                       {e.type}
                     </td>
-                    <td className="px-2.5 py-1.5 text-[10px] text-slate-400">
+                    <td className="text-[10px]" style={{ color: 'var(--ink-400)' }}>
                       {e.source}
                     </td>
                   </tr>
@@ -159,23 +155,22 @@ export default function AdjustmentJournalView({
 
             {/* Totals footer */}
             <tfoot>
-              <tr className="border-t-2 border-slate-200 bg-slate-50">
-                <td colSpan={3} className="px-2.5 py-2 text-xs font-bold text-slate-700">
+              <tr className="row-total">
+                <td colSpan={3} className="text-xs font-bold" style={{ color: 'var(--ink-700)' }}>
                   Total Adjustments
                 </td>
-                <td className="px-2.5 py-2 text-right font-mono text-xs font-bold text-slate-800">
+                <td className="amount text-xs font-bold" style={{ color: 'var(--ink-900)' }}>
                   {fmtAmt(totalDr)}
                 </td>
                 <td />
-                <td className="px-2.5 py-2 text-right font-mono text-xs font-bold text-slate-800">
+                <td className="amount text-xs font-bold" style={{ color: 'var(--ink-900)' }}>
                   {fmtAmt(totalCr)}
                 </td>
-                <td colSpan={2} className="px-2.5 py-2">
+                <td colSpan={2}>
                   {entries.length > 0 && (
                     <span
-                      className={`text-[11px] font-semibold ${
-                        balanced ? 'text-emerald-600' : 'text-red-600'
-                      }`}
+                      className="text-[11px] font-semibold"
+                      style={{ color: balanced ? 'var(--success-600)' : 'var(--danger-600)' }}
                     >
                       {balanced
                         ? 'Balanced'
@@ -189,8 +184,8 @@ export default function AdjustmentJournalView({
         </div>
 
         {/* Bottom bar */}
-        <div className="flex items-center justify-between px-5 py-3 border-t border-slate-100">
-          <p className="text-xs text-slate-400">
+        <div className="flex items-center justify-between px-5 py-3" style={{ borderTop: '1px solid var(--border-hairline)' }}>
+          <p className="text-xs" style={{ color: 'var(--ink-400)' }}>
             {systemCount} system {systemCount === 1 ? 'entry' : 'entries'},&nbsp;
             {manualCount} manual {manualCount === 1 ? 'entry' : 'entries'}
           </p>

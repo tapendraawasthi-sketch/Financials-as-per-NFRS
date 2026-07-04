@@ -109,21 +109,21 @@ export default function AssetRegisterTable({
   const totalDepnThisYear  = depnResult?.reduce((s, r) => s + r.depnForYear, 0) ?? 0;
   const totalNBV           = depnResult?.reduce((s, r) => s + r.netBookValueClosing,  0) ?? 0;
 
-  const inCls  = 'h-6 text-xs font-mono text-right px-1.5 outline-none transition-colors border-0 border-b border-slate-200 bg-transparent focus:border-blue-400 w-full';
-  const selCls = 'h-6 text-xs px-1 border border-slate-200 rounded bg-white text-slate-700 outline-none focus:border-blue-400 w-full';
+  const inCls  = 'h-6 text-xs font-mono text-right px-1.5 outline-none transition-colors border-0 border-b border-[var(--border-hairline)] bg-transparent focus:border-[var(--brand-500)] w-full';
+  const selCls = 'h-6 text-xs px-1 border border-[var(--border-strong)] rounded bg-[var(--surface)] text-[var(--ink-700)] outline-none focus:border-[var(--brand-500)] w-full';
 
   return (
     <div>
       {/* Header bar */}
       <div className="flex items-center justify-between mb-3">
-        <h2 className="text-sm font-semibold text-slate-800">Fixed Asset Register</h2>
+        <h2 className="text-sm font-semibold" style={{ color: 'var(--ink-900)' }}>Fixed Asset Register</h2>
         <Button variant="secondary" size="sm" onClick={addRow}>
           Add Asset
         </Button>
       </div>
 
       {/* Register table */}
-      <div className="overflow-x-auto border border-slate-200 rounded-md">
+      <div className="overflow-x-auto border rounded-md" style={{ borderColor: 'var(--border-hairline)' }}>
         <table className="fin-table w-full" style={{ minWidth: 960 }}>
           <thead>
             <tr>
@@ -143,8 +143,8 @@ export default function AssetRegisterTable({
 
           <tbody>
             {assets.map((asset, idx) => (
-              <tr key={asset.id} className="h-8 border-b border-slate-100 last:border-0 hover:bg-slate-50/50">
-                <td className="text-center text-[10px] text-slate-400">{idx + 1}</td>
+              <tr key={asset.id} className="h-8">
+                <td className="text-center text-[10px]" style={{ color: 'var(--ink-400)' }}>{idx + 1}</td>
 
                 {/* Description */}
                 <td className="px-1">
@@ -217,7 +217,7 @@ export default function AssetRegisterTable({
                     min={1}
                     max={100}
                     disabled={asset.method === 'WDV'}
-                    className={`${inCls} ${asset.method === 'WDV' ? 'text-slate-300' : ''}`}
+                    className={`${inCls} ${asset.method === 'WDV' ? 'text-[var(--ink-300)]' : ''}`}
                     aria-label="Useful life in years"
                   />
                 </td>
@@ -244,7 +244,7 @@ export default function AssetRegisterTable({
                     min={0}
                     max={100}
                     disabled={asset.method !== 'WDV'}
-                    className={`${inCls} ${asset.method !== 'WDV' ? 'text-slate-300' : ''}`}
+                    className={`${inCls} ${asset.method !== 'WDV' ? 'text-[var(--ink-300)]' : ''}`}
                     aria-label="WDV rate percentage"
                   />
                 </td>
@@ -278,14 +278,14 @@ export default function AssetRegisterTable({
 
           {/* Summary footer */}
           <tfoot>
-            <tr className="bg-slate-50 border-t border-slate-200">
-              <td colSpan={4} className="px-3 py-1.5 text-xs font-bold text-slate-700">
+            <tr className="row-total">
+              <td colSpan={4} className="px-3 py-1.5 text-xs font-bold" style={{ color: 'var(--ink-700)' }}>
                 Total
               </td>
-              <td className="px-1 py-1.5 text-right text-xs font-bold font-mono text-slate-800">
+              <td className="px-1 py-1.5 text-right text-xs font-bold font-mono" style={{ color: 'var(--ink-900)' }}>
                 {fmt(totalCost, roundingLevel)}
               </td>
-              <td className="px-1 py-1.5 text-right text-xs font-bold font-mono text-slate-800">
+              <td className="px-1 py-1.5 text-right text-xs font-bold font-mono" style={{ color: 'var(--ink-900)' }}>
                 {fmt(totalAccumDpn, roundingLevel)}
               </td>
               <td colSpan={5} />
@@ -315,11 +315,11 @@ export default function AssetRegisterTable({
 
       {/* Depreciation result */}
       {depnResult && depnResult.length > 0 && (
-        <div className="border border-slate-200 rounded-md mt-3 overflow-hidden">
-          <div className="px-3 py-2 border-b border-slate-100">
-            <p className="text-xs text-slate-600 font-medium">
+        <div className="border rounded-md mt-3 overflow-hidden" style={{ borderColor: 'var(--border-hairline)' }}>
+          <div className="px-3 py-2" style={{ borderBottom: '1px solid var(--border-hairline)' }}>
+            <p className="text-xs font-medium" style={{ color: 'var(--ink-600)' }}>
               Depreciation for FY {fiscalYear}:&nbsp;
-              <span className="font-mono font-semibold text-slate-800">
+              <span className="font-mono font-semibold" style={{ color: 'var(--ink-900)' }}>
                 NPR {fmt(totalDepnThisYear, roundingLevel)}
               </span>
             </p>
@@ -338,32 +338,32 @@ export default function AssetRegisterTable({
               </thead>
               <tbody>
                 {depnResult.map(r => (
-                  <tr key={r.categoryId} className="border-b border-slate-100 last:border-0">
-                    <td className="text-xs text-slate-700">{r.categoryName}</td>
-                    <td className="text-right font-mono text-xs">{fmt(r.closingCost, roundingLevel)}</td>
-                    <td className="text-right font-mono text-xs">{fmt(r.openingAccumDepn, roundingLevel)}</td>
-                    <td className="text-right font-mono text-xs text-amber-700">{fmt(r.depnForYear, roundingLevel)}</td>
-                    <td className="text-right font-mono text-xs">{fmt(r.closingAccumDepn, roundingLevel)}</td>
-                    <td className="text-right font-mono text-xs font-semibold text-slate-800">{fmt(r.netBookValueClosing, roundingLevel)}</td>
+                  <tr key={r.categoryId}>
+                    <td className="text-xs" style={{ color: 'var(--ink-700)' }}>{r.categoryName}</td>
+                    <td className="amount text-xs">{fmt(r.closingCost, roundingLevel)}</td>
+                    <td className="amount text-xs">{fmt(r.openingAccumDepn, roundingLevel)}</td>
+                    <td className="amount text-xs" style={{ color: 'var(--warning-700)' }}>{fmt(r.depnForYear, roundingLevel)}</td>
+                    <td className="amount text-xs">{fmt(r.closingAccumDepn, roundingLevel)}</td>
+                    <td className="amount text-xs font-semibold" style={{ color: 'var(--ink-900)' }}>{fmt(r.netBookValueClosing, roundingLevel)}</td>
                   </tr>
                 ))}
               </tbody>
               <tfoot>
-                <tr className="border-t-2 border-slate-300 bg-slate-50">
-                  <td className="px-3 py-1.5 text-xs font-bold text-slate-800">Total</td>
-                  <td className="px-3 py-1.5 text-right font-mono text-xs font-bold text-slate-800">
+                <tr className="row-grand-total">
+                  <td className="px-3 py-1.5 text-xs font-bold" style={{ color: 'var(--ink-900)' }}>Total</td>
+                  <td className="px-3 py-1.5 amount text-xs font-bold" style={{ color: 'var(--ink-900)' }}>
                     {fmt(depnResult.reduce((s, r) => s + r.closingCost, 0), roundingLevel)}
                   </td>
-                  <td className="px-3 py-1.5 text-right font-mono text-xs font-bold">
+                  <td className="px-3 py-1.5 amount text-xs font-bold">
                     {fmt(depnResult.reduce((s, r) => s + r.openingAccumDepn, 0), roundingLevel)}
                   </td>
-                  <td className="px-3 py-1.5 text-right font-mono text-xs font-bold text-amber-700">
+                  <td className="px-3 py-1.5 amount text-xs font-bold" style={{ color: 'var(--warning-700)' }}>
                     {fmt(totalDepnThisYear, roundingLevel)}
                   </td>
-                  <td className="px-3 py-2 text-right font-mono text-sm font-bold text-slate-800">
+                  <td className="px-3 py-2 amount text-sm font-bold" style={{ color: 'var(--ink-900)' }}>
                     {fmt(depnResult.reduce((s, r) => s + r.closingAccumDepn, 0), roundingLevel)}
                   </td>
-                  <td className="px-3 py-2 text-right font-mono text-sm font-bold text-blue-700 bg-blue-50/50">
+                  <td className="px-3 py-2 amount text-sm font-bold" style={{ color: 'var(--brand-700)', background: 'var(--brand-50)' }}>
                     {fmt(depnResult.reduce((s, r) => s + r.netBookValueClosing, 0), roundingLevel)}
                   </td>
                 </tr>

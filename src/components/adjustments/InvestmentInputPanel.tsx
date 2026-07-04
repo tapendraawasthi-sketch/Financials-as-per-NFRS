@@ -93,22 +93,22 @@ export default function InvestmentInputPanel({
         {listedCost > 0 && (
           <div className="grid grid-cols-3 gap-3 items-end">
             <div>
-              <p className="text-xs text-slate-500 mb-1">Listed Shares — Cost (TB)</p>
+              <p className="text-xs mb-1" style={{ color: 'var(--ink-500)' }}>Listed Shares — Cost (TB)</p>
               <p className="font-mono text-sm">{listedCost.toLocaleString('en-IN')}</p>
             </div>
             <div>
-              <label className="text-xs text-slate-500 mb-1 block">Fair Value (CY)</label>
+              <label className="text-xs mb-1 block" style={{ color: 'var(--ink-500)' }}>Fair Value (CY)</label>
               <input
                 type="number"
                 min={0}
                 value={listedFV || ''}
                 onChange={(e) => setListedFV(parseFloat(e.target.value) || 0)}
-                className="w-full h-8 text-xs font-mono text-right px-2 border border-slate-200 rounded"
+                className="w-full h-8 text-xs font-mono text-right px-2 border border-[var(--border-strong)] rounded bg-[var(--surface)] outline-none focus:border-[var(--brand-500)]"
               />
             </div>
             <div>
-              <p className="text-xs text-slate-500 mb-1">FV Gain / (Loss)</p>
-              <p className={`font-mono text-sm ${listedGainLoss < 0 ? 'text-red-600' : 'text-green-700'}`}>
+              <p className="text-xs mb-1" style={{ color: 'var(--ink-500)' }}>FV Gain / (Loss)</p>
+              <p className="font-mono text-sm" style={{ color: listedGainLoss < 0 ? 'var(--danger-600)' : 'var(--success-700)' }}>
                 {listedGainLoss.toLocaleString('en-IN')}
               </p>
             </div>
@@ -118,21 +118,21 @@ export default function InvestmentInputPanel({
         {unlistedCost > 0 && (
           <div className="grid grid-cols-3 gap-3 items-end">
             <div>
-              <p className="text-xs text-slate-500 mb-1">Unlisted Shares — Cost (TB)</p>
+              <p className="text-xs mb-1" style={{ color: 'var(--ink-500)' }}>Unlisted Shares — Cost (TB)</p>
               <p className="font-mono text-sm">{unlistedCost.toLocaleString('en-IN')}</p>
             </div>
             <div>
-              <label className="text-xs text-slate-500 mb-1 block">Impairment Amount</label>
+              <label className="text-xs mb-1 block" style={{ color: 'var(--ink-500)' }}>Impairment Amount</label>
               <input
                 type="number"
                 min={0}
                 value={unlistedImpairment || ''}
                 onChange={(e) => setUnlistedImpairment(parseFloat(e.target.value) || 0)}
-                className="w-full h-8 text-xs font-mono text-right px-2 border border-slate-200 rounded"
+                className="w-full h-8 text-xs font-mono text-right px-2 border border-[var(--border-strong)] rounded bg-[var(--surface)] outline-none focus:border-[var(--brand-500)]"
               />
             </div>
             <div>
-              <p className="text-xs text-slate-500 mb-1">Carrying Amount</p>
+              <p className="text-xs mb-1" style={{ color: 'var(--ink-500)' }}>Carrying Amount</p>
               <p className="font-mono text-sm">{unlistedCarrying.toLocaleString('en-IN')}</p>
             </div>
           </div>
